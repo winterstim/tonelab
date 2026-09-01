@@ -1,12 +1,11 @@
 package osc_test
 
 import (
-	"net"
 	"testing"
 	"time"
 
-	goosc "github.com/hypebeast/go-osc/osc"
 	"tonelab/backend/osc"
+	"tonelab/backend/osc/osctest"
 )
 
 // TestSend_DeliversAddressedMessage is the one seam this package exists to
@@ -15,38 +14,34 @@ import (
 // listener, not against go-osc internals, so the suite needs no DAW
 // running to pass.
 func TestSend_DeliversAddressedMessage(t *testing.T) {
-	listener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
-	if err != nil {
-		t.Fatalf("failed to start mock OSC listener: %v", err)
-	}
-	defer listener.Close()
-
-	port := listener.LocalAddr().(*net.UDPAddr).Port
-	transport := osc.NewTransport("127.0.0.1", port)
+	reaper := osctest.NewReceiver(t)
+	transport := osc.NewTransport("127.0.0.1", reaper.Port)
 
 	if err := transport.Send("/play"); err != nil {
 		t.Fatalf("Send returned an error: %v", err)
 	}
 
-	if err := listener.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatalf("failed to set read deadline: %v", err)
-	}
-	buf := make([]byte, 1024)
-	n, _, err := listener.ReadFromUDP(buf)
-	if err != nil {
-		t.Fatalf("did not receive a packet within 1s: %v", err)
+	reaper.ExpectAddress(time.Second, "/play")
+}
+
+// TestSend_DeliversArguments covers the other half of the wire format: an
+// address alone is enough for a trigger like /play, but every parameter
+// command above this layer carries a value, and a value that silently fails
+// to arrive would look identical to one that arrived wrong.
+func TestSend_DeliversArguments(t *testing.T) {
+	reaper := osctest.NewReceiver(t)
+	transport := osc.NewTransport("127.0.0.1", reaper.Port)
+
+	if err := transport.Send("/track/1/volume", float32(0.5)); err != nil {
+		t.Fatalf("Send returned an error: %v", err)
 	}
 
-	packet, err := goosc.ParsePacket(string(buf[:n]))
-	if err != nil {
-		t.Fatalf("received bytes did not parse as an OSC packet: %v", err)
+	msg := reaper.ExpectAddress(time.Second, "/track/1/volume")
+	if len(msg.Arguments) != 1 {
+		t.Fatalf("expected 1 argument, got %d: %v", len(msg.Arguments), msg.Arguments)
 	}
-	msg, ok := packet.(*goosc.Message)
-	if !ok {
-		t.Fatalf("expected an OSC message, got %T", packet)
-	}
-	if msg.Address != "/play" {
-		t.Fatalf("expected address /play, got %s", msg.Address)
+	if got, ok := msg.Arguments[0].(float32); !ok || got != 0.5 {
+		t.Fatalf("expected float32 0.5, got %#v", msg.Arguments[0])
 	}
 }
 
@@ -65,4 +60,18 @@ func TestSend_UnsupportedArgumentReturnsError(t *testing.T) {
 	if err := transport.Send("/play", struct{}{}); err == nil {
 		t.Fatal("expected an error sending an unsupported argument type, got nil")
 	}
+}
+
+// TestSend_EncodingFailureSendsNothing pins the failure mode down further:
+// a rejected message must not put a partial or malformed packet on the wire,
+// since a DAW receiving half a command is worse than receiving none.
+func TestSend_EncodingFailureSendsNothing(t *testing.T) {
+	reaper := osctest.NewReceiver(t)
+	transport := osc.NewTransport("127.0.0.1", reaper.Port)
+
+	if err := transport.Send("/play", struct{}{}); err == nil {
+		t.Fatal("expected an error sending an unsupported argument type, got nil")
+	}
+
+	reaper.ExpectNothing(100 * time.Millisecond)
 }
