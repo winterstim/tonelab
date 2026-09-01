@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+// maxSchemaRetries bounds how often a model is asked to correct a tool call
+// the endpoint refused. A model whose tool-call format is wrong tends to stay
+// wrong, and spending the whole step budget on it reports "too many steps"
+// while hiding the actual reason.
+const maxSchemaRetries = 2
+
 // maxWaitForRateLimit caps how long a turn will sit waiting for a quota to
 // refill. Free tiers refill in seconds, so a longer wait means the limit is
 // not the kind waiting fixes, and the user should hear about it instead.
@@ -129,6 +135,8 @@ func (o *Orchestrator) Send(text string) Response {
 	// the endpoint claimed, and the user is better told than kept waiting.
 	waited := false
 
+	rejections := 0
+
 	for step := 0; step < maxSteps; step++ {
 		reply, failure := o.complete(conversation)
 		if failure != nil {
@@ -148,7 +156,8 @@ func (o *Orchestrator) Send(text string) Response {
 					continue
 				}
 			}
-			if failure.Code == "llm_tool_call_invalid" {
+			if failure.Code == "llm_tool_call_invalid" && rejections < maxSchemaRetries {
+				rejections++
 				conversation = append(conversation, message{
 					Role:    "user",
 					Content: "Your last tool call was rejected: " + failure.Message + " Send it again with values of the right type.",

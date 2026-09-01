@@ -298,3 +298,30 @@ func TestLongRateLimitsAreNotWaitedOut(t *testing.T) {
 		t.Fatalf("expected no wait, got %d calls", len(server.Requests()))
 	}
 }
+
+// A model whose tool-call format is wrong tends to stay wrong. Correcting it
+// forever would spend the whole step budget and then report "too many steps",
+// hiding the reason the turn actually failed.
+func TestPersistentSchemaRejectionsReportTheirRealCause(t *testing.T) {
+	rejection := llmtest.Turn{
+		Status: 400,
+		Body:   `{"error":{"message":"tool call validation failed: parameters for tool set_param did not match schema: errors: [expected boolean, but got string]"}}`,
+	}
+	turns := make([]llmtest.Turn, 0, 8)
+	for i := 0; i < 8; i++ {
+		turns = append(turns, rejection)
+	}
+	orchestrator, server := newOrchestrator(t, newFakeDAW(), turns...)
+
+	response := orchestrator.Send("mute track 2")
+
+	if response.Error == nil || response.Error.Code != "llm_tool_call_invalid" {
+		t.Fatalf("expected the rejection's own code, got %+v", response.Error)
+	}
+	if !strings.Contains(response.Error.Message, "expected boolean") {
+		t.Errorf("expected the endpoint's reason to survive, got %q", response.Error.Message)
+	}
+	if len(server.Requests()) > 4 {
+		t.Errorf("expected the retries to be bounded, got %d calls", len(server.Requests()))
+	}
+}
