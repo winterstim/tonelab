@@ -7,6 +7,8 @@ import (
 	"time"
 
 	goosc "github.com/hypebeast/go-osc/osc"
+
+	"tonelab/backend/osc"
 )
 
 // Feedback listens on a fixed port for the messages a DAW sends back, which
@@ -110,19 +112,9 @@ func numericArgument(msg *goosc.Message) (float64, error) {
 	return 0, fmt.Errorf("osctest: %s carried a non-numeric argument %#v", msg.Address, msg.Arguments[0])
 }
 
-// Flatten unwraps a packet into the messages it carries. DAWs commonly send
-// their feedback as OSC bundles rather than bare messages (REAPER does), so a
-// receive path that only handles *osc.Message silently sees nothing at all.
+// Flatten unwraps a packet into the messages it carries, by the same rule the
+// real receive path uses — tests that accepted bundles differently from
+// production would be testing the wrong thing.
 func Flatten(packet goosc.Packet) []*goosc.Message {
-	switch p := packet.(type) {
-	case *goosc.Message:
-		return []*goosc.Message{p}
-	case *goosc.Bundle:
-		msgs := append([]*goosc.Message{}, p.Messages...)
-		for _, nested := range p.Bundles {
-			msgs = append(msgs, Flatten(nested)...)
-		}
-		return msgs
-	}
-	return nil
+	return osc.Flatten(packet)
 }

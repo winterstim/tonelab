@@ -12,6 +12,7 @@ package daw
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 )
 
 // Failures a caller can act on differently, rather than one opaque error.
@@ -55,12 +56,16 @@ type Sender interface {
 // 1-based there, matching what REAPER shows in its own UI.
 type REAPER struct {
 	osc Sender
+
+	// The read path's picture of the DAW, kept current by Observe.
+	state    *state
+	observed atomic.Uint64
 }
 
 var _ Client = (*REAPER)(nil)
 
 func NewREAPER(sender Sender) *REAPER {
-	return &REAPER{osc: sender}
+	return &REAPER{osc: sender, state: newState()}
 }
 
 // parameters is what this backend can control. REAPER's OSC surface cannot

@@ -4,10 +4,20 @@
 host:port, and logs the traffic. Knows nothing about REAPER, DAWs or the
 agent — address mapping belongs to `/daw`, which sits on top of this.
 
+`Listener` is the read half: it binds a local port, unwraps bundles, and
+streams messages to a caller. A DAW has to be configured to send there —
+nothing about sending sets up a return path.
+
+Its one deliberate behaviour worth knowing: the stream is buffered and
+**drops** rather than blocking when a caller stops reading. DAW feedback is
+mostly continuous position updates, and a message that has waited too long has
+already been superseded by a newer one; a stalled receive loop would lose
+everything instead of the stale part. `Dropped()` reports the count, so a
+caller missing an expected message can tell "it never arrived" from "I was too
+slow to take it".
+
 Not built yet, in rough order of when they will be needed:
 
-- **Receive.** Send-only today. Reading parameter values back (`get_param`)
-  needs an inbound path, so this is the next thing this package grows.
 - **Timeouts.** `go-osc`'s client owns its socket and exposes no deadline;
   adding one means holding our own `net.Conn` here.
 - **Reconnect / delivery confirmation.** UDP gives no delivery guarantee, and
