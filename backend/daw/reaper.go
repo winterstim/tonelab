@@ -53,6 +53,10 @@ type REAPER struct {
 	// The read path's picture of the DAW, kept current by Observe.
 	state    *state
 	observed atomic.Uint64
+
+	// Unix nanoseconds of the last feedback of any kind. Silence is the only
+	// evidence a fire-and-forget transport offers that a DAW is gone.
+	lastSeen atomic.Int64
 }
 
 var _ Client = (*REAPER)(nil)
