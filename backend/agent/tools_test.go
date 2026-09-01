@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tonelab/backend/agent"
+	"tonelab/backend/agent/llmtest"
 	"tonelab/backend/daw"
 	"tonelab/backend/daw/dawtest"
 )
@@ -24,6 +25,7 @@ type fakeDAW struct {
 	setCalls  []setCall
 	refreshed []int
 	readDelay time.Duration
+	tracks    []daw.Track
 }
 
 type setCall struct {
@@ -40,6 +42,10 @@ func newFakeDAW() *fakeDAW {
 		},
 		values: map[string]any{},
 		errs:   map[string]error{},
+		tracks: []daw.Track{
+			{Number: 1, Name: "Drums"},
+			{Number: 2, Name: "Vocals"},
+		},
 	}
 }
 
@@ -81,6 +87,15 @@ func (f *fakeDAW) SetParam(track int, name string, value any) error {
 	return nil
 }
 
+// Mirrors the walk's cost and failure shape: enumeration is per track, and a
+// backend that cannot answer says so rather than returning an empty project.
+func (f *fakeDAW) Tracks(timeout time.Duration) ([]daw.Track, error) {
+	if err := f.errs["tracks"]; err != nil {
+		return nil, err
+	}
+	return f.tracks, nil
+}
+
 func (f *fakeDAW) find(name string) (daw.Parameter, bool) {
 	for _, param := range f.params {
 		if param.Name == name {
@@ -88,6 +103,19 @@ func (f *fakeDAW) find(name string) (daw.Parameter, bool) {
 		}
 	}
 	return daw.Parameter{}, false
+}
+
+// GetParam is the lookup with no wait, which is how confirmation notices a
+// value that was already correct.
+func (f *fakeDAW) GetParam(track int, name string) (any, error) {
+	if err := f.errs["get"]; err != nil {
+		return nil, err
+	}
+	value, known := f.values[name]
+	if !known {
+		return nil, daw.ErrValueUnknown
+	}
+	return value, nil
 }
 
 // Mirrors the real backend's asynchrony rather than answering instantly, so
@@ -109,16 +137,14 @@ func call(t *testing.T, tools *agent.Tools, name, args string) agent.Result {
 	return tools.Call(name, json.RawMessage(args))
 }
 
-// The two tools are the whole agent-facing surface; one tool per
-// control would grow without bound.
-func TestDefinitionsAreTheTwoGenericTools(t *testing.T) {
+// Parameter access is two generic tools and stays two however many parameters
+// exist. list_tracks is not a third of those: it describes the
+// project rather than a control, so it grows with nothing.
+func TestParameterAccessIsTwoGenericTools(t *testing.T) {
 	tools := agent.NewTools(newFakeDAW())
 
 	defs := tools.Definitions()
 
-	if len(defs) != 2 {
-		t.Fatalf("expected exactly 2 tools, got %d", len(defs))
-	}
 	names := map[string]bool{}
 	for _, def := range defs {
 		names[def.Name] = true
@@ -126,10 +152,13 @@ func TestDefinitionsAreTheTwoGenericTools(t *testing.T) {
 			t.Errorf("%s has no input schema", def.Name)
 		}
 	}
-	for _, want := range []string{"get_param", "set_param"} {
+	for _, want := range []string{"get_param", "set_param", "list_tracks"} {
 		if !names[want] {
 			t.Errorf("expected a %s tool, got %v", want, names)
 		}
+	}
+	if len(defs) != 3 {
+		t.Fatalf("expected exactly those 3 tools, got %d: %v", len(defs), names)
 	}
 }
 
@@ -142,6 +171,9 @@ func TestDescriptionsListTheBackendsOwnParameters(t *testing.T) {
 	tools := agent.NewTools(backend)
 
 	for _, def := range tools.Definitions() {
+		if def.Name == "list_tracks" {
+			continue // describes the project, not a parameter
+		}
 		if !strings.Contains(def.Description, "wobble") {
 			t.Errorf("%s description does not mention the backend's own parameter: %q", def.Name, def.Description)
 		}
@@ -325,4 +357,370 @@ func TestSlowDAWTimesOutAsUnknown(t *testing.T) {
 // useless in this project failed exactly that way.
 func TestFakeDAWMeetsTheClientContract(t *testing.T) {
 	dawtest.AssertClientContract(t, newFakeDAW())
+}
+
+// A live model emitted {"value":"0.5"} against a schema saying number, and it
+// is the smaller models, the ones a user is likeliest to run locally, that do
+// it most. Rejecting an unambiguous number because of its quotes would fail a
+// command the model got completely right.
+func TestNumbersArrivingAsStringsAreAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+		want any
+	}{
+		{"quoted float", `{"track_id":2,"param_name":"volume","value":"0.5"}`, 0.5},
+		{"quoted integer", `{"track_id":2,"param_name":"volume","value":"1"}`, 1.0},
+		{"quoted track id", `{"track_id":"2","param_name":"volume","value":0.5}`, 0.5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+
+			result := call(t, tools, "set_param", tc.args)
+
+			if result.Error != nil {
+				t.Fatalf("expected the call to be understood, got %+v", result.Error)
+			}
+			if len(backend.setCalls) != 1 {
+				t.Fatalf("expected one command, got %v", backend.setCalls)
+			}
+			if backend.setCalls[0].track != 2 || backend.setCalls[0].value != tc.want {
+				t.Fatalf("expected track 2 and %v, got %+v", tc.want, backend.setCalls[0])
+			}
+		})
+	}
+}
+
+// Leniency stops at ambiguity: text that is not a number, and a boolean
+// spelled as a word, are the model getting it wrong rather than formatting it
+// oddly, and it needs to be told.
+func TestOnlyUnambiguousStringsAreAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+	}{
+		{"words", `{"track_id":1,"param_name":"volume","value":"loud"}`},
+		{"units the contract does not use", `{"track_id":1,"param_name":"volume","value":"-6dB"}`},
+		{"empty", `{"track_id":1,"param_name":"volume","value":""}`},
+		{"track id that is not a number", `{"track_id":"the vocals","param_name":"volume","value":0.5}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+
+			result := call(t, tools, "set_param", tc.args)
+
+			if result.Error == nil || result.Error.Code != "invalid_arguments" {
+				t.Fatalf("expected invalid_arguments, got %+v", result.Error)
+			}
+			if len(backend.setCalls) != 0 {
+				t.Fatalf("nothing should have reached the DAW, got %v", backend.setCalls)
+			}
+		})
+	}
+}
+
+// Without this the other tools are unusable by name: they address tracks by
+// number, and a user saying "the vocals" has no number to give.
+func TestListTracksReportsTheProject(t *testing.T) {
+	tools := agent.NewTools(newFakeDAW())
+
+	result := call(t, tools, "list_tracks", `{}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	tracks, ok := result.Value.([]daw.Track)
+	if !ok || len(tracks) != 2 {
+		t.Fatalf("expected two tracks, got %#v", result.Value)
+	}
+	if tracks[1].Name != "Vocals" || tracks[1].Number != 2 {
+		t.Fatalf("expected Vocals as track 2, got %+v", tracks[1])
+	}
+}
+
+// The model is told the tool exists only when the backend can answer it, since
+// a tool that always fails is worse than one that is absent.
+func TestListTracksIsOfferedOnlyWhenSupported(t *testing.T) {
+	withNames := agent.NewTools(newFakeDAW())
+	if !offers(withNames.Definitions(), "list_tracks") {
+		t.Error("a backend that can list tracks should offer the tool")
+	}
+
+	withoutNames := agent.NewTools(&numbersOnlyDAW{fakeDAW: newFakeDAW()})
+	if offers(withoutNames.Definitions(), "list_tracks") {
+		t.Error("a backend that cannot list tracks must not offer the tool")
+	}
+}
+
+// Embeds the fake but hides Tracks, standing for a DAW whose surface cannot
+// name what it contains.
+type numbersOnlyDAW struct{ *fakeDAW }
+
+func (numbersOnlyDAW) Tracks() {}
+
+func offers(definitions []agent.Tool, name string) bool {
+	for _, definition := range definitions {
+		if definition.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// A live model asked to mute a track sent "true", then 1, and was refused
+// each time, spending a slow round trip per guess. None of these readings is
+// ambiguous for a parameter that is on or off.
+func TestTogglesAcceptWhatModelsActuallySend(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+		want bool
+	}{
+		{"boolean", `{"track_id":1,"param_name":"mute","value":true}`, true},
+		{"quoted boolean", `{"track_id":1,"param_name":"mute","value":"true"}`, true},
+		{"quoted false", `{"track_id":1,"param_name":"mute","value":"false"}`, false},
+		{"one", `{"track_id":1,"param_name":"mute","value":1}`, true},
+		{"zero", `{"track_id":1,"param_name":"mute","value":0}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+
+			result := call(t, tools, "set_param", tc.args)
+
+			if result.Error != nil {
+				t.Fatalf("expected the call to be understood, got %+v", result.Error)
+			}
+			if backend.setCalls[0].value != tc.want {
+				t.Fatalf("expected %v, got %#v", tc.want, backend.setCalls[0].value)
+			}
+		})
+	}
+}
+
+// A refusal has to say what this parameter wanted. "A number or true/false"
+// leaves the model to guess which, and every guess is another slow round trip
+// while the user waits.
+func TestRefusalsNameWhatTheParameterWants(t *testing.T) {
+	tools := agent.NewTools(newFakeDAW())
+
+	toggle := call(t, tools, "set_param", `{"track_id":1,"param_name":"mute","value":0.5}`)
+	if toggle.Error == nil || !strings.Contains(toggle.Error.Message, "true or false") {
+		t.Errorf("expected the toggle's refusal to ask for true or false, got %+v", toggle.Error)
+	}
+
+	numeric := call(t, tools, "set_param", `{"track_id":1,"param_name":"volume","value":"loud"}`)
+	if numeric.Error == nil || !strings.Contains(numeric.Error.Message, "0.0 and 1.0") {
+		t.Errorf("expected the numeric refusal to state the range, got %+v", numeric.Error)
+	}
+}
+
+// A slow local model is reachable, and saying otherwise sends the user to
+// check a URL that is fine.
+func TestSlowEndpointIsReportedAsATimeout(t *testing.T) {
+	server := llmtest.New(t, llmtest.Turn{Delay: 300 * time.Millisecond, Content: "too late"})
+	orchestrator := agent.NewOrchestrator(agent.Config{
+		BaseURL: server.BaseURL(), Model: "m", Timeout: 50 * time.Millisecond,
+	}, agent.NewTools(newFakeDAW()))
+
+	response := orchestrator.Send("anything")
+
+	if response.Error == nil || response.Error.Code != "llm_timeout" {
+		t.Fatalf("expected llm_timeout, got %+v", response.Error)
+	}
+}
+
+// The project's whole policy on how a model may write a value, as a table.
+// Two of these rows were production failures found by running a real model,
+// which is why the list is written down rather than reasoned about: a new one
+// belongs here first, not in a user's session.
+func TestValueRepresentationPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		param    string
+		value    string
+		accepted bool
+		want     any
+	}{
+		// Numbers, however they are spelled.
+		{"volume", `0.5`, true, 0.5},
+		{"volume", `"0.5"`, true, 0.5}, // seen live
+		{"volume", `".5"`, true, 0.5},
+		{"volume", `" 0.5 "`, true, 0.5}, // whitespace a model may pad with
+		{"volume", `1`, true, 1.0},
+		{"volume", `"50%"`, true, 0.5}, // unambiguous against a 0-1 contract
+		{"volume", `0`, true, 0.0},
+
+		// Units need the DAW's own curve to convert, so guessing is worse
+		// than refusing.
+		{"volume", `"-6dB"`, false, nil},
+		{"volume", `"440Hz"`, false, nil},
+		{"volume", `"loud"`, false, nil},
+
+		// Names no value a user asked for, and NaN survives every range
+		// check because comparisons against it are false.
+		{"volume", `"NaN"`, false, nil},
+		{"volume", `"Inf"`, false, nil},
+		{"volume", `"-Inf"`, false, nil},
+		{"volume", `"Infinity"`, false, nil},
+		{"volume", `"NaN%"`, false, nil},
+
+		// Plain out of range, which the DAW layer catches.
+		{"volume", `1000.1`, false, nil},
+		{"volume", `-50`, false, nil},
+		{"volume", `1e308`, false, nil},
+		{"volume", `"half"`, false, nil},
+		{"volume", `true`, false, nil},
+		{"volume", `""`, false, nil},
+		{"volume", `null`, false, nil},
+
+		// Switches, however they are spelled.
+		{"mute", `true`, true, true},
+		{"mute", `"true"`, true, true}, // seen live
+		{"mute", `"True"`, true, true},
+		{"mute", `1`, true, true}, // seen live
+		{"mute", `"yes"`, true, true},
+		{"mute", `"on"`, true, true},
+		{"mute", `false`, true, false},
+		{"mute", `"off"`, true, false},
+		{"mute", `0`, true, false},
+
+		// A switch is not a dial, and 0.5 of muted means nothing.
+		{"mute", `0.5`, false, nil},
+		{"mute", `"maybe"`, false, nil},
+		{"mute", `"muted"`, false, nil},
+	} {
+		name := tc.param + " " + tc.value
+		t.Run(name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+			args := `{"track_id":1,"param_name":"` + tc.param + `","value":` + tc.value + `}`
+
+			result := call(t, tools, "set_param", args)
+
+			if !tc.accepted {
+				if result.Error == nil {
+					t.Fatalf("expected a refusal, but the DAW received %v", backend.setCalls)
+				}
+				if len(backend.setCalls) != 0 {
+					t.Fatalf("a refused value still reached the DAW: %v", backend.setCalls)
+				}
+				return
+			}
+			if result.Error != nil {
+				t.Fatalf("expected acceptance, got %+v", result.Error)
+			}
+			if backend.setCalls[0].value != tc.want {
+				t.Fatalf("expected %#v, got %#v", tc.want, backend.setCalls[0].value)
+			}
+		})
+	}
+}
+
+// A command left over a socket that guarantees nothing, so "sent" and "done"
+// must not be the same word to a model reporting to a user.
+func TestSetParamConfirmsFromTheDAW(t *testing.T) {
+	backend := newFakeDAW()
+	backend.values["volume"] = 0.25
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"volume","value":0.25}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	applied, ok := result.Value.(agent.Applied)
+	if !ok {
+		t.Fatalf("expected the set to report what was applied, got %#v", result.Value)
+	}
+	if applied.Confirmed != 0.25 {
+		t.Fatalf("expected the DAW's own reading, got %#v", applied.Confirmed)
+	}
+	if applied.Note != "" {
+		t.Errorf("a confirmed change should carry no caveat, got %q", applied.Note)
+	}
+}
+
+// A DAW that never reports the parameter has still accepted the command, so
+// this is neither a failure nor a confirmation, and the model must be able to
+// tell the difference.
+func TestUnverifiableChangeSaysSo(t *testing.T) {
+	backend := newFakeDAW()
+	backend.errs["get"] = daw.ErrValueUnknown
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"volume","value":0.25}`)
+
+	if result.Error != nil {
+		t.Fatalf("an unverified change is not a failed one, got %+v", result.Error)
+	}
+	applied := result.Value.(agent.Applied)
+	if applied.Confirmed != nil {
+		t.Errorf("nothing should be presented as confirmed, got %#v", applied.Confirmed)
+	}
+	if !strings.Contains(applied.Note, "unverified") {
+		t.Errorf("expected the caveat to be explicit, got %q", applied.Note)
+	}
+}
+
+// A refusal that lists what does exist turns a lost turn into a corrected one.
+// Observed live: a model wrote "muted" for "mute" and had nothing to correct
+// against.
+func TestUnknownParameterNamesTheAlternatives(t *testing.T) {
+	tools := agent.NewTools(newFakeDAW())
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"muted","value":true}`)
+
+	if result.Error == nil || result.Error.Code != "param_not_found" {
+		t.Fatalf("expected param_not_found, got %+v", result.Error)
+	}
+	for _, expected := range []string{"muted", "mute", "volume"} {
+		if !strings.Contains(result.Error.Message, expected) {
+			t.Errorf("expected the refusal to mention %q, got %q", expected, result.Error.Message)
+		}
+	}
+}
+
+// A DAW reporting only transitions says nothing about a value that was
+// already right, so waiting for an announcement that will never come would
+// call a correct command unverified and have the model tell the user so.
+func TestSettingAValueAlreadyHeldIsStillConfirmed(t *testing.T) {
+	backend := newFakeDAW()
+	backend.values["mute"] = true
+	backend.readDelay = time.Hour // any wait would be a failure of the design
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"mute","value":true}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	applied := result.Value.(agent.Applied)
+	if applied.Confirmed != true {
+		t.Fatalf("expected the unchanged value to count as confirmed, got %#v", applied)
+	}
+}
+
+// A parameter the backend says it never reports has nothing to wait for, and
+// spending the timeout to learn that only delays the user.
+func TestUnreadableParameterIsNotWaitedOn(t *testing.T) {
+	backend := newFakeDAW()
+	backend.params = append(backend.params, daw.Parameter{Name: "send", Kind: daw.Numeric, Readable: false})
+	backend.readDelay = time.Hour
+	tools := agent.NewTools(backend)
+
+	start := time.Now()
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"send","value":0.5}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("expected no wait on an unreadable parameter, took %s", elapsed)
+	}
+	applied := result.Value.(agent.Applied)
+	if !strings.Contains(applied.Note, "unverified") {
+		t.Errorf("expected the caveat, got %+v", applied)
+	}
 }

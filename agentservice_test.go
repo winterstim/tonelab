@@ -119,3 +119,26 @@ func TestDAWStatusIsFalseWithoutALivenessSource(t *testing.T) {
 		t.Errorf("expected the reason to be stated, got %q", status.Detail)
 	}
 }
+
+// The UI shows what the DAW confirmed rather than what the model said it did,
+// because a model summarising its own work is the one account that cannot
+// check itself.
+func TestChangesReachTheUI(t *testing.T) {
+	brain := &stubBrain{response: AgentResponse{
+		Message: "Muted the vocals.",
+		Changed: []ParamChange{{Track: 2, Param: "mute", Requested: true, NewValue: true}},
+	}}
+	service := NewAgentService(brain, stubLiveness{})
+
+	response, err := service.SendCommand("mute the vocals")
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+
+	if len(response.Changed) != 1 {
+		t.Fatalf("expected one change, got %v", response.Changed)
+	}
+	if response.Changed[0].Track != 2 || response.Changed[0].NewValue != true {
+		t.Fatalf("unexpected change %+v", response.Changed[0])
+	}
+}

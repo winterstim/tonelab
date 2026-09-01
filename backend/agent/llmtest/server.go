@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 )
 
 // ToolCall is one call the fake model asks for. Arguments is raw text on
@@ -39,6 +40,10 @@ type Turn struct {
 	// endpoint produces: 401, 429, 500, or a body that is not JSON at all.
 	Status int
 	Body   string
+
+	// Delay stands in for a slow model, which is a local runtime's normal
+	// state rather than an exceptional one.
+	Delay time.Duration
 }
 
 // Server records what was sent to it, because the request is half the contract
@@ -54,9 +59,10 @@ type Server struct {
 // Request is the decoded body of one call, in the fields this project cares
 // about rather than the whole schema.
 type Request struct {
-	Model    string            `json:"model"`
-	Messages []json.RawMessage `json:"messages"`
-	Tools    []struct {
+	Model       string            `json:"model"`
+	Temperature float64           `json:"temperature"`
+	Messages    []json.RawMessage `json:"messages"`
+	Tools       []struct {
 		Type     string `json:"type"`
 		Function struct {
 			Name        string          `json:"name"`
@@ -105,6 +111,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	turn := s.turns[0]
 	s.turns = s.turns[1:]
+
+	if turn.Delay > 0 {
+		time.Sleep(turn.Delay)
+	}
 
 	if turn.Status != 0 {
 		w.WriteHeader(turn.Status)

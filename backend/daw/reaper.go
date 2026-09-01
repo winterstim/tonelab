@@ -10,6 +10,7 @@ package daw
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sync/atomic"
 )
 
@@ -200,7 +201,13 @@ func validateTrack(track int) error {
 
 // validateNormalized stops a caller pushing a value the DAW would silently
 // clamp, which would leave the agent believing a command it can't verify.
+//
+// NaN is checked separately because every comparison against it is false, so
+// a range check alone lets it through to the DAW untouched.
 func validateNormalized(value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("%w, got %v", ErrValueOutOfRange, value)
+	}
 	if value < 0 || value > 1 {
 		return fmt.Errorf("%w, got %v", ErrValueOutOfRange, value)
 	}

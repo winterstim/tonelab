@@ -21,6 +21,12 @@ type state struct {
 	mu     sync.RWMutex
 	values map[string]float64
 
+	// The name of the track the control surface is looking at, with a count
+	// of how many times it has been announced. Two tracks may share a name,
+	// so a waiter has to watch the count rather than the value.
+	trackName       string
+	trackNameEvents uint64
+
 	// Closed and replaced on every update, so a waiter can block until
 	// something changes instead of polling a map on a timer.
 	updated chan struct{}
@@ -45,6 +51,25 @@ func (s *state) set(track int, param string, value float64) {
 
 	close(s.updated)
 	s.updated = make(chan struct{})
+}
+
+// setTrackName records what the DAW says it is looking at.
+func (s *state) setTrackName(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.trackName = name
+	s.trackNameEvents++
+
+	close(s.updated)
+	s.updated = make(chan struct{})
+}
+
+// currentTrackName returns the name and how many announcements have been seen.
+func (s *state) currentTrackName() (string, uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.trackName, s.trackNameEvents
 }
 
 // changed hands back the current generation's channel so a waiter cannot miss
@@ -97,6 +122,14 @@ func (r *REAPER) Observed() uint64 {
 //, discarding the position, meter and string readouts a DAW
 // streams alongside it.
 func (r *REAPER) absorb(msg *goosc.Message) {
+	// The name of the surface's current track, which the track walk waits on.
+	if msg.Address == "/track/name" && len(msg.Arguments) > 0 {
+		if name, ok := msg.Arguments[0].(string); ok {
+			r.state.setTrackName(name)
+			return
+		}
+	}
+
 	track, param, ok := parseTrackAddress(msg.Address)
 	if !ok {
 		return

@@ -17,16 +17,22 @@ const dawSilenceLimit = 5 * time.Second
 // package main because Wails generates the frontend's types from what a
 // service actually returns.
 type AgentResponse struct {
-	Message      string
-	ParamChanged *ParamChange
-	Error        *AgentError
+	Message string
+	// Changed is plural because one command can move several parameters, and
+	// a UI showing only the first would be quietly wrong.
+	Changed []ParamChange
+	Error   *AgentError
 }
 
+// ParamChange is what the DAW confirmed, not what the model claims. NewValue
+// is empty when the DAW does not report the parameter, in which case Note says
+// so rather than leaving a blank to be read as zero.
 type ParamChange struct {
-	Track    int
-	Param    string
-	OldValue any
-	NewValue any
+	Track     int
+	Param     string
+	Requested any
+	NewValue  any
+	Note      string
 }
 
 type AgentError struct {
@@ -107,6 +113,18 @@ func (o orchestratorBrain) Send(text string) AgentResponse {
 	converted := AgentResponse{Message: response.Message}
 	if response.Error != nil {
 		converted.Error = &AgentError{Code: response.Error.Code, Message: response.Error.Message}
+	}
+
+	// Taken from what the tools confirmed rather than from the model's
+	// summary, so the UI cannot show a change the DAW never made.
+	for _, change := range response.Changed {
+		converted.Changed = append(converted.Changed, ParamChange{
+			Track:     change.Track,
+			Param:     change.Param,
+			NewValue:  change.Confirmed,
+			Requested: change.Requested,
+			Note:      change.Note,
+		})
 	}
 	return converted
 }

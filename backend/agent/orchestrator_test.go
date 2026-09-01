@@ -190,3 +190,188 @@ func TestToolLoopIsBounded(t *testing.T) {
 		t.Fatalf("the loop was not bounded: %d calls", len(server.Requests()))
 	}
 }
+
+// Some endpoints validate tool calls against our schema and reject the request
+// before the call reaches Tonelab, so no tool result can carry the problem
+// back. Measured on Groq: one model in six attempts emitted its tool call as
+// untyped text and was rejected this way. Without a retry the turn is lost
+// even though the model can fix it when told.
+func TestEndpointRejectedToolCallIsRetried(t *testing.T) {
+	backend := newFakeDAW()
+	orchestrator, server := newOrchestrator(t, backend,
+		llmtest.Turn{
+			Status: 400,
+			Body:   `{"error":{"message":"tool call validation failed: parameters for tool set_param did not match schema: errors: [` + "`/value`" + `: expected number or boolean, but got string]","type":"invalid_request_error","code":"tool_use_failed"}}`,
+		},
+		llmtest.Turn{ToolCalls: []llmtest.ToolCall{{
+			ID: "call_1", Name: "set_param",
+			Arguments: `{"track_id":2,"param_name":"mute","value":true}`,
+		}}},
+		llmtest.Turn{Content: "Muted."},
+	)
+
+	response := orchestrator.Send("mute track 2")
+
+	if response.Error != nil {
+		t.Fatalf("expected the loop to recover from the rejection, got %+v", response.Error)
+	}
+	if len(backend.setCalls) != 1 {
+		t.Fatalf("expected the corrected command to reach the DAW, got %v", backend.setCalls)
+	}
+
+	// The model has to be told what was wrong, or the retry is a coin toss.
+	body := ""
+	for _, msg := range server.Requests()[1].Messages {
+		body += string(msg)
+	}
+	if !strings.Contains(body, "expected number or boolean") {
+		t.Fatalf("expected the rejection's reason to reach the model, got: %s", body)
+	}
+}
+
+// A rejection the model cannot fix must not be retried into the step limit.
+func TestUnfixableRejectionsAreNotRetried(t *testing.T) {
+	orchestrator, server := newOrchestrator(t, newFakeDAW(),
+		llmtest.Turn{Status: 400, Body: `{"error":{"message":"model not found","type":"invalid_request_error"}}`},
+	)
+
+	response := orchestrator.Send("anything")
+
+	if response.Error == nil || response.Error.Code != "llm_rejected" {
+		t.Fatalf("expected llm_rejected, got %+v", response.Error)
+	}
+	if len(server.Requests()) != 1 {
+		t.Fatalf("expected no retry, got %d calls", len(server.Requests()))
+	}
+}
+
+// A free tier's quota refills in seconds, and the endpoint says how long.
+// Waiting is what makes a hosted endpoint behave like a local runtime from
+// the user's side, which is the whole claim of one pluggable endpoint.
+func TestRateLimitedRequestWaitsAndRetries(t *testing.T) {
+	backend := newFakeDAW()
+	orchestrator, server := newOrchestrator(t, backend,
+		llmtest.Turn{
+			Status: 429,
+			Body:   `{"error":{"message":"Rate limit reached for model. Please try again in 0.2s.","type":"rate_limit_error"}}`,
+		},
+		llmtest.Turn{Content: "Done."},
+	)
+
+	response := orchestrator.Send("anything")
+
+	if response.Error != nil {
+		t.Fatalf("expected the wait to recover the turn, got %+v", response.Error)
+	}
+	if len(server.Requests()) != 2 {
+		t.Fatalf("expected one retry, got %d calls", len(server.Requests()))
+	}
+}
+
+// A limit that does not refill on the scale it claims must reach the user
+// rather than keep them waiting on a turn that will not complete.
+func TestRepeatedRateLimitsAreReported(t *testing.T) {
+	orchestrator, _ := newOrchestrator(t, newFakeDAW(),
+		llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 0.1s."}}`},
+		llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 0.1s."}}`},
+	)
+
+	response := orchestrator.Send("anything")
+
+	if response.Error == nil || response.Error.Code != "llm_rate_limited" {
+		t.Fatalf("expected llm_rate_limited, got %+v", response.Error)
+	}
+}
+
+// A limit measured in minutes is not something to sit through.
+func TestLongRateLimitsAreNotWaitedOut(t *testing.T) {
+	orchestrator, server := newOrchestrator(t, newFakeDAW(),
+		llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 3600s."}}`},
+	)
+
+	response := orchestrator.Send("anything")
+
+	if response.Error == nil || response.Error.Code != "llm_rate_limited" {
+		t.Fatalf("expected llm_rate_limited, got %+v", response.Error)
+	}
+	if len(server.Requests()) != 1 {
+		t.Fatalf("expected no wait, got %d calls", len(server.Requests()))
+	}
+}
+
+// A model whose tool-call format is wrong tends to stay wrong. Correcting it
+// forever would spend the whole step budget and then report "too many steps",
+// hiding the reason the turn actually failed.
+func TestPersistentSchemaRejectionsReportTheirRealCause(t *testing.T) {
+	rejection := llmtest.Turn{
+		Status: 400,
+		Body:   `{"error":{"message":"tool call validation failed: parameters for tool set_param did not match schema: errors: [expected boolean, but got string]"}}`,
+	}
+	turns := make([]llmtest.Turn, 0, 8)
+	for i := 0; i < 8; i++ {
+		turns = append(turns, rejection)
+	}
+	orchestrator, server := newOrchestrator(t, newFakeDAW(), turns...)
+
+	response := orchestrator.Send("mute track 2")
+
+	if response.Error == nil || response.Error.Code != "llm_tool_call_invalid" {
+		t.Fatalf("expected the rejection's own code, got %+v", response.Error)
+	}
+	if !strings.Contains(response.Error.Message, "expected boolean") {
+		t.Errorf("expected the endpoint's reason to survive, got %q", response.Error.Message)
+	}
+	// Bounded well below the step limit, so the loop cannot spend its whole
+	// budget on one call it will never get right.
+	if len(server.Requests()) > 6 {
+		t.Errorf("expected the retries to be bounded, got %d calls", len(server.Requests()))
+	}
+}
+
+// Choosing a tool and filling a schema is not writing, and endpoints default
+// to sampling that produces malformed calls we then have to work around.
+func TestRequestsAskForDeterministicToolCalls(t *testing.T) {
+	orchestrator, server := newOrchestrator(t, newFakeDAW(), llmtest.Turn{Content: "ok"})
+
+	orchestrator.Send("anything")
+
+	if temperature := server.Requests()[0].Temperature; temperature != 0 {
+		t.Fatalf("expected temperature 0, got %v", temperature)
+	}
+}
+
+// A UI needs what the DAW confirmed, not the model's summary, since the model
+// is the one account of the turn that cannot check itself.
+func TestConfirmedChangesAreReported(t *testing.T) {
+	backend := newFakeDAW()
+	backend.values["volume"] = 0.3
+	orchestrator, _ := newOrchestrator(t, backend,
+		llmtest.Turn{ToolCalls: []llmtest.ToolCall{{
+			ID: "call_1", Name: "set_param",
+			Arguments: `{"track_id":4,"param_name":"volume","value":0.3}`,
+		}}},
+		llmtest.Turn{Content: "Done."},
+	)
+
+	response := orchestrator.Send("turn track 4 down")
+
+	if len(response.Changed) != 1 {
+		t.Fatalf("expected one reported change, got %v", response.Changed)
+	}
+	change := response.Changed[0]
+	if change.Track != 4 || change.Param != "volume" || change.Confirmed != 0.3 {
+		t.Fatalf("unexpected change %+v", change)
+	}
+}
+
+// A turn that only answers a question must report nothing changed, or a UI
+// would show a change list for a command that touched nothing.
+func TestAnswersReportNoChanges(t *testing.T) {
+	orchestrator, _ := newOrchestrator(t, newFakeDAW(), llmtest.Turn{Content: "Track 2 is called Vocals."})
+
+	response := orchestrator.Send("what is track 2 called")
+
+	if len(response.Changed) != 0 {
+		t.Fatalf("expected no changes, got %v", response.Changed)
+	}
+}
