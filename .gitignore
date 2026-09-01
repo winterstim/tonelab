@@ -1,0 +1,30 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# go
+/backend/**/*.exe
+/backend/**/*.test
+/backend/**/vendor/
+
+# wails build output
+build/bin/
+build/windows/
+build/darwin/
+build/linux/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
+
+
