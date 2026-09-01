@@ -326,3 +326,65 @@ func TestSlowDAWTimesOutAsUnknown(t *testing.T) {
 func TestFakeDAWMeetsTheClientContract(t *testing.T) {
 	dawtest.AssertClientContract(t, newFakeDAW())
 }
+
+// A live model emitted {"value":"0.5"} against a schema saying number, and it
+// is the smaller models, the ones a user is likeliest to run locally, that do
+// it most. Rejecting an unambiguous number because of its quotes would fail a
+// command the model got completely right.
+func TestNumbersArrivingAsStringsAreAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+		want any
+	}{
+		{"quoted float", `{"track_id":2,"param_name":"volume","value":"0.5"}`, 0.5},
+		{"quoted integer", `{"track_id":2,"param_name":"volume","value":"1"}`, 1.0},
+		{"quoted track id", `{"track_id":"2","param_name":"volume","value":0.5}`, 0.5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+
+			result := call(t, tools, "set_param", tc.args)
+
+			if result.Error != nil {
+				t.Fatalf("expected the call to be understood, got %+v", result.Error)
+			}
+			if len(backend.setCalls) != 1 {
+				t.Fatalf("expected one command, got %v", backend.setCalls)
+			}
+			if backend.setCalls[0].track != 2 || backend.setCalls[0].value != tc.want {
+				t.Fatalf("expected track 2 and %v, got %+v", tc.want, backend.setCalls[0])
+			}
+		})
+	}
+}
+
+// Leniency stops at ambiguity: text that is not a number, and a boolean
+// spelled as a word, are the model getting it wrong rather than formatting it
+// oddly, and it needs to be told.
+func TestOnlyUnambiguousStringsAreAccepted(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+	}{
+		{"words", `{"track_id":1,"param_name":"volume","value":"loud"}`},
+		{"units the contract does not use", `{"track_id":1,"param_name":"volume","value":"-6dB"}`},
+		{"empty", `{"track_id":1,"param_name":"volume","value":""}`},
+		{"track id that is not a number", `{"track_id":"the vocals","param_name":"volume","value":0.5}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+
+			result := call(t, tools, "set_param", tc.args)
+
+			if result.Error == nil || result.Error.Code != "invalid_arguments" {
+				t.Fatalf("expected invalid_arguments, got %+v", result.Error)
+			}
+			if len(backend.setCalls) != 0 {
+				t.Fatalf("nothing should have reached the DAW, got %v", backend.setCalls)
+			}
+		})
+	}
+}

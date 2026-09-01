@@ -44,9 +44,16 @@ does wrong as well as right: tool arguments that are not valid JSON (the spec
 warns the model "does not always generate valid JSON"), 401, 429, 500, and a
 body that is not JSON at all.
 
-What it cannot answer is whether a real model chooses the right tool. That
-needs a live endpoint and is the honest gap here, the same way the fake OSC
-receiver could not tell us REAPER's real behaviour.
+What it cannot answer is whether a real model chooses the right tool. Two
+tagged suites cover that: `-tags llm` drives a configured endpoint, and
+`-tags "llm reaper"` runs the MVP criterion itself, a free-text command
+changing a real REAPER.
+
+The first live run paid for itself immediately: the model answered a schema
+saying `number` with the string `"0.5"`. It had understood the command
+perfectly and formatted the type wrong, and strict decoding would have failed
+a correct answer. Unambiguous numeric strings are now accepted; `"loud"` and
+`"-6dB"` are still refused.
 
 ## Not built
 

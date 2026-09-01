@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -143,15 +144,43 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 	}
 }
 
+// track_id is decoded loosely because models quote numbers. Rejecting a
+// correct answer over its quotes fails the user for the model's formatting.
 type getArgs struct {
-	TrackID   *int    `json:"track_id"`
+	TrackID   any     `json:"track_id"`
 	ParamName *string `json:"param_name"`
 }
 
 type setArgs struct {
-	TrackID   *int    `json:"track_id"`
+	TrackID   any     `json:"track_id"`
 	ParamName *string `json:"param_name"`
 	Value     any     `json:"value"`
+}
+
+// asNumber accepts a JSON number, or a string holding nothing but a number.
+// Observed live: a model answered a schema saying "number" with "0.5", getting
+// the command entirely right and the type wrong. Leniency stops at ambiguity,
+// so "loud" and "-6dB" are still refusals rather than guesses.
+func asNumber(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	}
+	return 0, false
+}
+
+func asTrack(value any) (int, bool) {
+	number, ok := asNumber(value)
+	if !ok || number != float64(int(number)) {
+		return 0, false
+	}
+	return int(number), true
 }
 
 // getParam asks the DAW and waits for the reply. A DAW that only announces
@@ -165,13 +194,17 @@ func (t *Tools) getParam(args json.RawMessage) Result {
 	if decoded.TrackID == nil || decoded.ParamName == nil {
 		return invalidArguments("track_id and param_name are both required.")
 	}
+	track, ok := asTrack(decoded.TrackID)
+	if !ok {
+		return invalidArguments("track_id must be a whole number, counting from 1.")
+	}
 
 	source, ok := t.daw.(reader)
 	if !ok {
 		return failure("not_supported", "This DAW backend cannot read values back.")
 	}
 
-	value, err := source.ReadParam(*decoded.TrackID, *decoded.ParamName, readTimeout)
+	value, err := source.ReadParam(track, *decoded.ParamName, readTimeout)
 	if err != nil {
 		return domainFailure(err)
 	}
@@ -186,16 +219,23 @@ func (t *Tools) setParam(args json.RawMessage) Result {
 	if decoded.TrackID == nil || decoded.ParamName == nil || decoded.Value == nil {
 		return invalidArguments("track_id, param_name and value are all required.")
 	}
+	track, ok := asTrack(decoded.TrackID)
+	if !ok {
+		return invalidArguments("track_id must be a whole number, counting from 1.")
+	}
 
 	// The schema's oneOf, enforced here because the schema only advises the
 	// model while this is what actually runs.
-	switch decoded.Value.(type) {
-	case float64, bool:
-	default:
-		return invalidArguments("value must be a number between 0.0 and 1.0, or true/false.")
+	value := decoded.Value
+	if _, isBool := value.(bool); !isBool {
+		number, ok := asNumber(value)
+		if !ok {
+			return invalidArguments("value must be a number between 0.0 and 1.0, or true/false.")
+		}
+		value = number
 	}
 
-	if err := t.daw.SetParam(*decoded.TrackID, *decoded.ParamName, decoded.Value); err != nil {
+	if err := t.daw.SetParam(track, *decoded.ParamName, value); err != nil {
 		return domainFailure(err)
 	}
 	return Result{}
