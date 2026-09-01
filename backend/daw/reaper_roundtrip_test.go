@@ -8,6 +8,7 @@
 package daw_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -153,6 +154,60 @@ func TestREAPERFeedbackReachesTheProductionListener(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("REAPER's feedback never reached the listener within %s (dropped %d)", await, listener.Dropped())
 		}
+	}
+}
+
+// TestREAPERReadPath is what get_param rests on, checked against the real
+// thing. It also pins the awkward truth this design had to be built around:
+// REAPER does not echo back a value the device itself set, so writing then
+// reading returns nothing. A value becomes known when REAPER volunteers it,
+// and the safe way to make it volunteer is to ask the control surface to look
+// at the track — a /device/* message, which touches the surface's own view
+// and not the project.
+func TestREAPERReadPath(t *testing.T) {
+	listener, err := osc.Listen(reaperHost, reaperFeedbackPort)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	transport := osc.NewTransport(reaperHost, reaperListenPort)
+	reaper := daw.NewREAPER(transport)
+	reaper.Observe(listener.Messages())
+
+	// Set a value, then confirm that alone does NOT make it readable.
+	if err := reaper.SetTrackVolume(1, 0.25); err != nil {
+		t.Fatalf("SetTrackVolume: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, err := reaper.GetParam(1, "volume"); !errors.Is(err, daw.ErrValueUnknown) {
+		t.Fatalf("expected the value to still be unknown after setting it, got %v", err)
+	}
+
+	// Now make REAPER volunteer its state, without touching the project.
+	transport.Send("/device/track/select", int32(2))
+	time.Sleep(200 * time.Millisecond)
+	transport.Send("/device/track/select", int32(1))
+
+	deadline := time.Now().Add(await)
+	for {
+		value, err := reaper.GetParam(1, "volume")
+		if err == nil {
+			// REAPER's taper puts our 0.25 back at roughly 0.25.
+			got, ok := value.(float64)
+			if !ok {
+				t.Fatalf("expected a float64, got %#v", value)
+			}
+			if got < 0.2 || got > 0.3 {
+				t.Fatalf("expected roughly the 0.25 we set, got %v", got)
+			}
+			t.Logf("read back %v after %d feedback messages", got, reaper.Observed())
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("value never became known within %s (%d messages observed): %v", await, reaper.Observed(), err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

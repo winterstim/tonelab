@@ -47,6 +47,33 @@ mechanism, not a different table; and behavioural quirks (REAPER reports
 transitions only, and never echoes back a value the device itself set) are
 receive-path logic rather than data.
 
+## Reading values
+
+Reading is not a query. REAPER never answers questions — it announces changes
+— so a value is known only if we were listening when it was announced. The
+read path is therefore two separate steps, and keeping them separate is
+deliberate:
+
+- `Refresh(track)` makes the DAW volunteer a track's state.
+- `GetParam(track, name)` returns what it last said.
+
+Folding them together would hide a network round-trip inside what looks like
+a map lookup, with no way for a caller to control the waiting.
+
+Two consequences worth knowing before they surprise someone:
+
+- **Setting a value does not make it readable.** REAPER does not echo back
+  what the device itself set, so write-then-read returns `ErrValueUnknown`
+  until a refresh. Verified against a live REAPER, not assumed.
+- **`Refresh` sends only `/device/*` addresses** — the control surface's own
+  view — never `/track/*`, which is project state. So it cannot move the
+  user's selection, dirty the project, or require a restart. This
+  is enforced by a test that runs without any DAW, not by care.
+
+`GetParam` reports what the DAW said, never what Tonelab sent. Those differ
+whenever a command was lost on the way out or a user moved a control by hand,
+and the DAW's account is the true one.
+
 ## Scope
 
 Track-level parameters only — volume, pan, mute, solo, send volume. That is
