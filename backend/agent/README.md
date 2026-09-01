@@ -44,6 +44,12 @@ does wrong as well as right: tool arguments that are not valid JSON (the spec
 warns the model "does not always generate valid JSON"), 401, 429, 500, and a
 body that is not JSON at all.
 
+`TONELAB_CONFIG` points the live suites at a config file, so the same
+scenarios can be run against a local runtime and a hosted endpoint in turn.
+That comparison is the only real check on the claim that the two are
+one code path: a suite only ever run against what it was developed on proves
+the opposite of portability.
+
 What it cannot answer is whether a real model chooses the right tool. Two
 tagged suites cover that: `-tags llm` drives a configured endpoint, and
 `-tags "llm reaper"` runs the MVP criterion itself, a free-text command

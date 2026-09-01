@@ -35,9 +35,17 @@ func liveConfig(t *testing.T) config.LLM {
 
 // The question no fake can answer: given our schemas and descriptions, does a
 // real model call the right tool with the right arguments?
+//
+// Run against more than one endpoint, this is also the check the endpoint choice rests
+// on: that a hosted key and a local runtime are genuinely one code path rather
+// than one that happens to work with whatever was developed against.
+//
+//	TONELAB_CONFIG="$HOME/Library/Application Support/tonelab/config.groq.json" \
+//	  go test -tags llm -count=1 ./backend/agent/...
 func TestModelDrivesTheTools(t *testing.T) {
 	backend := newFakeDAW()
 	llm := liveConfig(t)
+	t.Logf("endpoint %s, model %s", llm.BaseURL, llm.Model)
 	orchestrator := agent.NewOrchestrator(
 		agent.Config{BaseURL: llm.BaseURL, APIKey: llm.APIKey, Model: llm.Model},
 		agent.NewTools(backend),
