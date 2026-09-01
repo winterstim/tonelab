@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tonelab/backend/agent"
+	"tonelab/backend/agent/llmtest"
 	"tonelab/backend/daw"
 	"tonelab/backend/daw/dawtest"
 )
@@ -24,6 +25,7 @@ type fakeDAW struct {
 	setCalls  []setCall
 	refreshed []int
 	readDelay time.Duration
+	tracks    []daw.Track
 }
 
 type setCall struct {
@@ -40,6 +42,10 @@ func newFakeDAW() *fakeDAW {
 		},
 		values: map[string]any{},
 		errs:   map[string]error{},
+		tracks: []daw.Track{
+			{Number: 1, Name: "Drums"},
+			{Number: 2, Name: "Vocals"},
+		},
 	}
 }
 
@@ -81,6 +87,15 @@ func (f *fakeDAW) SetParam(track int, name string, value any) error {
 	return nil
 }
 
+// Mirrors the walk's cost and failure shape: enumeration is per track, and a
+// backend that cannot answer says so rather than returning an empty project.
+func (f *fakeDAW) Tracks(timeout time.Duration) ([]daw.Track, error) {
+	if err := f.errs["tracks"]; err != nil {
+		return nil, err
+	}
+	return f.tracks, nil
+}
+
 func (f *fakeDAW) find(name string) (daw.Parameter, bool) {
 	for _, param := range f.params {
 		if param.Name == name {
@@ -109,16 +124,14 @@ func call(t *testing.T, tools *agent.Tools, name, args string) agent.Result {
 	return tools.Call(name, json.RawMessage(args))
 }
 
-// The two tools are the whole agent-facing surface; one tool per
-// control would grow without bound.
-func TestDefinitionsAreTheTwoGenericTools(t *testing.T) {
+// Parameter access is two generic tools and stays two however many parameters
+// exist. list_tracks is not a third of those: it describes the
+// project rather than a control, so it grows with nothing.
+func TestParameterAccessIsTwoGenericTools(t *testing.T) {
 	tools := agent.NewTools(newFakeDAW())
 
 	defs := tools.Definitions()
 
-	if len(defs) != 2 {
-		t.Fatalf("expected exactly 2 tools, got %d", len(defs))
-	}
 	names := map[string]bool{}
 	for _, def := range defs {
 		names[def.Name] = true
@@ -126,10 +139,13 @@ func TestDefinitionsAreTheTwoGenericTools(t *testing.T) {
 			t.Errorf("%s has no input schema", def.Name)
 		}
 	}
-	for _, want := range []string{"get_param", "set_param"} {
+	for _, want := range []string{"get_param", "set_param", "list_tracks"} {
 		if !names[want] {
 			t.Errorf("expected a %s tool, got %v", want, names)
 		}
+	}
+	if len(defs) != 3 {
+		t.Fatalf("expected exactly those 3 tools, got %d: %v", len(defs), names)
 	}
 }
 
@@ -142,6 +158,9 @@ func TestDescriptionsListTheBackendsOwnParameters(t *testing.T) {
 	tools := agent.NewTools(backend)
 
 	for _, def := range tools.Definitions() {
+		if def.Name == "list_tracks" {
+			continue // describes the project, not a parameter
+		}
 		if !strings.Contains(def.Description, "wobble") {
 			t.Errorf("%s description does not mention the backend's own parameter: %q", def.Name, def.Description)
 		}
@@ -386,5 +405,116 @@ func TestOnlyUnambiguousStringsAreAccepted(t *testing.T) {
 				t.Fatalf("nothing should have reached the DAW, got %v", backend.setCalls)
 			}
 		})
+	}
+}
+
+// Without this the other tools are unusable by name: they address tracks by
+// number, and a user saying "the vocals" has no number to give.
+func TestListTracksReportsTheProject(t *testing.T) {
+	tools := agent.NewTools(newFakeDAW())
+
+	result := call(t, tools, "list_tracks", `{}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	tracks, ok := result.Value.([]daw.Track)
+	if !ok || len(tracks) != 2 {
+		t.Fatalf("expected two tracks, got %#v", result.Value)
+	}
+	if tracks[1].Name != "Vocals" || tracks[1].Number != 2 {
+		t.Fatalf("expected Vocals as track 2, got %+v", tracks[1])
+	}
+}
+
+// The model is told the tool exists only when the backend can answer it, since
+// a tool that always fails is worse than one that is absent.
+func TestListTracksIsOfferedOnlyWhenSupported(t *testing.T) {
+	withNames := agent.NewTools(newFakeDAW())
+	if !offers(withNames.Definitions(), "list_tracks") {
+		t.Error("a backend that can list tracks should offer the tool")
+	}
+
+	withoutNames := agent.NewTools(&numbersOnlyDAW{fakeDAW: newFakeDAW()})
+	if offers(withoutNames.Definitions(), "list_tracks") {
+		t.Error("a backend that cannot list tracks must not offer the tool")
+	}
+}
+
+// Embeds the fake but hides Tracks, standing for a DAW whose surface cannot
+// name what it contains.
+type numbersOnlyDAW struct{ *fakeDAW }
+
+func (numbersOnlyDAW) Tracks() {}
+
+func offers(definitions []agent.Tool, name string) bool {
+	for _, definition := range definitions {
+		if definition.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// A live model asked to mute a track sent "true", then 1, and was refused
+// each time, spending a slow round trip per guess. None of these readings is
+// ambiguous for a parameter that is on or off.
+func TestTogglesAcceptWhatModelsActuallySend(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args string
+		want bool
+	}{
+		{"boolean", `{"track_id":1,"param_name":"mute","value":true}`, true},
+		{"quoted boolean", `{"track_id":1,"param_name":"mute","value":"true"}`, true},
+		{"quoted false", `{"track_id":1,"param_name":"mute","value":"false"}`, false},
+		{"one", `{"track_id":1,"param_name":"mute","value":1}`, true},
+		{"zero", `{"track_id":1,"param_name":"mute","value":0}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+
+			result := call(t, tools, "set_param", tc.args)
+
+			if result.Error != nil {
+				t.Fatalf("expected the call to be understood, got %+v", result.Error)
+			}
+			if backend.setCalls[0].value != tc.want {
+				t.Fatalf("expected %v, got %#v", tc.want, backend.setCalls[0].value)
+			}
+		})
+	}
+}
+
+// A refusal has to say what this parameter wanted. "A number or true/false"
+// leaves the model to guess which, and every guess is another slow round trip
+// while the user waits.
+func TestRefusalsNameWhatTheParameterWants(t *testing.T) {
+	tools := agent.NewTools(newFakeDAW())
+
+	toggle := call(t, tools, "set_param", `{"track_id":1,"param_name":"mute","value":0.5}`)
+	if toggle.Error == nil || !strings.Contains(toggle.Error.Message, "true or false") {
+		t.Errorf("expected the toggle's refusal to ask for true or false, got %+v", toggle.Error)
+	}
+
+	numeric := call(t, tools, "set_param", `{"track_id":1,"param_name":"volume","value":"loud"}`)
+	if numeric.Error == nil || !strings.Contains(numeric.Error.Message, "0.0 and 1.0") {
+		t.Errorf("expected the numeric refusal to state the range, got %+v", numeric.Error)
+	}
+}
+
+// A slow local model is reachable, and saying otherwise sends the user to
+// check a URL that is fine.
+func TestSlowEndpointIsReportedAsATimeout(t *testing.T) {
+	server := llmtest.New(t, llmtest.Turn{Delay: 300 * time.Millisecond, Content: "too late"})
+	orchestrator := agent.NewOrchestrator(agent.Config{
+		BaseURL: server.BaseURL(), Model: "m", Timeout: 50 * time.Millisecond,
+	}, agent.NewTools(newFakeDAW()))
+
+	response := orchestrator.Send("anything")
+
+	if response.Error == nil || response.Error.Code != "llm_timeout" {
+		t.Fatalf("expected llm_timeout, got %+v", response.Error)
 	}
 }

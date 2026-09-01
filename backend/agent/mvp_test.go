@@ -55,3 +55,50 @@ func TestFreeTextCommandChangesREAPER(t *testing.T) {
 }
 
 var _ = config.LLM{}
+
+// A beginner should not need to know indices.
+// The model is given no number: it has to ask the DAW what the tracks are
+// called and match the name itself.
+func TestNamedTrackCommandChangesREAPER(t *testing.T) {
+	llm := liveConfig(t)
+
+	listener, err := osc.Listen("127.0.0.1", 9000)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	transport := osc.NewTransport("127.0.0.1", 8000)
+	reaper := daw.NewREAPER(transport)
+	reaper.Observe(listener.Messages())
+
+	// Names the track this test depends on. Unlike the read path this does
+	// change the project, which is why it belongs in a tagged test rather
+	// than anywhere the agent can reach.
+	if err := transport.Send("/track/2/name", "Vocals"); err != nil {
+		t.Fatalf("could not name the track: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	orchestrator := agent.NewOrchestrator(
+		agent.Config{BaseURL: llm.BaseURL, APIKey: llm.APIKey, Model: llm.Model},
+		agent.NewTools(reaper),
+	)
+
+	response := orchestrator.Send("Mute the vocals.")
+	if response.Error != nil {
+		t.Fatalf("the command failed: %+v", response.Error)
+	}
+	t.Logf("model said: %s", response.Message)
+
+	value, err := reaper.ReadParam(2, "mute", 5*time.Second)
+	if err != nil {
+		t.Fatalf("REAPER never reported the mute state: %v", err)
+	}
+	if muted, ok := value.(bool); !ok || !muted {
+		t.Fatalf("expected the vocals track to be muted, got %#v", value)
+	}
+	t.Log("REAPER reports track 2 (Vocals) muted")
+
+	_ = reaper.SetTrackMute(2, false)
+}

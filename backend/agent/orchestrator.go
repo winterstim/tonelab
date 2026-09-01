@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -24,6 +25,11 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	Model   string
+
+	// Timeout is how long one request may take. Configurable because a local
+	// model on a busy machine is far slower than a hosted one, and because a
+	// test cannot spend the default waiting.
+	Timeout time.Duration
 }
 
 // Response is what the UI receives. Domain failures arrive as Error rather
@@ -42,10 +48,14 @@ type Orchestrator struct {
 }
 
 func NewOrchestrator(config Config, tools *Tools) *Orchestrator {
+	timeout := config.Timeout
+	if timeout == 0 {
+		timeout = requestTimeout
+	}
 	return &Orchestrator{
 		config: config,
 		tools:  tools,
-		http:   &http.Client{Timeout: requestTimeout},
+		http:   &http.Client{Timeout: timeout},
 	}
 }
 
@@ -167,8 +177,18 @@ func (o *Orchestrator) complete(conversation []message) (message, *Error) {
 
 	response, err := o.http.Do(request)
 	if err != nil {
-		// The likeliest failure of all: the user configures this URL, and a
-		// local runtime may simply not be running.
+		// A local model can be slow enough to hit the deadline while being
+		// perfectly reachable, and calling that "unreachable" sends the user
+		// to check a URL that is fine.
+		var timeout interface{ Timeout() bool }
+		if errors.As(err, &timeout) && timeout.Timeout() {
+			return message{}, &Error{
+				Code:    "llm_timeout",
+				Message: fmt.Sprintf("The model did not answer within %s. A local model may need a smaller context or a smaller model.", o.http.Timeout),
+			}
+		}
+		// Otherwise the likeliest failure of all: the user configures this
+		// URL, and a local runtime may simply not be running.
 		return message{}, &Error{Code: "llm_unreachable", Message: "Could not reach the language model endpoint."}
 	}
 	defer response.Body.Close()
@@ -243,5 +263,7 @@ const systemPrompt = `You control a digital audio workstation through the tools 
 Numeric values are always normalized between 0.0 and 1.0, never decibels or hertz. Track numbers start at 1.
 
 Use get_param before set_param when a request is relative, such as "a bit quieter".
+
+When the user names a track instead of numbering it, call list_tracks and match the name yourself. Never guess a track number.
 
 If a request is ambiguous, or names something the tools do not offer, say so instead of guessing. A wrong command changes a real project.`

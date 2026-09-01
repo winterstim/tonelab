@@ -57,6 +57,25 @@ func (r *Receiver) Expect(timeout time.Duration) *goosc.Message {
 	return msg
 }
 
+// Poll reads without failing the test when nothing arrives, for a fake DAW
+// that answers traffic in a loop and must be able to stop.
+func (r *Receiver) Poll(timeout time.Duration) (*goosc.Message, bool) {
+	if err := r.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return nil, false
+	}
+	buf := make([]byte, 4096)
+	n, _, err := r.conn.ReadFromUDP(buf)
+	if err != nil {
+		return nil, false
+	}
+	packet, err := goosc.ParsePacket(string(buf[:n]))
+	if err != nil {
+		return nil, false
+	}
+	msg, ok := packet.(*goosc.Message)
+	return msg, ok
+}
+
 // ExpectAddress returns the message so callers can go on to check arguments.
 func (r *Receiver) ExpectAddress(timeout time.Duration, address string) *goosc.Message {
 	r.t.Helper()

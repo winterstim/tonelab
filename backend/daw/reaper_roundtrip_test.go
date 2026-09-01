@@ -243,3 +243,34 @@ func awaitNewTrack(t *testing.T, feedback *osctest.Feedback) int {
 	})
 	return track
 }
+
+// The walk against the real thing, which is the only place its two load
+// bearing assumptions hold or fail: that master parks the surface, and that
+// silence past the last track ends the list.
+func TestREAPERTrackWalk(t *testing.T) {
+	listener, err := osc.Listen(reaperHost, reaperFeedbackPort)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	reaper := daw.NewREAPER(osc.NewTransport(reaperHost, reaperListenPort))
+	reaper.Observe(listener.Messages())
+
+	tracks, err := reaper.Tracks(2 * time.Second)
+	if err != nil {
+		t.Fatalf("Tracks returned an error: %v", err)
+	}
+	if len(tracks) == 0 {
+		t.Fatal("expected the open project to have tracks")
+	}
+	for i, track := range tracks {
+		if track.Number != i+1 {
+			t.Errorf("expected consecutive numbering, got %v", tracks)
+		}
+		if track.Name == "" {
+			t.Errorf("track %d came back without a name", track.Number)
+		}
+	}
+	t.Logf("REAPER reports %d tracks: %v", len(tracks), tracks)
+}
