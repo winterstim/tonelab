@@ -39,6 +39,7 @@ func main() {
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
 			application.NewService(&GreetService{}),
+			application.NewService(&TransportService{}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
