@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"tonelab/backend/daw"
 	"tonelab/backend/osc"
 	"tonelab/backend/osc/osctest"
 )
@@ -16,24 +17,25 @@ import (
 // buttons from being the only way to exercise the OSC leg.
 func TestTransportService_PlayAndStop(t *testing.T) {
 	reaper := osctest.NewReceiver(t)
-	service := NewTransportService(osc.NewTransport("127.0.0.1", reaper.Port))
+	service := NewTransportService(daw.NewREAPER(osc.NewTransport("127.0.0.1", reaper.Port)))
 
 	for _, tc := range []struct {
 		name    string
 		call    func() string
+		command string
 		address string
 	}{
-		{"Play", service.Play, "/play"},
-		{"Stop", service.Stop, "/stop"},
+		{"Play", service.Play, "play", "/play"},
+		{"Stop", service.Stop, "stop", "/stop"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.call()
 
 			reaper.ExpectAddress(time.Second, tc.address)
-			if !strings.Contains(result, tc.address) {
-				t.Errorf("expected the UI text to name %s, got %q", tc.address, result)
+			if !strings.Contains(result, tc.command) {
+				t.Errorf("expected the UI text to name %s, got %q", tc.command, result)
 			}
-			if strings.Contains(result, "failed") {
+			if strings.Contains(result, "Could not") {
 				t.Errorf("expected a success message, got %q", result)
 			}
 		})
@@ -45,11 +47,11 @@ func TestTransportService_PlayAndStop(t *testing.T) {
 // reporting a send that never happened. Port 0 is not a routable
 // destination, so the write fails locally without needing a DAW.
 func TestTransportService_ReportsSendFailure(t *testing.T) {
-	service := NewTransportService(osc.NewTransport("127.0.0.1", 0))
+	service := NewTransportService(daw.NewREAPER(osc.NewTransport("127.0.0.1", 0)))
 
 	result := service.Play()
 
-	if !strings.Contains(result, "failed") {
+	if !strings.Contains(result, "Could not") {
 		t.Errorf("expected a failure message, got %q", result)
 	}
 }

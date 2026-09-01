@@ -8,6 +8,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"tonelab/backend/daw"
 	"tonelab/backend/osc"
 )
 
@@ -39,8 +40,10 @@ func init() {
 // logs any error that might occur.
 func main() {
 
-	// One transport shared by every service that talks to REAPER.
-	reaper := osc.NewTransport(reaperOSCHost, reaperOSCPort)
+	// One transport, one DAW client, shared by every service that talks to
+	// REAPER. Services get the daw.Client interface, not the transport, so
+	// nothing above this line knows an OSC address.
+	reaper := daw.NewREAPER(osc.NewTransport(reaperOSCHost, reaperOSCPort))
 
 	// Create a new Wails application by providing the necessary options.
 	// Variables 'Name' and 'Description' are for application metadata.
