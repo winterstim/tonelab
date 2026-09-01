@@ -99,6 +99,12 @@ type completionRequest struct {
 	Model    string    `json:"model"`
 	Messages []message `json:"messages"`
 	Tools    []apiTool `json:"tools,omitempty"`
+
+	// Zero because this is not writing: the model is choosing a tool and
+	// filling in a schema, and sampling variety there buys nothing while
+	// costing malformed calls. Endpoints default to 0.7 or higher, so
+	// leaving it unset means paying for randomness we then work around.
+	Temperature float64 `json:"temperature"`
 }
 
 type apiTool struct {
@@ -201,9 +207,10 @@ func (o *Orchestrator) execute(call toolCall) message {
 // complete performs one request and returns the assistant's reply.
 func (o *Orchestrator) complete(conversation []message) (message, *Error) {
 	body, err := json.Marshal(completionRequest{
-		Model:    o.config.Model,
-		Messages: conversation,
-		Tools:    o.apiTools(),
+		Model:       o.config.Model,
+		Messages:    conversation,
+		Tools:       o.apiTools(),
+		Temperature: 0,
 	})
 	if err != nil {
 		return message{}, &Error{Code: "internal", Message: "The request could not be encoded."}
@@ -346,6 +353,8 @@ const systemPrompt = `You control a digital audio workstation through the tools 
 Numeric values are always normalized between 0.0 and 1.0, never decibels or hertz. Track numbers start at 1.
 
 Use get_param before set_param when a request is relative, such as "a bit quieter".
+
+set_param returns what the DAW reports after the change. If it comes back with a note saying the change is unverified, say so rather than claiming the change was confirmed.
 
 When the user names a track instead of numbering it, call list_tracks and match the name yourself. Never guess a track number.
 

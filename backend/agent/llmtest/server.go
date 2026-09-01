@@ -59,9 +59,10 @@ type Server struct {
 // Request is the decoded body of one call, in the fields this project cares
 // about rather than the whole schema.
 type Request struct {
-	Model    string            `json:"model"`
-	Messages []json.RawMessage `json:"messages"`
-	Tools    []struct {
+	Model       string            `json:"model"`
+	Temperature float64           `json:"temperature"`
+	Messages    []json.RawMessage `json:"messages"`
+	Tools       []struct {
 		Type     string `json:"type"`
 		Function struct {
 			Name        string          `json:"name"`

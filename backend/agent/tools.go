@@ -19,6 +19,11 @@ import (
 // reply over UDP, short enough that an agent turn does not appear to hang.
 const readTimeout = 2 * time.Second
 
+// confirmTimeout is shorter than a read the user asked for: this one is a
+// check on our own work, and a DAW that stays quiet leaves the command
+// accepted rather than failed.
+const confirmTimeout = 700 * time.Millisecond
+
 // listTimeout is per track, since enumerating means looking at each in turn.
 // Short, because a track that does not answer promptly is the end of the list
 // rather than a slow one.
@@ -222,6 +227,42 @@ func (t *Tools) coerce(name string, value any) (any, *Result) {
 	return number, nil
 }
 
+// Applied is what a set reports back: what the DAW says the value is now,
+// where it can be checked, and an honest note where it cannot.
+type Applied struct {
+	Track     int    `json:"track"`
+	Param     string `json:"param"`
+	Requested any    `json:"requested"`
+
+	// Confirmed is what the DAW reported after the change. Absent when the
+	// DAW does not report this parameter, which is not a failure but is
+	// something the model must not present as confirmation.
+	Confirmed any    `json:"confirmed,omitempty"`
+	Note      string `json:"note,omitempty"`
+}
+
+// confirm reads the value back so the model's answer rests on the DAW's
+// account rather than ours. A parameter the DAW never reports still succeeds:
+// the command was accepted, and saying so plainly beats both a false
+// confirmation and a false failure.
+func (t *Tools) confirm(track int, name string, requested any) Applied {
+	applied := Applied{Track: track, Param: name, Requested: requested}
+
+	source, ok := t.daw.(reader)
+	if !ok {
+		applied.Note = "This DAW cannot report values back, so the change is unverified."
+		return applied
+	}
+
+	value, err := source.ReadParam(track, name, confirmTimeout)
+	if err != nil {
+		applied.Note = "The DAW did not report this parameter back, so the change is unverified."
+		return applied
+	}
+	applied.Confirmed = value
+	return applied
+}
+
 type getArgs struct {
 	TrackID   any     `json:"track_id"`
 	ParamName *string `json:"param_name"`
@@ -334,7 +375,7 @@ func (t *Tools) getParam(args json.RawMessage) Result {
 
 	value, err := source.ReadParam(track, *decoded.ParamName, readTimeout)
 	if err != nil {
-		return domainFailure(err)
+		return t.domainFailureFor(*decoded.ParamName, err)
 	}
 	return Result{Value: value}
 }
@@ -362,13 +403,28 @@ func (t *Tools) setParam(args json.RawMessage) Result {
 	}
 
 	if err := t.daw.SetParam(track, *decoded.ParamName, value); err != nil {
-		return domainFailure(err)
+		return t.domainFailureFor(*decoded.ParamName, err)
 	}
-	return Result{}
+
+	// Confirmed rather than assumed. The command left over a socket that
+	// guarantees nothing, and the model reports to a user on the strength of
+	// what we return here, so "sent" and "done" must not be the same word.
+	return Result{Value: t.confirm(track, *decoded.ParamName, value)}
 }
 
 // domainFailure maps the DAW layer's sentinels onto codes. Each is a different
 // recovery for the agent: rename, pick another track, clamp, resend, or wait.
+// domainFailureFor is domainFailure with the context to be useful about a
+// name that does not exist. A refusal that lists what does exist turns a lost
+// turn into a corrected one, and the list is already at hand.
+func (t *Tools) domainFailureFor(name string, err error) Result {
+	if errors.Is(err, daw.ErrUnknownParam) {
+		return failure("param_not_found", fmt.Sprintf(
+			"This DAW has no parameter called %q. It has: %s.", name, t.parameterNames()))
+	}
+	return domainFailure(err)
+}
+
 func domainFailure(err error) Result {
 	switch {
 	case errors.Is(err, daw.ErrUnknownParam):

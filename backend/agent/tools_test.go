@@ -591,3 +591,67 @@ func TestValueRepresentationPolicy(t *testing.T) {
 		})
 	}
 }
+
+// A command left over a socket that guarantees nothing, so "sent" and "done"
+// must not be the same word to a model reporting to a user.
+func TestSetParamConfirmsFromTheDAW(t *testing.T) {
+	backend := newFakeDAW()
+	backend.values["volume"] = 0.25
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"volume","value":0.25}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	applied, ok := result.Value.(agent.Applied)
+	if !ok {
+		t.Fatalf("expected the set to report what was applied, got %#v", result.Value)
+	}
+	if applied.Confirmed != 0.25 {
+		t.Fatalf("expected the DAW's own reading, got %#v", applied.Confirmed)
+	}
+	if applied.Note != "" {
+		t.Errorf("a confirmed change should carry no caveat, got %q", applied.Note)
+	}
+}
+
+// A DAW that never reports the parameter has still accepted the command, so
+// this is neither a failure nor a confirmation, and the model must be able to
+// tell the difference.
+func TestUnverifiableChangeSaysSo(t *testing.T) {
+	backend := newFakeDAW()
+	backend.errs["get"] = daw.ErrValueUnknown
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"volume","value":0.25}`)
+
+	if result.Error != nil {
+		t.Fatalf("an unverified change is not a failed one, got %+v", result.Error)
+	}
+	applied := result.Value.(agent.Applied)
+	if applied.Confirmed != nil {
+		t.Errorf("nothing should be presented as confirmed, got %#v", applied.Confirmed)
+	}
+	if !strings.Contains(applied.Note, "unverified") {
+		t.Errorf("expected the caveat to be explicit, got %q", applied.Note)
+	}
+}
+
+// A refusal that lists what does exist turns a lost turn into a corrected one.
+// Observed live: a model wrote "muted" for "mute" and had nothing to correct
+// against.
+func TestUnknownParameterNamesTheAlternatives(t *testing.T) {
+	tools := agent.NewTools(newFakeDAW())
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"muted","value":true}`)
+
+	if result.Error == nil || result.Error.Code != "param_not_found" {
+		t.Fatalf("expected param_not_found, got %+v", result.Error)
+	}
+	for _, expected := range []string{"muted", "mute", "volume"} {
+		if !strings.Contains(result.Error.Message, expected) {
+			t.Errorf("expected the refusal to mention %q, got %q", expected, result.Error.Message)
+		}
+	}
+}

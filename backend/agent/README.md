@@ -89,6 +89,24 @@ what the loop does:
 Each of those is a difference between providers that would otherwise be visible
 to the user as "it works with one and not the other".
 
+Three more things help every model rather than any one of them:
+
+- **Temperature 0.** Choosing a tool and filling a schema is not writing, and
+  endpoints default to sampling that produces the malformed calls we then work
+  around. Five paced runs of the flaky model afterwards: four completed and the
+  one failure was a quota, with no schema rejection seen, against one to three
+  rejections in five before. A small sample, so this is an indication rather
+  than a result.
+- **Refusals that name the alternatives.** A model that wrote "muted" for
+  "mute" had nothing to correct against; it is now told what the DAW does have.
+  The list is already at hand, and a refusal that carries it turns a lost turn
+  into a corrected one.
+- **A set reports what the DAW says, not what we sent.** The command leaves
+  over a socket that guarantees nothing, and the model answers a user on the
+  strength of what the tool returns, so "sent" and "done" must not be the same
+  word. Where a parameter cannot be read back the result says so plainly, which
+  is neither a failure nor a confirmation.
+
 ## How a model may write a value
 
 `TestValueRepresentationPolicy` is the policy, as a table: every accepted and

@@ -327,3 +327,15 @@ func TestPersistentSchemaRejectionsReportTheirRealCause(t *testing.T) {
 		t.Errorf("expected the retries to be bounded, got %d calls", len(server.Requests()))
 	}
 }
+
+// Choosing a tool and filling a schema is not writing, and endpoints default
+// to sampling that produces malformed calls we then have to work around.
+func TestRequestsAskForDeterministicToolCalls(t *testing.T) {
+	orchestrator, server := newOrchestrator(t, newFakeDAW(), llmtest.Turn{Content: "ok"})
+
+	orchestrator.Send("anything")
+
+	if temperature := server.Requests()[0].Temperature; temperature != 0 {
+		t.Fatalf("expected temperature 0, got %v", temperature)
+	}
+}
