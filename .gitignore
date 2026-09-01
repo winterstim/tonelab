@@ -7,17 +7,25 @@
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/bindings/
 
 # go
 /backend/**/*.exe
 /backend/**/*.test
 /backend/**/vendor/
 
-# wails build output
-build/bin/
-build/windows/
-build/darwin/
-build/linux/
+# wails build output (only generated subpaths — build/<platform>/ itself holds
+# real packaging config: Taskfile.yml, Info.plist, icons — that gets committed)
+.task
+bin
+frontend/dist
+frontend/node_modules
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+build/ios/xcode/overlay.json
+build/ios/xcode/gen/
+build/android/overlay.json
+build/android/gen/
 
 # OS junk
 .DS_Store
