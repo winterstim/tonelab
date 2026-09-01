@@ -8,15 +8,23 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"tonelab/backend/daw"
 	"tonelab/backend/osc"
 )
 
-// Where REAPER listens for OSC. Must match Preferences > Control/OSC/web ->
-// Add -> OSC, "Local listen port" for an enabled OSC control surface. Fixed
-// here until the app persists connection settings.
+// Which DAW backend to drive and where it listens. This is the one place in
+// the application that names a DAW: everything above backend/daw works
+// through daw.Client and does not know which backend is behind it. Fixed here
+// until the app persists connection settings, at which point these become
+// config values rather than constants — daw.Backends() is what a settings
+// screen would offer.
+//
+// The port must match the DAW's own OSC listen port (in REAPER: Preferences >
+// Control/OSC/web -> Add -> OSC, "Local listen port").
 const (
-	reaperOSCHost = "127.0.0.1"
-	reaperOSCPort = 8000
+	dawBackend = "reaper"
+	dawOSCHost = "127.0.0.1"
+	dawOSCPort = 8000
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the binary.
@@ -39,8 +47,13 @@ func init() {
 // logs any error that might occur.
 func main() {
 
-	// One transport shared by every service that talks to REAPER.
-	reaper := osc.NewTransport(reaperOSCHost, reaperOSCPort)
+	// One transport, one DAW client, shared by every service that talks to
+	// the DAW. Services get the daw.Client interface, not the transport, so
+	// nothing above this line knows an OSC address or which DAW is connected.
+	dawClient, err := daw.New(dawBackend, osc.NewTransport(dawOSCHost, dawOSCPort))
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Create a new Wails application by providing the necessary options.
 	// Variables 'Name' and 'Description' are for application metadata.
@@ -52,7 +65,7 @@ func main() {
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
 			application.NewService(&GreetService{}),
-			application.NewService(NewTransportService(reaper)),
+			application.NewService(NewTransportService(dawClient)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -92,7 +105,7 @@ func main() {
 	}()
 
 	// Run the application. This blocks until the application has been exited.
-	err := app.Run()
+	err = app.Run()
 
 	// If an error occurred while running the application, log it and exit.
 	if err != nil {

@@ -14,14 +14,14 @@ import (
 // listener, not against go-osc internals, so the suite needs no DAW
 // running to pass.
 func TestSend_DeliversAddressedMessage(t *testing.T) {
-	reaper := osctest.NewReceiver(t)
-	transport := osc.NewTransport("127.0.0.1", reaper.Port)
+	listener := osctest.NewReceiver(t)
+	transport := osc.NewTransport("127.0.0.1", listener.Port)
 
 	if err := transport.Send("/play"); err != nil {
 		t.Fatalf("Send returned an error: %v", err)
 	}
 
-	reaper.ExpectAddress(time.Second, "/play")
+	listener.ExpectAddress(time.Second, "/play")
 }
 
 // TestSend_DeliversArguments covers the other half of the wire format: an
@@ -29,14 +29,14 @@ func TestSend_DeliversAddressedMessage(t *testing.T) {
 // command above this layer carries a value, and a value that silently fails
 // to arrive would look identical to one that arrived wrong.
 func TestSend_DeliversArguments(t *testing.T) {
-	reaper := osctest.NewReceiver(t)
-	transport := osc.NewTransport("127.0.0.1", reaper.Port)
+	listener := osctest.NewReceiver(t)
+	transport := osc.NewTransport("127.0.0.1", listener.Port)
 
 	if err := transport.Send("/track/1/volume", float32(0.5)); err != nil {
 		t.Fatalf("Send returned an error: %v", err)
 	}
 
-	msg := reaper.ExpectAddress(time.Second, "/track/1/volume")
+	msg := listener.ExpectAddress(time.Second, "/track/1/volume")
 	if len(msg.Arguments) != 1 {
 		t.Fatalf("expected 1 argument, got %d: %v", len(msg.Arguments), msg.Arguments)
 	}
@@ -66,12 +66,12 @@ func TestSend_UnsupportedArgumentReturnsError(t *testing.T) {
 // a rejected message must not put a partial or malformed packet on the wire,
 // since a DAW receiving half a command is worse than receiving none.
 func TestSend_EncodingFailureSendsNothing(t *testing.T) {
-	reaper := osctest.NewReceiver(t)
-	transport := osc.NewTransport("127.0.0.1", reaper.Port)
+	listener := osctest.NewReceiver(t)
+	transport := osc.NewTransport("127.0.0.1", listener.Port)
 
 	if err := transport.Send("/play", struct{}{}); err == nil {
 		t.Fatal("expected an error sending an unsupported argument type, got nil")
 	}
 
-	reaper.ExpectNothing(100 * time.Millisecond)
+	listener.ExpectNothing(100 * time.Millisecond)
 }

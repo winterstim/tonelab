@@ -3,37 +3,41 @@ package main
 import (
 	"fmt"
 
-	"tonelab/backend/osc"
+	"tonelab/backend/daw"
 )
 
-// TransportService sends hardcoded REAPER transport commands over OSC.
-// Still hardcoded to two commands — the typed DAW command layer
-// (backend/daw) that will replace it does not exist yet — but it no longer
-// owns the wire: it delegates to backend/osc.Transport, which is the seam
-// every OSC message in the app goes through from here on.
+// TransportService exposes transport control to the frontend. It is a thin
+// Wails boundary over the DAW command layer: no OSC addresses, no argument
+// encoding, and no knowledge of which DAW is connected — those belong to
+// backend/daw, and this type only turns the result into text a button can
+// display.
+//
+// Still two hardcoded commands. The agent (which will drive backend/daw
+// through the parameter tools instead) does not exist yet, and until it does
+// these buttons are how the chain gets exercised by hand.
 type TransportService struct {
-	osc *osc.Transport
+	daw daw.Client
 }
 
-func NewTransportService(transport *osc.Transport) *TransportService {
-	return &TransportService{osc: transport}
+func NewTransportService(client daw.Client) *TransportService {
+	return &TransportService{daw: client}
 }
 
 func (t *TransportService) Play() string {
-	return t.send("/play")
+	return t.report("play", t.daw.Play())
 }
 
 func (t *TransportService) Stop() string {
-	return t.send("/stop")
+	return t.report("stop", t.daw.Stop())
 }
 
-// send fires a bare trigger message (no args) and turns the result into a
-// line for the UI toast. A nil error means the local write succeeded, not
-// that REAPER received it — UDP has no delivery confirmation — so the
-// success text points at REAPER itself as the real check.
-func (t *TransportService) send(address string) string {
-	if err := t.osc.Send(address); err != nil {
-		return fmt.Sprintf("OSC send failed: %v", err)
+// report turns a command's outcome into a line for the UI toast. A nil error
+// means the command was written to the socket, not that the DAW received it
+// — the transport is fire-and-forget — so the success text points at the DAW
+// itself as the real check.
+func (t *TransportService) report(command string, err error) string {
+	if err != nil {
+		return fmt.Sprintf("Could not %s: %v", command, err)
 	}
-	return fmt.Sprintf("Sent %s — check REAPER", address)
+	return fmt.Sprintf("Sent %s — check your DAW", command)
 }
