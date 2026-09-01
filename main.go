@@ -7,6 +7,16 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"tonelab/backend/osc"
+)
+
+// Where REAPER listens for OSC. Must match Preferences > Control/OSC/web ->
+// Add -> OSC, "Local listen port" for an enabled OSC control surface. Fixed
+// here until the app persists connection settings.
+const (
+	reaperOSCHost = "127.0.0.1"
+	reaperOSCPort = 8000
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the binary.
@@ -29,6 +39,9 @@ func init() {
 // logs any error that might occur.
 func main() {
 
+	// One transport shared by every service that talks to REAPER.
+	reaper := osc.NewTransport(reaperOSCHost, reaperOSCPort)
+
 	// Create a new Wails application by providing the necessary options.
 	// Variables 'Name' and 'Description' are for application metadata.
 	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
@@ -39,7 +52,7 @@ func main() {
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
 			application.NewService(&GreetService{}),
-			application.NewService(&TransportService{}),
+			application.NewService(NewTransportService(reaper)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
