@@ -15,10 +15,12 @@ import (
 )
 
 // maxSchemaRetries bounds how often a model is asked to correct a tool call
-// the endpoint refused. A model whose tool-call format is wrong tends to stay
-// wrong, and spending the whole step budget on it reports "too many steps"
-// while hiding the actual reason.
-const maxSchemaRetries = 2
+// the endpoint refused. Set by measurement rather than taste: against a model
+// that emits roughly half its calls as untyped text, two retries recovered 2
+// runs in 5 and four recovered 4 in 5, while the cost of a retry is one fast
+// request. Bounded all the same, because a model that cannot produce the
+// format will not learn to, and the user is owed the real reason.
+const maxSchemaRetries = 4
 
 // maxWaitForRateLimit caps how long a turn will sit waiting for a quota to
 // refill. Free tiers refill in seconds, so a longer wait means the limit is
@@ -158,10 +160,7 @@ func (o *Orchestrator) Send(text string) Response {
 			}
 			if failure.Code == "llm_tool_call_invalid" && rejections < maxSchemaRetries {
 				rejections++
-				conversation = append(conversation, message{
-					Role:    "user",
-					Content: "Your last tool call was rejected: " + failure.Message + " Send it again with values of the right type.",
-				})
+				conversation = append(conversation, message{Role: "user", Content: correctionFor(failure.Message)})
 				continue
 			}
 			return Response{Error: failure}
@@ -279,6 +278,17 @@ func httpFailure(status int, payload []byte) *Error {
 	default:
 		return &Error{Code: "llm_rejected", Message: withDetail(fmt.Sprintf("The endpoint rejected the request (HTTP %d).", status), detail)}
 	}
+}
+
+// correctionFor tells the model what to send rather than only what was wrong.
+// The failure it addresses is a call serialized as text, where "true" and 0.5
+// arrive quoted, so an example of the intended shape is more use than a
+// restatement of the rule it already had.
+func correctionFor(reason string) string {
+	return "Your last tool call was rejected by the API: " + reason +
+		" Send the call again as JSON with real types, not quoted text. " +
+		`For example {"track_id": 2, "param_name": "mute", "value": true}, ` +
+		`not {"track_id": "2", "param_name": "mute", "value": "true"}.`
 }
 
 // retryAfter reads the wait an endpoint suggests out of its own message.

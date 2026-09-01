@@ -67,6 +67,13 @@ tool call 5 times in 6, failing by emitting its call in an XML-ish form where
 every value is text; `openai/gpt-oss-20b` produced 6 in 6. Schema shape made no
 difference outside that variance.
 
+Measured against a real endpoint, five runs each: with two retries the flaky
+model completed 2 in 5; with four it completed 2 in 5 again, but the failures
+moved from schema rejections to rate limits, because each retry spends tokens
+against a free tier's per-minute quota. Tuning further would be fitting the
+bound to noise. The bound is four, and **model choice remains the lever that
+actually decides this**: `openai/gpt-oss-20b` completed 8 scenarios in 8.
+
 So the uniformity that can be built is in the response to failure, and that is
 what the loop does:
 

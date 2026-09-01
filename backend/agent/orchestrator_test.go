@@ -321,7 +321,9 @@ func TestPersistentSchemaRejectionsReportTheirRealCause(t *testing.T) {
 	if !strings.Contains(response.Error.Message, "expected boolean") {
 		t.Errorf("expected the endpoint's reason to survive, got %q", response.Error.Message)
 	}
-	if len(server.Requests()) > 4 {
+	// Bounded well below the step limit, so the loop cannot spend its whole
+	// budget on one call it will never get right.
+	if len(server.Requests()) > 6 {
 		t.Errorf("expected the retries to be bounded, got %d calls", len(server.Requests()))
 	}
 }
