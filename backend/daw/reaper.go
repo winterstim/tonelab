@@ -29,6 +29,13 @@ var (
 type Client interface {
 	Play() error
 	Stop() error
+
+	// SetParam sets a parameter by the name the backend itself reports
+	// (see Describer). Dispatch lives in the backend because the mapping
+	// from a name to a command is DAW-specific — the layers above resolve
+	// names, they do not translate them.
+	SetParam(track int, name string, value any) error
+
 	SetTrackVolume(track int, value float64) error
 	SetTrackPan(track int, value float64) error
 	SetTrackMute(track int, muted bool) error
@@ -54,6 +61,70 @@ var _ Client = (*REAPER)(nil)
 
 func NewREAPER(sender Sender) *REAPER {
 	return &REAPER{osc: sender}
+}
+
+// parameters is what this backend can control. REAPER's OSC surface cannot
+// enumerate itself — there is no discovery in OSC — so this list is what its
+// documented pattern config supports. A backend whose DAW can be asked builds
+// the same list by asking it; callers above cannot tell the difference, which
+// is the point.
+var parameters = []Parameter{
+	{Name: "volume", Kind: Numeric, Readable: true},
+	{Name: "pan", Kind: Numeric, Readable: true},
+	{Name: "mute", Kind: Toggle, Readable: true},
+	{Name: "solo", Kind: Toggle, Readable: true},
+	// Send volume is addressed by two indices rather than one, so it is not
+	// reachable through SetParam's (track, name) shape and is marked
+	// unreadable because no feedback for it has been observed. Reaching it
+	// needs a richer target than a track number — see README.
+	{Name: "send", Kind: Numeric, Readable: false},
+}
+
+func (r *REAPER) Parameters() []Parameter {
+	return append([]Parameter(nil), parameters...)
+}
+
+// SetParam routes a named parameter to the typed command that implements it.
+// The type of value must match the parameter's Kind: the contract above this
+// layer carries either a number or a boolean, and sending the wrong one is a
+// caller error worth naming rather than a value to coerce.
+func (r *REAPER) SetParam(track int, name string, value any) error {
+	param, err := FindParameter(r, name)
+	if err != nil {
+		return err
+	}
+
+	switch param.Kind {
+	case Toggle:
+		on, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("%w: %s wants a %s, got %T", ErrParamKind, name, param.Kind, value)
+		}
+		return r.setTrackToggle(track, name, on)
+	default:
+		number, ok := numeric(value)
+		if !ok {
+			return fmt.Errorf("%w: %s wants a %s, got %T", ErrParamKind, name, param.Kind, value)
+		}
+		if name == "send" {
+			return fmt.Errorf("%w: %s needs a send index, set it with SetTrackSendVolume", ErrParamKind, name)
+		}
+		return r.setTrackValue(track, name, number)
+	}
+}
+
+// numeric accepts the float shapes a JSON-decoded value can arrive as, since
+// the agent tools above this layer hand over whatever their schema produced.
+func numeric(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	}
+	return 0, false
 }
 
 func (r *REAPER) Play() error {

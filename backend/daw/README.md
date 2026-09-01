@@ -7,6 +7,22 @@ layer you can drive by hand and test with no LLM anywhere near it.
 REAPER is the only backend. `Client` is the interface a second one
 would implement.
 
+## How a backend describes itself
+
+Nothing above this package carries a list of parameters. A backend reports its
+own via `Parameters()`, and `SetParam(track, name, value)` resolves a name to
+a command inside the backend — because what a parameter is called, and which
+command sets it, is DAW-specific knowledge.
+
+This is the seam that lets backends differ in **capability**, not just in
+addresses. OSC has no discovery, so REAPER returns what its pattern config
+supports, statically. A DAW whose surface can enumerate itself (AbletonOSC
+exposes parameter names, min and max) would build the same list by asking the
+DAW at runtime. Callers cannot tell the difference, which is the point:
+`Parameter.Readable` exists for the same reason — a surface may accept a
+parameter it never reports back, and a caller has to know that before
+promising a user it can answer "what is it now?".
+
 ## Scope
 
 Track-level parameters only — volume, pan, mute, solo, send volume. That is
