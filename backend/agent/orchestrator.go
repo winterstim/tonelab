@@ -8,8 +8,16 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
+
+// maxWaitForRateLimit caps how long a turn will sit waiting for a quota to
+// refill. Free tiers refill in seconds, so a longer wait means the limit is
+// not the kind waiting fixes, and the user should hear about it instead.
+const maxWaitForRateLimit = 20 * time.Second
 
 // maxSteps bounds the tool loop. A model that keeps calling tools is driving a
 // live DAW, so an unbounded loop is not slow, it is destructive.
@@ -117,9 +125,36 @@ func (o *Orchestrator) Send(text string) Response {
 		{Role: "user", Content: text},
 	}
 
+	// Once only: a second wait means the quota is not refilling on the scale
+	// the endpoint claimed, and the user is better told than kept waiting.
+	waited := false
+
 	for step := 0; step < maxSteps; step++ {
 		reply, failure := o.complete(conversation)
 		if failure != nil {
+			// A tool call the endpoint itself refused is the same situation
+			// as one our tools refused: the model can fix it if told. Some
+			// endpoints validate against our schema and reject before the
+			// call ever reaches us, so without this the model never learns
+			// what was wrong and a correctable turn is lost.
+			// A quota that refills in seconds is a pause, not a failure, and
+			// endpoints differ in whether they impose one at all. Waiting
+			// here is what keeps a hosted endpoint behaving like a local
+			// runtime from the user's side.
+			if failure.Code == "llm_rate_limited" && !waited {
+				if pause, ok := retryAfter(failure.Message); ok {
+					waited = true
+					time.Sleep(pause)
+					continue
+				}
+			}
+			if failure.Code == "llm_tool_call_invalid" {
+				conversation = append(conversation, message{
+					Role:    "user",
+					Content: "Your last tool call was rejected: " + failure.Message + " Send it again with values of the right type.",
+				})
+				continue
+			}
 			return Response{Error: failure}
 		}
 		if len(reply.ToolCalls) == 0 {
@@ -219,6 +254,12 @@ func httpFailure(status int, payload []byte) *Error {
 	_ = json.Unmarshal(payload, &decoded)
 	detail := decoded.Error.Message
 
+	// Told apart from other rejections because the model can correct it,
+	// which nothing else in this list can be.
+	if status == http.StatusBadRequest && strings.Contains(detail, "did not match schema") {
+		return &Error{Code: "llm_tool_call_invalid", Message: detail}
+	}
+
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return &Error{Code: "llm_unauthorized", Message: withDetail("The endpoint rejected the API key.", detail)}
@@ -230,6 +271,29 @@ func httpFailure(status int, payload []byte) *Error {
 		return &Error{Code: "llm_rejected", Message: withDetail(fmt.Sprintf("The endpoint rejected the request (HTTP %d).", status), detail)}
 	}
 }
+
+// retryAfter reads the wait an endpoint suggests out of its own message.
+// Taken from the text because the wait is stated there even when no
+// Retry-After header is sent, and a suggested wait is more accurate than a
+// number we would invent.
+func retryAfter(detail string) (time.Duration, bool) {
+	match := retryPattern.FindStringSubmatch(detail)
+	if match == nil {
+		return 0, false
+	}
+	seconds, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0, false
+	}
+
+	pause := time.Duration(seconds*float64(time.Second)) + 250*time.Millisecond
+	if pause > maxWaitForRateLimit {
+		return 0, false
+	}
+	return pause, true
+}
+
+var retryPattern = regexp.MustCompile(`try again in ([0-9.]+)\s*s`)
 
 func withDetail(message, detail string) string {
 	if detail == "" {

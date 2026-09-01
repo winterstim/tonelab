@@ -55,6 +55,33 @@ tagged suites cover that: `-tags llm` drives a configured endpoint, and
 `-tags "llm reaper"` runs the MVP criterion itself, a free-text command
 changing a real REAPER.
 
+## One structure, different models
+
+The wire protocol is genuinely uniform: the same code drives a local runtime
+and a hosted endpoint with no branch anywhere for the provider. That much is
+verified rather than assumed, by running the same live suites against both.
+
+What is not uniform is model behaviour, and it cannot be made so from here.
+Measured on one prompt, six samples each: `qwen/qwen3.6-27b` produced a usable
+tool call 5 times in 6, failing by emitting its call in an XML-ish form where
+every value is text; `openai/gpt-oss-20b` produced 6 in 6. Schema shape made no
+difference outside that variance.
+
+So the uniformity that can be built is in the response to failure, and that is
+what the loop does:
+
+- **A tool refuses** the call, and the code goes back to the model to act on.
+- **The endpoint refuses** the call, validating our schema before it ever
+  reaches us, and the reason goes back to the model the same way. Without this
+  the turn would be lost on an endpoint that validates, while succeeding on one
+  that does not.
+- **The endpoint imposes a quota**, and a wait it says is seconds long is
+  waited out once rather than reported. Endpoints differ in whether they limit
+  at all, and the user should not have to know which they are using.
+
+Each of those is a difference between providers that would otherwise be visible
+to the user as "it works with one and not the other".
+
 ## How a model may write a value
 
 `TestValueRepresentationPolicy` is the policy, as a table: every accepted and
