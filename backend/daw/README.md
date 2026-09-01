@@ -18,6 +18,18 @@ Hz. REAPER's OSC is normalized already, so `REAPER` passes them straight
 through; a backend whose DAW speaks real units would convert here, which is
 the point of putting the boundary at this layer.
 
+## Verification gap
+
+`SetTrackSendVolume` is the one command covered only against the fake
+receiver, never against a running REAPER — every other command is verified
+both ways. A send has to exist before its volume can be set, and REAPER
+exposes no OSC action that creates one, so the round-trip test would need a
+prepared project rather than the track it makes for itself. Its address
+mapping is therefore inferred from REAPER's pattern config
+(`n/track/@/send/@/volume`) and not confirmed by REAPER's own feedback the way
+volume, pan, mute and solo are. Worth confirming by hand the first time a send
+is actually used.
+
 ## What REAPER's feedback actually does
 
 Learned from the round-trip tests, and load-bearing for the receive path that
