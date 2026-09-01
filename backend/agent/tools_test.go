@@ -9,6 +9,7 @@ import (
 
 	"tonelab/backend/agent"
 	"tonelab/backend/daw"
+	"tonelab/backend/daw/dawtest"
 )
 
 // A fake backend rather than a real one, so this layer's tests neither depend
@@ -44,27 +45,49 @@ func newFakeDAW() *fakeDAW {
 
 func (f *fakeDAW) Parameters() []daw.Parameter { return f.params }
 
-// Validates the name as a real backend does. A fake that accepts anything
-// would report success where the product reports param_not_found, which is the
-// kind of kindness that makes a test green and useless.
+// Validates exactly as a real backend does, which dawtest.AssertClientContract
+// holds it to. A fake that accepts what a DAW would refuse reports success
+// where the product reports an error, and every test above it goes green
+// without proving anything.
 func (f *fakeDAW) SetParam(track int, name string, value any) error {
 	if err := f.errs["set"]; err != nil {
 		return err
 	}
-	if !f.knows(name) {
+	if track < 1 {
+		return fmt.Errorf("%w, got %d", daw.ErrInvalidTrack, track)
+	}
+
+	param, ok := f.find(name)
+	if !ok {
 		return fmt.Errorf("%w %q", daw.ErrUnknownParam, name)
 	}
+
+	switch param.Kind {
+	case daw.Toggle:
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("%w: %s wants a toggle", daw.ErrParamKind, name)
+		}
+	default:
+		number, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("%w: %s wants a number", daw.ErrParamKind, name)
+		}
+		if number < 0 || number > 1 {
+			return fmt.Errorf("%w, got %v", daw.ErrValueOutOfRange, number)
+		}
+	}
+
 	f.setCalls = append(f.setCalls, setCall{track, name, value})
 	return nil
 }
 
-func (f *fakeDAW) knows(name string) bool {
+func (f *fakeDAW) find(name string) (daw.Parameter, bool) {
 	for _, param := range f.params {
 		if param.Name == name {
-			return true
+			return param, true
 		}
 	}
-	return false
+	return daw.Parameter{}, false
 }
 
 // Mirrors the real backend's asynchrony rather than answering instantly, so
@@ -295,4 +318,11 @@ func TestSlowDAWTimesOutAsUnknown(t *testing.T) {
 	if result.Error == nil || result.Error.Code != "value_unknown" {
 		t.Fatalf("expected value_unknown, got %+v", result.Error)
 	}
+}
+
+// The fake is held to the same contract as the real backend, so it cannot
+// quietly accept what a DAW would refuse. Both fake tests that went green and
+// useless in this project failed exactly that way.
+func TestFakeDAWMeetsTheClientContract(t *testing.T) {
+	dawtest.AssertClientContract(t, newFakeDAW())
 }
