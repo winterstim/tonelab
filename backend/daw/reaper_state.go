@@ -70,9 +70,21 @@ func (r *REAPER) Observe(feedback <-chan *goosc.Message) {
 	go func() {
 		for msg := range feedback {
 			r.observed.Add(1)
+			r.lastSeen.Store(time.Now().UnixNano())
 			r.absorb(msg)
 		}
 	}()
+}
+
+// LastSeen reports when the DAW last said anything at all, not just something
+// we understood. Callers infer connection from it, since nothing about sending
+// reveals whether anything is listening.
+func (r *REAPER) LastSeen() time.Time {
+	nanos := r.lastSeen.Load()
+	if nanos == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
 }
 
 // Observed distinguishes a silent DAW from one whose messages we are failing

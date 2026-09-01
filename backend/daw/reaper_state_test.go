@@ -155,3 +155,20 @@ func TestUnrelatedFeedbackIsIgnored(t *testing.T) {
 		t.Fatalf("expected 0.4, got %#v", got)
 	}
 }
+
+// Liveness counts any feedback, including messages this layer does not
+// understand: a DAW streaming position updates is plainly alive.
+func TestLastSeenTracksAnyFeedback(t *testing.T) {
+	reaper, _ := newREAPER(t)
+
+	if !reaper.LastSeen().IsZero() {
+		t.Fatal("a backend that has heard nothing must not claim otherwise")
+	}
+
+	before := time.Now()
+	feed(t, reaper, goosc.NewMessage("/time", float32(1)))
+
+	if reaper.LastSeen().Before(before) {
+		t.Fatalf("expected the arrival to be recorded, got %v", reaper.LastSeen())
+	}
+}
