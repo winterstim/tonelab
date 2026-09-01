@@ -53,6 +53,20 @@ type Config struct {
 type Response struct {
 	Message string
 	Error   *Error
+
+	// Changed is what the turn did to the DAW, for a UI that shows more than
+	// the model's own account of it. Nil when nothing was changed, including
+	// when the model only answered a question.
+	Changed []Change
+}
+
+// Change is one parameter a turn altered, as the DAW reported it afterwards.
+type Change struct {
+	Track     int
+	Param     string
+	Requested any
+	Confirmed any
+	Note      string
 }
 
 // Orchestrator runs the tool-calling loop: send the conversation, execute what
@@ -144,6 +158,7 @@ func (o *Orchestrator) Send(text string) Response {
 	waited := false
 
 	rejections := 0
+	var changed []Change
 
 	for step := 0; step < maxSteps; step++ {
 		reply, failure := o.complete(conversation)
@@ -172,12 +187,16 @@ func (o *Orchestrator) Send(text string) Response {
 			return Response{Error: failure}
 		}
 		if len(reply.ToolCalls) == 0 {
-			return Response{Message: reply.Content}
+			return Response{Message: reply.Content, Changed: changed}
 		}
 
 		conversation = append(conversation, reply)
 		for _, call := range reply.ToolCalls {
-			conversation = append(conversation, o.execute(call))
+			result, applied := o.execute(call)
+			conversation = append(conversation, result)
+			if applied != nil {
+				changed = append(changed, *applied)
+			}
 		}
 	}
 
@@ -192,7 +211,7 @@ func (o *Orchestrator) Send(text string) Response {
 // execute runs one tool call and phrases the outcome as a tool message. A
 // failure is reported to the model rather than ending the turn, because the
 // codes exist precisely so it can choose a different move.
-func (o *Orchestrator) execute(call toolCall) message {
+func (o *Orchestrator) execute(call toolCall) (message, *Change) {
 	result := o.tools.Call(call.Function.Name, json.RawMessage(call.Function.Arguments))
 
 	body, err := json.Marshal(result)
@@ -201,7 +220,21 @@ func (o *Orchestrator) execute(call toolCall) message {
 	}
 	log.Printf("[agent] tool %s -> %s", call.Function.Name, body)
 
-	return message{Role: "tool", ToolCallID: call.ID, Content: string(body)}
+	// A change is reported to the UI from what the tool confirmed, not from
+	// the model's summary, so a display cannot show something the DAW never
+	// did.
+	var changed *Change
+	if applied, ok := result.Value.(Applied); ok {
+		changed = &Change{
+			Track:     applied.Track,
+			Param:     applied.Param,
+			Requested: applied.Requested,
+			Confirmed: applied.Confirmed,
+			Note:      applied.Note,
+		}
+	}
+
+	return message{Role: "tool", ToolCallID: call.ID, Content: string(body)}, changed
 }
 
 // complete performs one request and returns the assistant's reply.

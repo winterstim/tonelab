@@ -2,6 +2,7 @@ package daw_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -134,5 +135,30 @@ func TestSurfacesTransportFailure(t *testing.T) {
 
 	if err := reaper.SetTrackVolume(1, 0.5); err == nil {
 		t.Fatal("expected an error when the transport cannot send, got nil")
+	}
+}
+
+// Every comparison against NaN is false, so a range check alone lets it
+// through to the DAW, where its effect is undefined. The guard belongs here
+// rather than only in the caller: this layer cannot assume who calls it.
+func TestNonNumbersNeverReachTheDAW(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value float64
+	}{
+		{"NaN", math.NaN()},
+		{"positive infinity", math.Inf(1)},
+		{"negative infinity", math.Inf(-1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reaper, receiver := newREAPER(t)
+
+			err := reaper.SetTrackVolume(1, tc.value)
+
+			if !errors.Is(err, daw.ErrValueOutOfRange) {
+				t.Fatalf("expected ErrValueOutOfRange, got %v", err)
+			}
+			receiver.ExpectNothing(100 * time.Millisecond)
+		})
 	}
 }

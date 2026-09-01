@@ -1,4 +1,5 @@
 import { AgentService, TransportService } from "../bindings/tonelab";
+import type { AgentResponse } from "../bindings/tonelab/models";
 
 const form = document.getElementById("command-form") as HTMLFormElement;
 const input = document.getElementById("command-input") as HTMLInputElement;
@@ -34,6 +35,28 @@ function explain(code: string, message: string): string {
     }
 }
 
+// A change the DAW did not report is shown as unconfirmed rather than
+// omitted, since silence about it is what a user would read as success.
+function describe(changed: AgentResponse["Changed"]): string {
+    if (!changed || changed.length === 0) {
+        return "";
+    }
+    const lines = changed.map((change) => {
+        const target = `track ${change.Track} ${change.Param}`;
+        return change.NewValue === null || change.NewValue === undefined
+            ? `• ${target}: sent ${format(change.Requested)}, not confirmed by the DAW`
+            : `• ${target}: ${format(change.NewValue)}`;
+    });
+    return "\n\n" + lines.join("\n");
+}
+
+function format(value: unknown): string {
+    if (typeof value === "boolean") {
+        return value ? "on" : "off";
+    }
+    return String(value);
+}
+
 form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -52,7 +75,10 @@ form.addEventListener("submit", async (event) => {
         if (response.Error) {
             show(explain(response.Error.Code, response.Error.Message), "problem");
         } else {
-            show(response.Message, "answer");
+            // The model's summary, then what the DAW actually confirmed. The
+            // model is the one account of the turn that cannot check itself,
+            // so it is shown beside the DAW's rather than instead of it.
+            show(response.Message + describe(response.Changed), "answer");
             input.value = "";
         }
     } catch (error) {

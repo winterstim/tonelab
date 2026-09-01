@@ -339,3 +339,39 @@ func TestRequestsAskForDeterministicToolCalls(t *testing.T) {
 		t.Fatalf("expected temperature 0, got %v", temperature)
 	}
 }
+
+// A UI needs what the DAW confirmed, not the model's summary, since the model
+// is the one account of the turn that cannot check itself.
+func TestConfirmedChangesAreReported(t *testing.T) {
+	backend := newFakeDAW()
+	backend.values["volume"] = 0.3
+	orchestrator, _ := newOrchestrator(t, backend,
+		llmtest.Turn{ToolCalls: []llmtest.ToolCall{{
+			ID: "call_1", Name: "set_param",
+			Arguments: `{"track_id":4,"param_name":"volume","value":0.3}`,
+		}}},
+		llmtest.Turn{Content: "Done."},
+	)
+
+	response := orchestrator.Send("turn track 4 down")
+
+	if len(response.Changed) != 1 {
+		t.Fatalf("expected one reported change, got %v", response.Changed)
+	}
+	change := response.Changed[0]
+	if change.Track != 4 || change.Param != "volume" || change.Confirmed != 0.3 {
+		t.Fatalf("unexpected change %+v", change)
+	}
+}
+
+// A turn that only answers a question must report nothing changed, or a UI
+// would show a change list for a command that touched nothing.
+func TestAnswersReportNoChanges(t *testing.T) {
+	orchestrator, _ := newOrchestrator(t, newFakeDAW(), llmtest.Turn{Content: "Track 2 is called Vocals."})
+
+	response := orchestrator.Send("what is track 2 called")
+
+	if len(response.Changed) != 0 {
+		t.Fatalf("expected no changes, got %v", response.Changed)
+	}
+}

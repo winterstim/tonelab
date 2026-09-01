@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -71,8 +72,14 @@ type lister interface {
 // and a caller must be told so rather than handed a silent zero. It is the
 // waiting form: asking a DAW and reading the reply are one operation from
 // here, since a caller has no way to know when the answer has arrived.
+//
+// GetParam is the same reading without the wait, which confirmation needs: a
+// DAW reporting only changes says nothing about a value that was already
+// right, and waiting for an announcement that will never come would call a
+// correct command unverified.
 type reader interface {
 	ReadParam(track int, name string, timeout time.Duration) (any, error)
+	GetParam(track int, name string) (any, error)
 }
 
 // Tools wraps one DAW backend. It holds no parameter list of its own: names
@@ -254,6 +261,21 @@ func (t *Tools) confirm(track int, name string, requested any) Applied {
 		return applied
 	}
 
+	// A DAW reporting only transitions is silent when the value was already
+	// what was asked for, so setting mute on an already muted track would
+	// otherwise time out and be called unverified.
+	if current, err := source.GetParam(track, name); err == nil && current == requested {
+		applied.Confirmed = current
+		return applied
+	}
+
+	// Nor is there anything to wait for on a parameter the backend says it
+	// never reports, and spending the timeout to learn that helps nobody.
+	if param, err := daw.FindParameter(t.daw, name); err == nil && !param.Readable {
+		applied.Note = "This DAW does not report " + name + " back, so the change is unverified."
+		return applied
+	}
+
 	value, err := source.ReadParam(track, name, confirmTimeout)
 	if err != nil {
 		applied.Note = "The DAW did not report this parameter back, so the change is unverified."
@@ -329,14 +351,17 @@ func asNumber(value any) (float64, bool) {
 		// have and must not guess at.
 		if percent := strings.TrimSuffix(text, "%"); percent != text {
 			parsed, err := strconv.ParseFloat(strings.TrimSpace(percent), 64)
-			if err != nil {
+			if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
 				return 0, false
 			}
 			return parsed / 100, true
 		}
 
 		parsed, err := strconv.ParseFloat(text, 64)
-		if err != nil {
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			// ParseFloat accepts "NaN" and "Inf", which name no value a user
+			// asked for, and NaN in particular survives every range check
+			// because comparisons against it are false.
 			return 0, false
 		}
 		return parsed, true

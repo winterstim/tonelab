@@ -105,6 +105,19 @@ func (f *fakeDAW) find(name string) (daw.Parameter, bool) {
 	return daw.Parameter{}, false
 }
 
+// GetParam is the lookup with no wait, which is how confirmation notices a
+// value that was already correct.
+func (f *fakeDAW) GetParam(track int, name string) (any, error) {
+	if err := f.errs["get"]; err != nil {
+		return nil, err
+	}
+	value, known := f.values[name]
+	if !known {
+		return nil, daw.ErrValueUnknown
+	}
+	return value, nil
+}
+
 // Mirrors the real backend's asynchrony rather than answering instantly, so
 // this fake cannot hide the timing the DAW actually imposes.
 func (f *fakeDAW) ReadParam(track int, name string, timeout time.Duration) (any, error) {
@@ -544,6 +557,19 @@ func TestValueRepresentationPolicy(t *testing.T) {
 		{"volume", `"-6dB"`, false, nil},
 		{"volume", `"440Hz"`, false, nil},
 		{"volume", `"loud"`, false, nil},
+
+		// Names no value a user asked for, and NaN survives every range
+		// check because comparisons against it are false.
+		{"volume", `"NaN"`, false, nil},
+		{"volume", `"Inf"`, false, nil},
+		{"volume", `"-Inf"`, false, nil},
+		{"volume", `"Infinity"`, false, nil},
+		{"volume", `"NaN%"`, false, nil},
+
+		// Plain out of range, which the DAW layer catches.
+		{"volume", `1000.1`, false, nil},
+		{"volume", `-50`, false, nil},
+		{"volume", `1e308`, false, nil},
 		{"volume", `"half"`, false, nil},
 		{"volume", `true`, false, nil},
 		{"volume", `""`, false, nil},
@@ -653,5 +679,48 @@ func TestUnknownParameterNamesTheAlternatives(t *testing.T) {
 		if !strings.Contains(result.Error.Message, expected) {
 			t.Errorf("expected the refusal to mention %q, got %q", expected, result.Error.Message)
 		}
+	}
+}
+
+// A DAW reporting only transitions says nothing about a value that was
+// already right, so waiting for an announcement that will never come would
+// call a correct command unverified and have the model tell the user so.
+func TestSettingAValueAlreadyHeldIsStillConfirmed(t *testing.T) {
+	backend := newFakeDAW()
+	backend.values["mute"] = true
+	backend.readDelay = time.Hour // any wait would be a failure of the design
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"mute","value":true}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	applied := result.Value.(agent.Applied)
+	if applied.Confirmed != true {
+		t.Fatalf("expected the unchanged value to count as confirmed, got %#v", applied)
+	}
+}
+
+// A parameter the backend says it never reports has nothing to wait for, and
+// spending the timeout to learn that only delays the user.
+func TestUnreadableParameterIsNotWaitedOn(t *testing.T) {
+	backend := newFakeDAW()
+	backend.params = append(backend.params, daw.Parameter{Name: "send", Kind: daw.Numeric, Readable: false})
+	backend.readDelay = time.Hour
+	tools := agent.NewTools(backend)
+
+	start := time.Now()
+	result := call(t, tools, "set_param", `{"track_id":1,"param_name":"send","value":0.5}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("expected no wait on an unreadable parameter, took %s", elapsed)
+	}
+	applied := result.Value.(agent.Applied)
+	if !strings.Contains(applied.Note, "unverified") {
+		t.Errorf("expected the caveat, got %+v", applied)
 	}
 }
