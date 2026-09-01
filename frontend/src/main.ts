@@ -1,5 +1,5 @@
 import {Events, WML} from "@wailsio/runtime";
-import {GreetService} from "../bindings/tonelab";
+import {GreetService, TransportService} from "../bindings/tonelab";
 
 // Wire up data-wml-openURL links (logos + footer "Docs" link) once the DOM is ready.
 WML.Enable();
@@ -54,6 +54,16 @@ greetButton.addEventListener('click', async () => {
     } catch (err) {
         console.error(err);
     }
+});
+
+// walking-skeleton proof: button -> Go -> OSC -> REAPER.
+// Requires REAPER running locally with an OSC control surface enabled
+// (Preferences > Control/OSC/web) listening on 127.0.0.1:8000.
+document.getElementById('transport-play')!.addEventListener('click', async () => {
+    showToast(await TransportService.Play());
+});
+document.getElementById('transport-stop')!.addEventListener('click', async () => {
+    showToast(await TransportService.Stop());
 });
 
 Events.On('time', (time) => {
