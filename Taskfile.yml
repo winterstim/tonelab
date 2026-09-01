@@ -40,7 +40,9 @@ tasks:
   test:reaper:
     summary: Runs the round-trip tests against a real running REAPER
     cmds:
-      - go test -tags reaper -count=1 ./...
+      # -p 1 because every round-trip test binds REAPER's one feedback port,
+      # so the packages cannot run in parallel the way the normal suite does.
+      - go test -tags reaper -count=1 -p 1 ./...
 
   dev:
     summary: Runs the application in development mode

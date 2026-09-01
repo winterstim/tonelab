@@ -12,12 +12,11 @@
 package osc_test
 
 import (
-	"net"
 	"testing"
 	"time"
 
-	goosc "github.com/hypebeast/go-osc/osc"
 	"tonelab/backend/osc"
+	"tonelab/backend/osc/osctest"
 )
 
 const (
@@ -32,91 +31,25 @@ const (
 // the message it wrote, which is the only way to tell a delivered command
 // from a lost one over UDP.
 func TestReaperRoundTrip_PlayAndStop(t *testing.T) {
-	feedback := listenForFeedback(t)
+	feedback := osctest.NewFeedback(t, reaperFeedbackPort)
 	transport := osc.NewTransport(reaperHost, reaperListenPort)
 
-	// Start from a known state: REAPER only reports a transition, so a
-	// project already playing would never send /play 1 again.
+	// Start from a known state: REAPER reports a transition, so a project
+	// already playing would never announce /play again.
 	if err := transport.Send("/stop"); err != nil {
 		t.Fatalf("Send(/stop) failed: %v", err)
 	}
-	awaitFeedback(t, feedback, "/stop", 3*time.Second)
+	feedback.AwaitValue("/stop", 1, 0, 3*time.Second)
 
 	if err := transport.Send("/play"); err != nil {
 		t.Fatalf("Send(/play) failed: %v", err)
 	}
-	awaitFeedback(t, feedback, "/play", 3*time.Second)
+	feedback.AwaitValue("/play", 1, 0, 3*time.Second)
 
 	// Leave the transport stopped so a rerun starts clean and REAPER isn't
 	// left rolling after the suite exits.
 	if err := transport.Send("/stop"); err != nil {
 		t.Fatalf("Send(/stop) failed: %v", err)
 	}
-	awaitFeedback(t, feedback, "/stop", 3*time.Second)
-}
-
-// flatten unwraps a packet into the messages it carries. REAPER sends its
-// feedback as OSC bundles, not bare messages — a receive path that only
-// understands messages sees nothing at all, which is exactly how this test
-// failed the first time it ran.
-func flatten(packet goosc.Packet) []*goosc.Message {
-	switch p := packet.(type) {
-	case *goosc.Message:
-		return []*goosc.Message{p}
-	case *goosc.Bundle:
-		var msgs []*goosc.Message
-		msgs = append(msgs, p.Messages...)
-		for _, nested := range p.Bundles {
-			msgs = append(msgs, flatten(nested)...)
-		}
-		return msgs
-	}
-	return nil
-}
-
-func listenForFeedback(t *testing.T) *net.UDPConn {
-	t.Helper()
-
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(reaperHost), Port: reaperFeedbackPort})
-	if err != nil {
-		t.Fatalf("could not listen on REAPER's feedback port %d (is another OSC client holding it?): %v", reaperFeedbackPort, err)
-	}
-	t.Cleanup(func() { conn.Close() })
-	return conn
-}
-
-// awaitFeedback waits for REAPER to report address with a true value,
-// ignoring the unrelated feedback (time, beat, track state) it streams
-// continuously.
-func awaitFeedback(t *testing.T, conn *net.UDPConn, address string, timeout time.Duration) {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	buf := make([]byte, 4096)
-	for {
-		if err := conn.SetReadDeadline(deadline); err != nil {
-			t.Fatalf("could not set read deadline: %v", err)
-		}
-		n, _, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			t.Fatalf("REAPER never reported %s within %s — it is either not running, not listening on %d, or not sending feedback to %d: %v",
-				address, timeout, reaperListenPort, reaperFeedbackPort, err)
-		}
-
-		packet, err := goosc.ParsePacket(string(buf[:n]))
-		if err != nil {
-			continue // not OSC we understand; keep waiting for what we want
-		}
-		for _, msg := range flatten(packet) {
-			if msg.Address != address {
-				continue
-			}
-			if len(msg.Arguments) > 0 {
-				if on, ok := msg.Arguments[0].(float32); ok && on == 0 {
-					continue // REAPER reporting the state turning off, not on
-				}
-			}
-			return
-		}
-	}
+	feedback.AwaitValue("/stop", 1, 0, 3*time.Second)
 }
