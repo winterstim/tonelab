@@ -4,7 +4,6 @@ import (
 	"embed"
 
 	"log"
-	"time"
 
 	goosc "github.com/hypebeast/go-osc/osc"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -19,11 +18,6 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
-
-func init() {
-	// Registered so the binding generator emits a typed TS API for it.
-	application.RegisterEvent[string]("time")
-}
 
 func main() {
 
@@ -75,7 +69,6 @@ func main() {
 		Name:        "Tonelab",
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
-			application.NewService(&GreetService{}),
 			application.NewService(NewTransportService(dawClient)),
 			application.NewService(agentService),
 		},
@@ -88,7 +81,7 @@ func main() {
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Window 1",
+		Title: "Tonelab",
 		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
 		Width:  1000,
 		Height: 618,
@@ -100,15 +93,6 @@ func main() {
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
 	})
-
-	// Template leftover: proves the event path to the frontend still works.
-	go func() {
-		for {
-			now := time.Now().Format(time.RFC1123)
-			app.Event.Emit("time", now)
-			time.Sleep(time.Second)
-		}
-	}()
 
 	if err = app.Run(); err != nil {
 		log.Fatal(err)

@@ -1,75 +1,93 @@
-import {Events, WML} from "@wailsio/runtime";
-import {GreetService, TransportService} from "../bindings/tonelab";
+import { AgentService, TransportService } from "../bindings/tonelab";
 
-// Wire up data-wml-openURL links (logos + footer "Docs" link) once the DOM is ready.
-WML.Enable();
+const form = document.getElementById("command-form") as HTMLFormElement;
+const input = document.getElementById("command-input") as HTMLInputElement;
+const send = document.getElementById("command-send") as HTMLButtonElement;
+const answer = document.getElementById("answer") as HTMLElement;
+const status = document.getElementById("daw-status") as HTMLElement;
+const statusText = document.getElementById("daw-status-text") as HTMLElement;
 
-const greetButton = document.getElementById('greet')! as HTMLButtonElement;
-const nameElement = document.getElementById('name')! as HTMLInputElement;
-const resultElement = document.getElementById('result')! as HTMLSpanElement;
-const timeElement = document.getElementById('time')! as HTMLSpanElement;
-const titleNameElement = document.querySelector('.title-name')! as HTMLElement;
-const toastElement = document.getElementById('toast')! as HTMLDivElement;
-let toastTimer: ReturnType<typeof setTimeout>;
+// How often to ask whether the DAW is still there. The backend decides what
+// counts as connected; this only decides how stale the display may be.
+const statusInterval = 2000;
 
-// Show the actual Wails version this project was generated against.
-document.getElementById('version')!.innerText = "v3.0.0-beta.16";
+type Tone = "answer" | "problem" | "working";
 
-// Crossfade the framework word in the heading ("Wails + JavaScript") to the name
-// the user entered ("Wails + <name>"): the old word fades out while the new one
-// fades in over the same spot.
-function swapTitleName(name: string) {
-    const current = titleNameElement.querySelector('.title-name-text:not(.is-outgoing)') as HTMLElement | null;
-    if (!current || current.textContent === name) {
+function show(text: string, tone: Tone) {
+    answer.textContent = text;
+    answer.dataset.tone = tone;
+}
+
+// The backend distinguishes its failures by code so they can be acted on
+// differently. Only a few change what the user should do next; the rest carry
+// a message already written for them.
+function explain(code: string, message: string): string {
+    switch (code) {
+        case "llm_unreachable":
+            return `${message} Check the endpoint in your config file, and that a local model is running.`;
+        case "llm_unauthorized":
+            return `${message} Check the API key in your config file.`;
+        case "daw_command_failed":
+            return `${message} Check the DAW is running and listening for OSC.`;
+        default:
+            return message;
+    }
+}
+
+form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const text = input.value.trim();
+    if (text === "") {
         return;
     }
-    const incoming = document.createElement('span');
-    incoming.className = 'title-name-text is-entering';
-    incoming.textContent = name;
-    current.classList.add('is-outgoing');
-    titleNameElement.appendChild(incoming);
-    // Force a reflow so the transitions run from the starting state.
-    void incoming.offsetWidth;
-    incoming.classList.remove('is-entering');
-    current.classList.add('is-leaving');
-    current.addEventListener('transitionend', () => current.remove(), {once: true});
-}
 
-// Pop the toast with the message Go returned, then auto-dismiss it.
-function showToast(message: string) {
-    resultElement.innerText = message;
-    toastElement.classList.add('is-visible');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastElement.classList.remove('is-visible'), 4000);
-}
+    // Disabled while working, since a second command sent mid-flight would
+    // reach a DAW whose state the first has already changed.
+    send.disabled = true;
+    show("Working…", "working");
 
-greetButton.addEventListener('click', async () => {
-    let name = nameElement.value;
-    if (!name) {
-        name = 'anonymous';
-    }
-    swapTitleName(name);
     try {
-        showToast(await GreetService.Greet(name));
-    } catch (err) {
-        console.error(err);
+        const response = await AgentService.SendCommand(text);
+        if (response.Error) {
+            show(explain(response.Error.Code, response.Error.Message), "problem");
+        } else {
+            show(response.Message, "answer");
+            input.value = "";
+        }
+    } catch (error) {
+        // Reaching here means the call itself broke rather than the command
+        // failing, which the backend reports inside the response instead.
+        // A rejected binding call can carry an empty message, and appending
+        // nothing reads as a truncated sentence.
+        const reason = (error instanceof Error ? error.message : String(error)).trim();
+        show(reason
+            ? `The backend could not be reached. ${reason}`
+            : "The backend could not be reached. Restart the app if this persists.", "problem");
+    } finally {
+        send.disabled = false;
+        input.focus();
     }
 });
 
-// walking-skeleton proof: button -> Go -> OSC -> REAPER.
-// Requires REAPER running locally with an OSC control surface enabled
-// (Preferences > Control/OSC/web) listening on 127.0.0.1:8000.
-document.getElementById('transport-play')!.addEventListener('click', async () => {
-    showToast(await TransportService.Play());
+async function refreshStatus() {
+    try {
+        const daw = await AgentService.GetDAWStatus();
+        status.dataset.connected = String(daw.Connected);
+        statusText.textContent = daw.Connected ? "DAW connected" : daw.Detail;
+    } catch {
+        status.dataset.connected = "false";
+        statusText.textContent = "Backend not responding";
+    }
+}
+
+document.getElementById("transport-play")!.addEventListener("click", async () => {
+    show(await TransportService.Play(), "answer");
 });
-document.getElementById('transport-stop')!.addEventListener('click', async () => {
-    showToast(await TransportService.Stop());
+document.getElementById("transport-stop")!.addEventListener("click", async () => {
+    show(await TransportService.Stop(), "answer");
 });
 
-Events.On('time', (time) => {
-    // The full RFC1123 stamp is too wide for the footer on a phone, so on narrow
-    // screens (matching the CSS breakpoint) we show just the clock time.
-    const full = time.data;
-    const compact = (full.match(/\d{1,2}:\d{2}:\d{2}/) || [full])[0];
-    timeElement.innerText = window.matchMedia('(max-width: 640px)').matches ? compact : full;
-});
+refreshStatus();
+setInterval(refreshStatus, statusInterval);
+input.focus();
