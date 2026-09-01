@@ -9,9 +9,8 @@ import (
 	"tonelab/backend/daw"
 )
 
-// feed pushes DAW feedback at a backend the way a live DAW would, and waits
-// until it has been taken in — the backend consumes asynchronously, so a test
-// that asserted immediately would race the goroutine rather than the logic.
+// Waits for intake because the backend consumes asynchronously, and asserting
+// immediately would race the goroutine rather than test the logic.
 func feed(t *testing.T, reaper *daw.REAPER, msgs ...*goosc.Message) {
 	t.Helper()
 
@@ -32,10 +31,8 @@ func feed(t *testing.T, reaper *daw.REAPER, msgs ...*goosc.Message) {
 	}
 }
 
-// TestGetParamReturnsWhatTheDAWReported is the read path's whole purpose.
-// The value comes from what the DAW said about itself, never from what
-// Tonelab last sent — a command can be lost on UDP, and a user can move a
-// fader in the DAW, so our own record of a write is not the truth.
+// The read path's whole purpose. Our record of a write is not the truth: a
+// command can be lost on UDP, and a user can move a fader by hand.
 func TestGetParamReturnsWhatTheDAWReported(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -77,8 +74,8 @@ func TestGetParamReturnsWhatTheDAWReported(t *testing.T) {
 	}
 }
 
-// TestGetParamTracksTheLatestValue matters because feedback is a stream of
-// state, not a log: an old reading is not history, it is wrong.
+// Feedback is a stream of state, not a log: an old reading is wrong, not
+// history.
 func TestGetParamTracksTheLatestValue(t *testing.T) {
 	reaper, _ := newREAPER(t)
 
@@ -96,9 +93,8 @@ func TestGetParamTracksTheLatestValue(t *testing.T) {
 	}
 }
 
-// TestGetParamSeparatesTracks guards the address parsing: reporting track 3's
-// volume as track 1's would be a plausible-looking wrong answer, which is
-// worse than an error.
+// Reporting one track's value as another's is a plausible-looking wrong
+// answer, which is worse than an error.
 func TestGetParamSeparatesTracks(t *testing.T) {
 	reaper, _ := newREAPER(t)
 
@@ -112,9 +108,8 @@ func TestGetParamSeparatesTracks(t *testing.T) {
 	}
 }
 
-// TestGetParamDistinguishesItsFailures keeps the agent able to choose a
-// recovery: a name this DAW never had needs a different response from a value
-// the DAW simply has not mentioned yet.
+// A name this DAW never had needs a different recovery from a value it simply
+// has not mentioned yet.
 func TestGetParamDistinguishesItsFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -139,9 +134,8 @@ func TestGetParamDistinguishesItsFailures(t *testing.T) {
 	}
 }
 
-// TestUnrelatedFeedbackIsIgnored: a DAW streams far more than parameters
-// (playhead position, meters, names), and none of it should be mistaken for
-// one or crash the consumer.
+// A DAW streams far more than parameters, and none of it may be mistaken for
+// one.
 func TestUnrelatedFeedbackIsIgnored(t *testing.T) {
 	reaper, _ := newREAPER(t)
 

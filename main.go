@@ -12,12 +12,9 @@ import (
 	"tonelab/backend/osc"
 )
 
-// Which DAW backend to drive and where it listens. This is the one place in
-// the application that names a DAW: everything above backend/daw works
-// through daw.Client and does not know which backend is behind it. Fixed here
-// until the app persists connection settings, at which point these become
-// config values rather than constants — daw.Backends() is what a settings
-// screen would offer.
+// The one place in the application that names a DAW. Constants
+// until settings are persisted, at which point they become config values and
+// daw.Backends() is what a settings screen offers.
 //
 // The port must match the DAW's own OSC listen port (in REAPER: Preferences >
 // Control/OSC/web -> Add -> OSC, "Local listen port").
@@ -27,39 +24,26 @@ const (
 	dawOSCPort = 8000
 )
 
-// Wails uses Go's `embed` package to embed the frontend files into the binary.
-// Any files in the frontend/dist folder will be embedded into the binary and
-// made available to the frontend.
-// See https://pkg.go.dev/embed for more information.
+// Embedded so the app ships as one binary with no external asset path.
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func init() {
-	// Register a custom event whose associated data type is string.
-	// This is not required, but the binding generator will pick up registered events
-	// and provide a strongly typed JS/TS API for them.
+	// Registered so the binding generator emits a typed TS API for it.
 	application.RegisterEvent[string]("time")
 }
 
-// main function serves as the application's entry point. It initializes the application, creates a window,
-// and starts a goroutine that emits a time-based event every second. It subsequently runs the application and
-// logs any error that might occur.
 func main() {
 
-	// One transport, one DAW client, shared by every service that talks to
-	// the DAW. Services get the daw.Client interface, not the transport, so
-	// nothing above this line knows an OSC address or which DAW is connected.
+	// Services get the daw.Client interface rather than the transport, so
+	// nothing above this line knows an OSC address or which DAW is behind
+	// it.
 	dawClient, err := daw.New(dawBackend, osc.NewTransport(dawOSCHost, dawOSCPort))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Create a new Wails application by providing the necessary options.
-	// Variables 'Name' and 'Description' are for application metadata.
-	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
-	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
-	// 'Mac' options tailor the application when running an macOS.
 	app := application.New(application.Options{
 		Name:        "Tonelab",
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
@@ -75,11 +59,6 @@ func main() {
 		},
 	})
 
-	// Create a new window with the necessary options.
-	// 'Title' is the title of the window.
-	// 'Mac' options tailor the window when running on macOS.
-	// 'BackgroundColour' is the background colour of the window.
-	// 'URL' is the URL that will be loaded into the webview.
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title: "Window 1",
 		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
@@ -94,8 +73,7 @@ func main() {
 		URL:              "/",
 	})
 
-	// Create a goroutine that emits an event containing the current time every second.
-	// The frontend can listen to this event and update the UI accordingly.
+	// Template leftover: proves the event path to the frontend still works.
 	go func() {
 		for {
 			now := time.Now().Format(time.RFC1123)
@@ -104,11 +82,7 @@ func main() {
 		}
 	}()
 
-	// Run the application. This blocks until the application has been exited.
-	err = app.Run()
-
-	// If an error occurred while running the application, log it and exit.
-	if err != nil {
+	if err = app.Run(); err != nil {
 		log.Fatal(err)
 	}
 }

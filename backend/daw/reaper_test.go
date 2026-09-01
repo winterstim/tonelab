@@ -17,10 +17,8 @@ func newREAPER(t *testing.T) (*daw.REAPER, *osctest.Receiver) {
 	return daw.NewREAPER(osc.NewTransport("127.0.0.1", receiver.Port)), receiver
 }
 
-// TestCommandsMapToREAPERAddresses is the whole point of this layer: turning
-// a domain command into the exact OSC address REAPER documents for it. The
-// addresses come from REAPER's own Default.ReaperOSC pattern config, and
-// getting one wrong is silent — REAPER ignores addresses it doesn't know.
+// The whole point of this layer. Getting an address wrong is silent, since
+// REAPER ignores addresses it does not know.
 func TestCommandsMapToREAPERAddresses(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -82,11 +80,8 @@ func TestCommandsMapToREAPERAddresses(t *testing.T) {
 	}
 }
 
-// TestRejectsInvalidInputSendsNothing covers the half of this layer that is
-// not mapping: refusing a command REAPER would silently mishandle. A track
-// index REAPER doesn't have, or a value outside the normalized range every
-// parameter uses, must fail here rather than travelling down a
-// fire-and-forget UDP socket where nothing can report it.
+// Bad input must fail here rather than travel down a fire-and-forget socket
+// where nothing can report it.
 func TestRejectsInvalidInputSendsNothing(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -132,9 +127,8 @@ func TestRejectsInvalidInputSendsNothing(t *testing.T) {
 	}
 }
 
-// TestSurfacesTransportFailure keeps the transport's errors flowing upward:
-// the agent tools above this layer decide what to tell the user, and they
-// can only do that if a failed send isn't reported as a done command.
+// The tools layer can only choose a recovery if a failed send is not reported
+// as a done command.
 func TestSurfacesTransportFailure(t *testing.T) {
 	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", 0))
 

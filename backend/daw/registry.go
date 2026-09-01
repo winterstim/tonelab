@@ -5,18 +5,16 @@ import (
 	"sort"
 )
 
-// Factory builds a backend on a transport. Registering one is all it takes to
-// make a DAW selectable — nothing outside this file names a specific DAW, so
-// adding the next backend does not touch application startup or any layer
-// above it.
+// Factory keeps DAW names out of application startup: registering one here is
+// all it takes to make a backend selectable.
 type Factory func(Sender) Client
 
 var backends = map[string]Factory{
 	"reaper": func(sender Sender) Client { return NewREAPER(sender) },
 }
 
-// New builds the named backend. The name is data — it comes from
-// configuration, not from a decision compiled into the caller.
+// New takes a name so the choice of DAW is configuration rather than a
+// decision compiled into the caller.
 func New(name string, sender Sender) (Client, error) {
 	factory, ok := backends[name]
 	if !ok {
@@ -25,8 +23,8 @@ func New(name string, sender Sender) (Client, error) {
 	return factory(sender), nil
 }
 
-// Backends lists the registered backend names, for configuration and for
-// telling a user what they can choose.
+// Backends is what a settings screen offers, so the list cannot drift from
+// what is actually registered.
 func Backends() []string {
 	names := make([]string, 0, len(backends))
 	for name := range backends {

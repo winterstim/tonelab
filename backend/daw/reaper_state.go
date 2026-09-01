@@ -8,15 +8,13 @@ import (
 	goosc "github.com/hypebeast/go-osc/osc"
 )
 
-// ErrValueUnknown means the DAW has not reported this parameter yet. It is
-// deliberately not the same as "no such parameter": the value exists, we just
-// have not been told it, and the recovery differs — waiting or prompting the
-// DAW may help, renaming will not.
+// ErrValueUnknown is deliberately not "no such parameter": the value exists
+// and we simply have not been told it, so the recovery is a refresh rather
+// than a different name.
 var ErrValueUnknown = fmt.Errorf("daw: value not reported by the DAW yet")
 
-// state holds the most recent value the DAW reported per (track, parameter).
-// Feedback is a stream of current state rather than a log, so an older
-// reading is not history — it is simply wrong, and gets overwritten.
+// state overwrites rather than appends, since DAW feedback is current state
+// and not a log: an older reading is wrong, not history.
 type state struct {
 	mu     sync.RWMutex
 	values map[string]float64
@@ -43,14 +41,10 @@ func (s *state) get(track int, param string) (float64, bool) {
 	return value, ok
 }
 
-// Observe consumes a DAW's feedback stream in the background, keeping the
-// backend's picture of the DAW current. Reading a value is then a lookup
-// rather than a query — which is not a shortcut but a requirement: REAPER
-// never answers questions, it only announces changes, so the only way to know
-// a value is to have been listening when it was announced.
-//
-// This is also why a value can be legitimately unknown: nothing guarantees
-// the DAW mentioned a given parameter since we started listening.
+// Observe makes reading a lookup rather than a query, which is a requirement
+// and not a shortcut: REAPER never answers questions, only announces changes,
+// so a value is known only if we were listening when it was announced. Hence
+// a value can be legitimately unknown.
 func (r *REAPER) Observe(feedback <-chan *goosc.Message) {
 	go func() {
 		for msg := range feedback {
@@ -60,17 +54,15 @@ func (r *REAPER) Observe(feedback <-chan *goosc.Message) {
 	}()
 }
 
-// Observed counts the feedback messages taken in, whether or not any of them
-// were understood. Without it a caller cannot tell a silent DAW from one
-// whose messages we are failing to interpret.
+// Observed distinguishes a silent DAW from one whose messages we are failing
+// to interpret.
 func (r *REAPER) Observed() uint64 {
 	return r.observed.Load()
 }
 
-// absorb records the messages that carry a parameter's current value and
-// ignores the rest. A DAW streams far more than parameters — playhead
-// position, meters, names, string readouts of the same values — and only the
-// normalized form is what this layer's contract speaks in.
+// absorb keeps only the normalized form this layer's contract speaks in
+//, discarding the position, meter and string readouts a DAW
+// streams alongside it.
 func (r *REAPER) absorb(msg *goosc.Message) {
 	track, param, ok := parseTrackAddress(msg.Address)
 	if !ok {
@@ -89,10 +81,8 @@ func (r *REAPER) absorb(msg *goosc.Message) {
 	r.state.set(track, param, value)
 }
 
-// parseTrackAddress splits REAPER's own address form. Anything with a deeper
-// path (/track/1/volume/str, /track/1/send/1/volume) is deliberately not a
-// match: those are either a different representation of the value or a
-// different parameter entirely.
+// parseTrackAddress rejects deeper paths such as /track/1/volume/str on
+// purpose: they are a different representation, or a different parameter.
 func parseTrackAddress(address string) (track int, param string, ok bool) {
 	parts := strings.Split(strings.TrimPrefix(address, "/"), "/")
 	if len(parts) != 3 || parts[0] != "track" {
@@ -104,17 +94,13 @@ func parseTrackAddress(address string) (track int, param string, ok bool) {
 	return track, parts[2], true
 }
 
-// Refresh asks the DAW to report the state of a track, because REAPER never
-// answers a question — it only announces changes. Reading a value therefore
-// has two steps that must stay separate: make the DAW talk, then read what it
-// said. Folding them together would hide a network round-trip inside what
-// looks like a map lookup.
+// Refresh is separate from GetParam so a network round-trip is not hidden
+// inside what looks like a map lookup. It makes REAPER re-announce by
+// pointing the control surface elsewhere and back.
 //
-// It works by pointing the control surface at another track and back, which
-// is what makes REAPER re-announce. Crucially it sends only /device/*
-// addresses — the surface's own view — and never /track/*, so it does not
-// touch the project, mark it dirty, or disturb the user's selection
-//. That restriction is a guarantee, and it is tested.
+// It sends only /device/* addresses, which move the surface's own view rather
+// than the project, so reading cannot disturb a project someone is working in
+//. Enforced by test, not by care.
 func (r *REAPER) Refresh(track int) error {
 	if err := validateTrack(track); err != nil {
 		return err
@@ -129,10 +115,9 @@ func (r *REAPER) Refresh(track int) error {
 	return r.osc.Send("/device/track/select", int32(track))
 }
 
-// GetParam reports a parameter's current value as the DAW last described it —
-// never as Tonelab last set it. Those differ whenever a command was lost on
-// the way out, or a user moved a control in the DAW itself, and the DAW's
-// account is the true one.
+// GetParam answers from the DAW's own account rather than what Tonelab last
+// sent, because those differ whenever a command was lost on the way out or a
+// user moved a control by hand.
 func (r *REAPER) GetParam(track int, name string) (any, error) {
 	if err := validateTrack(track); err != nil {
 		return nil, err

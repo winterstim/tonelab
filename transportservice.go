@@ -6,15 +6,12 @@ import (
 	"tonelab/backend/daw"
 )
 
-// TransportService exposes transport control to the frontend. It is a thin
-// Wails boundary over the DAW command layer: no OSC addresses, no argument
-// encoding, and no knowledge of which DAW is connected — those belong to
-// backend/daw, and this type only turns the result into text a button can
-// display.
+// TransportService is deliberately thin: it holds no OSC address, no argument
+// encoding and no knowledge of which DAW is connected, so a second backend
+// changes nothing here.
 //
-// Still two hardcoded commands. The agent (which will drive backend/daw
-// through the parameter tools instead) does not exist yet, and until it does
-// these buttons are how the chain gets exercised by hand.
+// Two hardcoded commands until the agent exists, since these buttons are
+// currently the only way to drive the chain by hand.
 type TransportService struct {
 	daw daw.Client
 }
@@ -31,13 +28,11 @@ func (t *TransportService) Stop() string {
 	return t.report("stop", t.daw.Stop())
 }
 
-// report turns a command's outcome into a line for the UI toast. A nil error
-// means the command was written to the socket, not that the DAW received it
-// — the transport is fire-and-forget — so the success text points at the DAW
-// itself as the real check.
+// report points the user at the DAW as the real check, because a nil error
+// only means the command reached the socket.
 func (t *TransportService) report(command string, err error) string {
 	if err != nil {
 		return fmt.Sprintf("Could not %s: %v", command, err)
 	}
-	return fmt.Sprintf("Sent %s — check your DAW", command)
+	return fmt.Sprintf("Sent %s, check your DAW", command)
 }

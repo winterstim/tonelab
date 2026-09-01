@@ -8,10 +8,9 @@ import (
 	"tonelab/backend/daw"
 )
 
-// stubDAW records what it was asked to do. TransportService takes a
-// daw.Client, so its tests need no DAW backend, no OSC socket and no
-// addresses — using a real backend here would test that backend twice and
-// tie this layer to whichever DAW happens to be first.
+// TransportService takes a daw.Client, so its tests need no backend, socket
+// or address. A real backend here would test that backend twice and tie this
+// layer to whichever DAW happens to be first.
 type stubDAW struct {
 	daw.Client // unimplemented methods panic if this layer ever calls them
 
@@ -27,10 +26,8 @@ func (s *stubDAW) record(command string) error {
 	return s.err
 }
 
-// TestTransportService_CallsTheDAW covers what clicking the two buttons in
-// the running app does, minus the click: the frontend calls straight into
-// these methods through the generated Wails bindings, so everything below
-// this point is the same code path.
+// What clicking the two buttons does, minus the click: the frontend calls
+// straight into these methods through the generated bindings.
 func TestTransportService_CallsTheDAW(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -59,9 +56,7 @@ func TestTransportService_CallsTheDAW(t *testing.T) {
 	}
 }
 
-// TestTransportService_ReportsFailure pins the other branch: when the DAW
-// layer fails, the string the toast shows must say so rather than reporting
-// a command that never landed.
+// The toast must not report a command that never landed.
 func TestTransportService_ReportsFailure(t *testing.T) {
 	service := NewTransportService(&stubDAW{err: errors.New("nothing is listening")})
 

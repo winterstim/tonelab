@@ -11,18 +11,17 @@ import (
 	"tonelab/backend/osc"
 )
 
-// Feedback listens on a fixed port for the messages a DAW sends back, which
-// is what separates "we wrote to a socket" from "the DAW acted on it". Unlike
-// Receiver it takes the port rather than choosing one, because the DAW has to
-// be configured to send there.
+// Feedback separates "we wrote to a socket" from "the DAW acted on it". It
+// takes a fixed port, unlike Receiver, because the DAW has to be configured
+// in advance to send there.
 type Feedback struct {
 	t    *testing.T
 	conn *net.UDPConn
 	port int
 }
 
-// NewFeedback starts listening on port, failing the test if the port is
-// already held — usually another OSC client, or a leftover test process.
+// NewFeedback fails loudly on a held port, which usually means another OSC
+// client or a leftover test process rather than a broken DAW.
 func NewFeedback(t *testing.T, port int) *Feedback {
 	t.Helper()
 
@@ -35,9 +34,8 @@ func NewFeedback(t *testing.T, port int) *Feedback {
 	return &Feedback{t: t, conn: conn, port: port}
 }
 
-// Await waits for the first message at address whose arguments satisfy match,
-// ignoring the unrelated feedback a DAW streams continuously (time, playhead
-// position, other tracks). A nil match accepts any message at that address.
+// Await ignores the unrelated feedback a DAW streams continuously. A nil
+// match accepts any message at that address.
 func (f *Feedback) Await(address string, timeout time.Duration, match func(*goosc.Message) bool) *goosc.Message {
 	f.t.Helper()
 
@@ -46,10 +44,9 @@ func (f *Feedback) Await(address string, timeout time.Duration, match func(*goos
 	})
 }
 
-// AwaitAny waits for the first message satisfying match, whatever its
-// address — for feedback whose address is not known in advance, such as a
-// DAW announcing which track it just created. want describes what is being
-// waited for, and appears in the failure message.
+// AwaitAny covers feedback whose address is not known in advance, such as a
+// DAW announcing which track it just created. want names what is awaited, for
+// the failure message.
 func (f *Feedback) AwaitAny(want string, timeout time.Duration, match func(*goosc.Message) bool) *goosc.Message {
 	f.t.Helper()
 
@@ -61,7 +58,7 @@ func (f *Feedback) AwaitAny(want string, timeout time.Duration, match func(*goos
 		}
 		n, _, err := f.conn.ReadFromUDP(buf)
 		if err != nil {
-			f.t.Fatalf("osctest: nothing reported %s within %s — the DAW is either not running, not listening, or not configured to send feedback to port %d: %v",
+			f.t.Fatalf("osctest: nothing reported %s within %s: the DAW is either not running, not listening, or not configured to send feedback to port %d: %v",
 				want, timeout, f.port, err)
 		}
 
@@ -77,10 +74,9 @@ func (f *Feedback) AwaitAny(want string, timeout time.Duration, match func(*goos
 	}
 }
 
-// AwaitValue waits for address to report the given numeric value. DAWs report
-// their own idea of a parameter after setting it, and that value has been
-// through their internal representation and back, so exact float equality is
-// the wrong test — tolerance is.
+// AwaitValue takes a tolerance because a DAW reports a value after it has
+// been through its own internal representation, making exact float equality
+// the wrong test.
 func (f *Feedback) AwaitValue(address string, want float64, tolerance float64, timeout time.Duration) {
 	f.t.Helper()
 
@@ -112,9 +108,8 @@ func numericArgument(msg *goosc.Message) (float64, error) {
 	return 0, fmt.Errorf("osctest: %s carried a non-numeric argument %#v", msg.Address, msg.Arguments[0])
 }
 
-// Flatten unwraps a packet into the messages it carries, by the same rule the
-// real receive path uses — tests that accepted bundles differently from
-// production would be testing the wrong thing.
+// Flatten delegates so tests accept bundles by exactly the rule production
+// uses, rather than testing a second implementation.
 func Flatten(packet goosc.Packet) []*goosc.Message {
 	return osc.Flatten(packet)
 }

@@ -1,8 +1,6 @@
-// Package osctest provides a fake OSC receiver for tests: a real UDP socket
-// on localhost that records the messages sent to it. It stands in for a DAW
-// so tests covering anything above the transport (backend/daw, and the agent
-// tools above that) can assert on the exact OSC traffic a command produces
-// without a DAW installed, running, or configured.
+// Package osctest stands in for a DAW so every layer above the transport can
+// assert on exact OSC traffic with no DAW installed, running, or configured.
+// A real socket rather than a mock, so encoding bugs still surface.
 package osctest
 
 import (
@@ -13,15 +11,14 @@ import (
 	goosc "github.com/hypebeast/go-osc/osc"
 )
 
-// Receiver is a UDP listener that parses whatever arrives as OSC.
+// Receiver records what arrives, for asserting on what a command sent.
 type Receiver struct {
 	t    *testing.T
 	conn *net.UDPConn
 	Port int
 }
 
-// NewReceiver starts a receiver on an OS-assigned localhost port and closes
-// it when the test ends.
+// NewReceiver takes an OS-assigned port so parallel tests never collide.
 func NewReceiver(t *testing.T) *Receiver {
 	t.Helper()
 
@@ -34,10 +31,8 @@ func NewReceiver(t *testing.T) *Receiver {
 	return &Receiver{t: t, conn: conn, Port: conn.LocalAddr().(*net.UDPAddr).Port}
 }
 
-// Expect waits up to timeout for one message and returns it, failing the test
-// if nothing arrives or what arrives is not a single OSC message. UDP on
-// loopback does not reorder or drop in practice, so one message in means one
-// message out here.
+// Expect relies on loopback UDP not reordering or dropping in practice, so
+// one message sent is one message read.
 func (r *Receiver) Expect(timeout time.Duration) *goosc.Message {
 	r.t.Helper()
 
@@ -62,8 +57,7 @@ func (r *Receiver) Expect(timeout time.Duration) *goosc.Message {
 	return msg
 }
 
-// ExpectAddress waits for one message and asserts its address, returning it
-// for any further assertions on its arguments.
+// ExpectAddress returns the message so callers can go on to check arguments.
 func (r *Receiver) ExpectAddress(timeout time.Duration, address string) *goosc.Message {
 	r.t.Helper()
 
@@ -74,8 +68,8 @@ func (r *Receiver) ExpectAddress(timeout time.Duration, address string) *goosc.M
 	return msg
 }
 
-// ExpectNothing asserts no message arrives within timeout — for commands that
-// must not touch the wire at all (a validation failure, say).
+// ExpectNothing covers commands that must reach the wire not at all, such as
+// one rejected by validation.
 func (r *Receiver) ExpectNothing(timeout time.Duration) {
 	r.t.Helper()
 

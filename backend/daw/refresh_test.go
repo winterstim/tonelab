@@ -6,16 +6,11 @@ import (
 	"time"
 )
 
-// TestRefreshTouchesOnlyTheControlSurface enforces the guarantee that makes
-// reading safe on a project someone is working in: asking a DAW to describe
-// itself must never change it. REAPER separates /device/* (what our control
-// surface is looking at) from /track/* (the project itself), and this pins
-// the read path to the first. A regression here would not fail loudly — it
-// would quietly move a user's selection, or dirty a project they then have to
-// think about saving.
-//
-// It needs no DAW running, so it guards every normal test run rather than
-// only the ones someone remembers to point at REAPER.
+// Asking a DAW to describe itself must never change it. REAPER separates
+// /device/* (our surface's view) from /track/* (the project), and this pins
+// reading to the first. A regression would not fail loudly: it would quietly
+// move a user's selection or dirty their project. Needs no DAW, so it guards
+// every run rather than the ones someone points at REAPER.
 func TestRefreshTouchesOnlyTheControlSurface(t *testing.T) {
 	reaper, receiver := newREAPER(t)
 
@@ -27,7 +22,7 @@ func TestRefreshTouchesOnlyTheControlSurface(t *testing.T) {
 	for i := 0; ; i++ {
 		msg := receiver.Expect(time.Second)
 		if !strings.HasPrefix(msg.Address, "/device/") {
-			t.Fatalf("Refresh sent %s — only /device/* addresses may be sent, since anything else changes the project", msg.Address)
+			t.Fatalf("Refresh sent %s, but only /device/* addresses may be sent, since anything else changes the project", msg.Address)
 		}
 		if i >= 1 {
 			break
@@ -36,8 +31,8 @@ func TestRefreshTouchesOnlyTheControlSurface(t *testing.T) {
 	receiver.ExpectNothing(100 * time.Millisecond)
 }
 
-// TestRefreshRejectsAnInvalidTrack keeps the same validation on the read path
-// as the write path, rather than sending a nonsense selection at the DAW.
+// The read path validates as the write path does, rather than sending a
+// nonsense selection at the DAW.
 func TestRefreshRejectsAnInvalidTrack(t *testing.T) {
 	reaper, receiver := newREAPER(t)
 

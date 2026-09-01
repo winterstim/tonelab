@@ -1,8 +1,8 @@
 //go:build reaper
 
-// Round-trip tests against a real running REAPER. Excluded from the normal
-// suite by the `reaper` build tag — see backend/osc/README.md for what REAPER
-// has to be configured to do (the feedback leg is not on by default).
+// Round-trip tests against a real running REAPER, behind a build tag because
+// they need one. See backend/osc/README.md for the configuration; REAPER's
+// feedback leg is off by default.
 //
 //	go test -tags reaper -count=1 ./backend/daw/...
 package daw_test
@@ -24,23 +24,20 @@ const (
 	reaperListenPort   = 8000
 	reaperFeedbackPort = 9000
 
-	// REAPER's "Track: Insert new track" command, so the test can create the
-	// track it operates on instead of assuming the open project has one.
+	// So the test creates the track it operates on rather than assuming the
+	// open project has one.
 	actionInsertTrack = 40001
 
 	await = 3 * time.Second
 )
 
-// TestREAPERAcceptsCommands is the check the fake receiver cannot make.
-// Asserting on the address we send only proves we sent what we meant to; only
-// REAPER's own feedback proves REAPER understood it — including the argument
-// encoding, since mute and solo go out as 1.0/0.0 floats on a reading of
-// REAPER's `b/` pattern prefix that nothing else verifies.
+// The check the fake receiver cannot make: asserting on what we send only
+// proves we sent it. Argument encoding is the real subject, since mute and
+// solo go out as floats on a reading of REAPER's `b/` prefix.
 //
-// Note what REAPER does NOT send: it never echoes back the normalized value a
-// device just set (no /track/N/volume, no /track/N/pan), only the derived
-// readouts. Asserting on those is stronger anyway — a dB figure proves REAPER
-// interpreted the normalized value, not merely that it stored it.
+// REAPER never echoes back a value the device just set, only derived
+// readouts, so the assertions use those. That is stronger anyway: a dB figure
+// proves REAPER interpreted the value rather than merely stored it.
 func TestREAPERAcceptsCommands(t *testing.T) {
 	feedback := osctest.NewFeedback(t, reaperFeedbackPort)
 	transport := osc.NewTransport(reaperHost, reaperListenPort)
@@ -54,11 +51,10 @@ func TestREAPERAcceptsCommands(t *testing.T) {
 	track := awaitNewTrack(t, feedback)
 	t.Logf("operating on track %d", track)
 
-	// Transport first: it needs no track, and if REAPER is not actually
-	// acting on what we send, failing here says so before anything else.
+	// First because it needs no track, so a REAPER that is not acting on our
+	// commands fails here rather than somewhere more confusing.
 	t.Run("transport", func(t *testing.T) {
-		// REAPER reports transitions, not states, so stop first to make the
-		// play that follows an actual change.
+		// REAPER reports transitions, so stop first to make play a change.
 		if err := reaper.Stop(); err != nil {
 			t.Fatalf("Stop: %v", err)
 		}
@@ -69,8 +65,7 @@ func TestREAPERAcceptsCommands(t *testing.T) {
 		}
 		feedback.AwaitValue("/play", 1, 0, await)
 
-		// Leave the transport stopped, so a rerun starts clean and REAPER is
-		// not left rolling after the suite exits.
+		// Leave it stopped so a rerun starts clean.
 		if err := reaper.Stop(); err != nil {
 			t.Fatalf("Stop: %v", err)
 		}
@@ -81,9 +76,8 @@ func TestREAPERAcceptsCommands(t *testing.T) {
 		if err := reaper.SetTrackVolume(track, 0.25); err != nil {
 			t.Fatalf("SetTrackVolume: %v", err)
 		}
-		// 0.25 of REAPER's own volume taper is -30 dB. Pinning the number
-		// makes this a test of the whole normalized-value contract
-		//, not just of message delivery.
+		// Pinning the dB figure tests the normalized-value contract
+		//, not just message delivery.
 		feedback.AwaitValue(address(track, "volume/db"), -30, 0.1, await)
 	})
 
@@ -91,12 +85,12 @@ func TestREAPERAcceptsCommands(t *testing.T) {
 		if err := reaper.SetTrackPan(track, 0.75); err != nil {
 			t.Fatalf("SetTrackPan: %v", err)
 		}
-		// Pan comes back only as a formatted string; 0.75 is half right.
+		// Pan comes back only as a formatted string.
 		awaitString(t, feedback, address(track, "pan/str"), "50%R")
 	})
 
-	// REAPER reports transitions, not states, so each toggle starts from a
-	// known position before the assertion it cares about.
+	// Each toggle starts from a known position, since REAPER reports
+	// transitions rather than states.
 	t.Run("mute", func(t *testing.T) {
 		mustToggle(t, reaper.SetTrackMute, track, false)
 		mustToggle(t, reaper.SetTrackMute, track, true)
@@ -111,18 +105,15 @@ func TestREAPERAcceptsCommands(t *testing.T) {
 		mustToggle(t, reaper.SetTrackSolo, track, true)
 		feedback.AwaitValue(address(track, "solo"), 1, 0, await)
 
-		// Leave the project unsoloed; a stray solo silences everything else
-		// and would be a nasty thing to hand back to whoever is using REAPER.
+		// A stray solo silences everything else, so never leave one behind.
 		mustToggle(t, reaper.SetTrackSolo, track, false)
 		feedback.AwaitValue(address(track, "solo"), 0, 0, await)
 	})
 }
 
-// TestREAPERFeedbackReachesTheProductionListener checks the read path the
-// application will actually use, not the test helper that stands in for it
-// elsewhere in this file. get_param depends on this: a listener that works
-// against a fake receiver but not against REAPER would pass every test in
-// the normal suite and return nothing in the product.
+// Checks the listener the application actually uses, not the helper standing
+// in for it elsewhere here. One that works against a fake receiver but not
+// REAPER would pass every normal test and return nothing in the product.
 func TestREAPERFeedbackReachesTheProductionListener(t *testing.T) {
 	listener, err := osc.Listen(reaperHost, reaperFeedbackPort)
 	if err != nil {
@@ -157,13 +148,10 @@ func TestREAPERFeedbackReachesTheProductionListener(t *testing.T) {
 	}
 }
 
-// TestREAPERReadPath is what get_param rests on, checked against the real
-// thing. It also pins the awkward truth this design had to be built around:
-// REAPER does not echo back a value the device itself set, so writing then
-// reading returns nothing. A value becomes known when REAPER volunteers it,
-// and the safe way to make it volunteer is to ask the control surface to look
-// at the track — a /device/* message, which touches the surface's own view
-// and not the project.
+// Pins the awkward truth this design was built around: REAPER does not echo
+// back a value the device itself set, so writing then reading returns
+// nothing. A value becomes known when REAPER volunteers it, and /device/*
+// makes it volunteer without touching the project.
 func TestREAPERReadPath(t *testing.T) {
 	listener, err := osc.Listen(reaperHost, reaperFeedbackPort)
 	if err != nil {
@@ -175,7 +163,7 @@ func TestREAPERReadPath(t *testing.T) {
 	reaper := daw.NewREAPER(transport)
 	reaper.Observe(listener.Messages())
 
-	// Set a value, then confirm that alone does NOT make it readable.
+	// Setting alone must not make it readable.
 	if err := reaper.SetTrackVolume(1, 0.25); err != nil {
 		t.Fatalf("SetTrackVolume: %v", err)
 	}
@@ -184,7 +172,7 @@ func TestREAPERReadPath(t *testing.T) {
 		t.Fatalf("expected the value to still be unknown after setting it, got %v", err)
 	}
 
-	// Now make REAPER volunteer its state, without touching the project.
+	// Make REAPER volunteer, without touching the project.
 	transport.Send("/device/track/select", int32(2))
 	time.Sleep(200 * time.Millisecond)
 	transport.Send("/device/track/select", int32(1))
@@ -193,7 +181,7 @@ func TestREAPERReadPath(t *testing.T) {
 	for {
 		value, err := reaper.GetParam(1, "volume")
 		if err == nil {
-			// REAPER's taper puts our 0.25 back at roughly 0.25.
+			// Allow for REAPER's own rounding.
 			got, ok := value.(float64)
 			if !ok {
 				t.Fatalf("expected a float64, got %#v", value)
@@ -231,11 +219,9 @@ func awaitString(t *testing.T, feedback *osctest.Feedback, address, want string)
 	})
 }
 
-// awaitNewTrack returns the 1-based index of the track REAPER just created,
-// so the test operates on its own track rather than on whatever the open
-// project happens to contain. REAPER announces the new track by selecting
-// it — there is no "here is the new track" message, and the track count it
-// accepts on /device/track/count travels the other way, device to REAPER.
+// REAPER has no "here is the new track" message and its track count travels
+// device to REAPER, not back, so the new track is identified by the selection
+// REAPER announces.
 func awaitNewTrack(t *testing.T, feedback *osctest.Feedback) int {
 	t.Helper()
 

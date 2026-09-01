@@ -10,8 +10,7 @@ import (
 	"tonelab/backend/osc"
 )
 
-// send delivers raw OSC to the listener the way a DAW would, bypassing
-// Transport so these tests cover the receive path alone.
+// Bypasses Transport so these tests cover the receive path alone.
 func send(t *testing.T, port int, packet goosc.Packet) {
 	t.Helper()
 
@@ -34,9 +33,8 @@ func portString(port int) string {
 	return strconv.Itoa(port)
 }
 
-// TestListenDeliversMessages is the seam the whole read path rests on: a
-// message a DAW sends reaches the caller. Without this there is no
-// get_param at all, only commands fired into the dark.
+// Without this there is no get_param at all, only commands fired into the
+// dark.
 func TestListenDeliversMessages(t *testing.T) {
 	listener := mustListen(t)
 
@@ -48,9 +46,8 @@ func TestListenDeliversMessages(t *testing.T) {
 	}
 }
 
-// TestListenFlattensBundles covers the trap that already cost one wrong
-// implementation: REAPER wraps its feedback in bundles, so a receive path
-// that only understands bare messages sees nothing at all.
+// REAPER wraps feedback in bundles, and a path handling only bare messages
+// sees nothing at all. This already cost one wrong implementation.
 func TestListenFlattensBundles(t *testing.T) {
 	listener := mustListen(t)
 
@@ -66,8 +63,7 @@ func TestListenFlattensBundles(t *testing.T) {
 	}
 }
 
-// TestListenSurvivesGarbage keeps one malformed packet from killing the
-// stream. A DAW is not the only thing that can send to a UDP port.
+// A DAW is not the only thing that can send to a UDP port.
 func TestListenSurvivesGarbage(t *testing.T) {
 	listener := mustListen(t)
 
@@ -87,8 +83,7 @@ func TestListenSurvivesGarbage(t *testing.T) {
 	}
 }
 
-// TestCloseEndsTheStream lets a caller know the listener stopped, rather
-// than blocking forever on a channel nothing will ever write to again.
+// Otherwise a caller blocks forever on a channel nothing will write to.
 func TestCloseEndsTheStream(t *testing.T) {
 	listener := mustListen(t)
 
@@ -106,10 +101,8 @@ func TestCloseEndsTheStream(t *testing.T) {
 	}
 }
 
-// TestSlowConsumerDoesNotBlockTheSocket pins the behaviour that matters
-// under a real DAW: REAPER streams position updates continuously, so a
-// caller that stops reading must cost dropped feedback, never a stalled
-// receive loop that then loses everything.
+// A DAW streams position updates continuously, so a stalled caller must cost
+// dropped feedback rather than a stalled receive loop that loses everything.
 func TestSlowConsumerDoesNotBlockTheSocket(t *testing.T) {
 	listener := mustListen(t)
 

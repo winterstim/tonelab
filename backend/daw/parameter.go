@@ -11,10 +11,8 @@ var (
 	ErrNotReadable  = errors.New("daw: parameter cannot be read back")
 )
 
-// Kind is what shape a parameter's value takes. It exists so callers can
-// validate a value without knowing the parameter — the agent tools accept
-// either a number or a boolean and need to
-// know which one a given name wants.
+// Kind lets a caller validate a value without knowing the parameter, which
+// the tools layer needs since its schema accepts either shape.
 type Kind int
 
 const (
@@ -29,33 +27,27 @@ func (k Kind) String() string {
 	return "numeric"
 }
 
-// Parameter describes one thing a backend can control, as that backend
-// reports it. Backends differ in where this comes from and that is the point:
-// a DAW whose OSC surface can enumerate its parameters builds this list by
-// asking the DAW, one that cannot returns what it knows statically. Callers
-// above see the same shape either way and never hardcode a parameter list.
+// Parameter is how a backend describes itself, so no layer above carries a
+// parameter list of its own. Where the description comes from is the
+// backend's business: asked of the DAW, or known statically.
 type Parameter struct {
 	Name string
 	Kind Kind
 
-	// Readable reports whether the current value can be read back from the
-	// DAW. Not every surface can: a DAW may accept a parameter without ever
-	// reporting it, and a caller needs to know that before promising a user
-	// it can answer "what is it now?".
+	// Readable exists because a DAW may accept a parameter it never reports
+	// back, and a caller must know that before promising to answer "what is
+	// it now?".
 	Readable bool
 }
 
-// Describer is implemented by backends that can report their own parameters.
-// Kept separate from Client so a backend is not forced to answer before it
-// can, and so callers must handle "this backend cannot say" explicitly rather
-// than receiving a silently empty list.
+// Describer is separate from Client so a backend unable to answer says so,
+// rather than returning a silently empty list that reads as "nothing here".
 type Describer interface {
 	Parameters() []Parameter
 }
 
-// ParametersOf returns what a backend says it can control, or an error if the
-// backend cannot describe itself. This is the call the agent tools resolve a
-// free-text parameter name against, instead of a list compiled into them.
+// ParametersOf is what the tools layer resolves names against, so a second
+// copy of the parameter list never exists to drift.
 func ParametersOf(client Client) ([]Parameter, error) {
 	describer, ok := client.(Describer)
 	if !ok {
@@ -64,7 +56,8 @@ func ParametersOf(client Client) ([]Parameter, error) {
 	return describer.Parameters(), nil
 }
 
-// FindParameter looks a parameter up by name among what a backend reports.
+// FindParameter resolves against the backend's own description, never a
+// hardcoded set.
 func FindParameter(client Client, name string) (Parameter, error) {
 	params, err := ParametersOf(client)
 	if err != nil {

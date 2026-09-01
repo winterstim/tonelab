@@ -10,21 +10,11 @@ import (
 	goosc "github.com/hypebeast/go-osc/osc"
 )
 
-// streamCapacity is how many messages may wait for a consumer. A DAW streams
-// position and meter updates continuously, so the stream is a firehose of
-// mostly-uninteresting traffic with the occasional message a caller wants.
-// Buffering absorbs a caller that pauses briefly; beyond that, dropping is
-// the right failure — feedback describes current state, so a message that has
-// waited too long has already been superseded.
+// Buffered so a caller that pauses briefly loses nothing.
 const streamCapacity = 256
 
-// Listener receives OSC on a local port and hands the messages to a caller.
-// It is the read half of the transport: sending is fire-and-forget, but
-// reading a value back, or knowing a command landed, requires this.
-//
-// A DAW must be configured to send here; nothing about sending sets up a
-// return path. What arrives, and whether anything arrives at all, is the
-// DAW's decision — see backend/daw for what a given DAW actually reports.
+// Listener is the read half of the transport. Sending is fire-and-forget, so
+// reading a value back or confirming a command landed is only possible here.
 type Listener struct {
 	conn     *net.UDPConn
 	messages chan *goosc.Message
@@ -33,10 +23,9 @@ type Listener struct {
 	closeOnce sync.Once
 }
 
-// Listen binds a UDP port and starts receiving. A port of 0 asks the OS to
-// choose one, which Port reports. Binding fails immediately rather than at
-// first read, so a port already held by another OSC client is a startup
-// error rather than a silence that looks like an unresponsive DAW.
+// Listen binds immediately so a port held by another OSC client fails at
+// startup rather than looking like an unresponsive DAW later. Port 0 lets the
+// OS choose, which Port reports.
 func Listen(host string, port int) (*Listener, error) {
 	addr := &net.UDPAddr{IP: net.ParseIP(host), Port: port}
 	conn, err := net.ListenUDP("udp", addr)
@@ -54,29 +43,26 @@ func Listen(host string, port int) (*Listener, error) {
 	return listener, nil
 }
 
-// Port reports the port actually bound, which matters when Listen was asked
-// for 0 — a DAW has to be told where to send.
+// Port matters when Listen was asked for 0, since the DAW must be told where
+// to send.
 func (l *Listener) Port() int {
 	return l.conn.LocalAddr().(*net.UDPAddr).Port
 }
 
-// Messages is the stream of everything received, with bundles unwrapped into
-// the messages they carry. It closes when the Listener does.
+// Messages closes when the Listener does, so callers block on a live stream
+// or learn it ended, never both.
 func (l *Listener) Messages() <-chan *goosc.Message {
 	return l.messages
 }
 
-// Dropped counts messages discarded because the caller was not reading fast
-// enough. Nonzero is not necessarily a fault — most DAW feedback is position
-// updates nobody asked for — but a caller missing an expected message should
-// be able to tell "it never arrived" from "I was too slow to take it".
+// Dropped lets a caller missing an expected message tell "never arrived" from
+// "I was too slow to take it".
 func (l *Listener) Dropped() uint64 {
 	return l.dropped.Load()
 }
 
-// Close stops receiving and closes the message stream. Safe to call twice,
-// since a caller closing on one path and deferring a close on another is the
-// normal shape rather than a mistake.
+// Close is idempotent because closing on one path while deferring a close on
+// another is normal rather than a mistake.
 func (l *Listener) Close() error {
 	err := error(nil)
 	l.closeOnce.Do(func() {
@@ -85,17 +71,18 @@ func (l *Listener) Close() error {
 	return err
 }
 
-// receive reads until the socket closes. It never lets one bad packet end the
-// stream: a UDP port accepts whatever is sent to it, and a DAW is not the
-// only thing that might.
+// receive drops rather than blocks when the caller stalls. DAW feedback is
+// mostly position updates, a stale one is already superseded, and a blocked
+// read loop would lose everything instead of the stale part. One bad packet
+// never ends the stream either, since a UDP port accepts whatever is sent.
 func (l *Listener) receive() {
 	defer close(l.messages)
 
-	buf := make([]byte, 65535) // one UDP datagram's worth
+	buf := make([]byte, 65535)
 	for {
 		n, _, err := l.conn.ReadFromUDP(buf)
 		if err != nil {
-			return // the socket is closed; this is how Close ends the loop
+			return // socket closed; this is how Close ends the loop
 		}
 
 		packet, err := goosc.ParsePacket(string(buf[:n]))
@@ -114,10 +101,9 @@ func (l *Listener) receive() {
 	}
 }
 
-// Flatten unwraps a packet into the messages it carries. DAWs commonly send
-// feedback as OSC bundles rather than bare messages (REAPER does), so a
-// receive path that only handles messages silently sees nothing at all.
-// Exported because test helpers reading a DAW's feedback need the same rule.
+// Flatten exists because DAWs commonly wrap feedback in bundles (REAPER
+// does), so a path handling only messages sees nothing at all. Exported so
+// test helpers apply the same rule as production.
 func Flatten(packet goosc.Packet) []*goosc.Message {
 	switch p := packet.(type) {
 	case *goosc.Message:

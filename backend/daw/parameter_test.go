@@ -8,10 +8,8 @@ import (
 	"tonelab/backend/daw"
 )
 
-// TestParametersAreReportedByTheBackend is the seam that keeps a parameter
-// list out of every layer above: callers ask the backend what it can control
-// instead of carrying a copy that would drift, or that would be wrong the
-// moment a second DAW with a different set is added.
+// Keeps a parameter list out of every layer above, where a copy would drift
+// and would be wrong for any DAW with a different set.
 func TestParametersAreReportedByTheBackend(t *testing.T) {
 	client, _ := newREAPER(t)
 
@@ -43,8 +41,8 @@ func TestParametersAreReportedByTheBackend(t *testing.T) {
 	}
 }
 
-// TestParametersCannotBeMutatedByCallers stops a caller from editing the
-// backend's own description of itself through the slice it was handed.
+// A caller must not edit the backend's description of itself through the
+// slice it was handed.
 func TestParametersCannotBeMutatedByCallers(t *testing.T) {
 	client, _ := newREAPER(t)
 
@@ -57,9 +55,8 @@ func TestParametersCannotBeMutatedByCallers(t *testing.T) {
 	}
 }
 
-// TestSetParamRoutesByName covers the generic entry point the agent tools
-// call. Resolution happens inside the backend, so the layers above pass a
-// name through rather than translating it into a command themselves.
+// The generic entry point the tools layer calls. Resolution stays inside the
+// backend so layers above pass names through rather than translating them.
 func TestSetParamRoutesByName(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -87,9 +84,8 @@ func TestSetParamRoutesByName(t *testing.T) {
 	}
 }
 
-// TestSetParamRejectsBadRequests keeps the failures distinguishable: the
-// agent has to tell "I named a parameter this DAW doesn't have" apart from
-// "I sent the wrong kind of value", because the two need different recoveries.
+// The agent needs "no such parameter" and "wrong kind of value" kept apart,
+// since the recoveries differ.
 func TestSetParamRejectsBadRequests(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

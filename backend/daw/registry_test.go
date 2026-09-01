@@ -9,10 +9,8 @@ import (
 	"tonelab/backend/osc/osctest"
 )
 
-// TestNewBuildsARegisteredBackend covers the seam that keeps DAW choice out
-// of application startup: the caller names a backend, it does not construct
-// one. Driving a command through the result is what proves the returned
-// Client is wired to the transport, not merely non-nil.
+// Keeps DAW choice out of application startup. Drives a command through the
+// result, since a non-nil Client proves nothing about its wiring.
 func TestNewBuildsARegisteredBackend(t *testing.T) {
 	receiver := osctest.NewReceiver(t)
 
@@ -27,8 +25,8 @@ func TestNewBuildsARegisteredBackend(t *testing.T) {
 	receiver.ExpectAddress(time.Second, "/play")
 }
 
-// TestNewRejectsUnknownBackend keeps a mistyped configuration value from
-// producing a nil client that fails much later, somewhere unrelated.
+// A mistyped config value must not produce a nil client that fails later,
+// somewhere unrelated.
 func TestNewRejectsUnknownBackend(t *testing.T) {
 	client, err := daw.New("ableton", nil)
 
@@ -40,9 +38,8 @@ func TestNewRejectsUnknownBackend(t *testing.T) {
 	}
 }
 
-// TestBackendsListsWhatCanBeSelected is what configuration and any future
-// settings UI read to offer a choice, rather than repeating a list that
-// would drift from the registry.
+// A settings UI reads this to offer choices, so it must not drift from what
+// New actually accepts.
 func TestBackendsListsWhatCanBeSelected(t *testing.T) {
 	names := daw.Backends()
 
