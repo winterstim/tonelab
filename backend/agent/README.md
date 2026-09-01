@@ -22,11 +22,33 @@ Two decisions worth knowing:
 may never have mentioned the value and the agent cannot be expected to know
 that.
 
-## Not built
+`Orchestrator` runs the tool-calling loop against any OpenAI-compatible
+endpoint, so a cloud key and a local runtime are one code path.
+Decisions worth knowing:
 
-The orchestrator: the loop that takes free text, decides which
-tools to call in what order, and feeds failures back into its own decisions
-rather than swallowing them. Until it exists these tools have no caller.
+- **A tool failure goes back to the model, it does not end the turn.** The
+  structured codes exist so the model can pick another move; swallowing them
+  would waste the design.
+- **The loop is bounded.** A model that keeps calling tools is commanding a
+  live DAW, so an unbounded loop is not slow, it is destructive.
+- **HTTP failures are their own codes** (`llm_unauthorized`, `llm_rate_limited`,
+  `llm_unavailable`, `llm_unreachable`, `llm_unreadable`), because a user can
+  act on each differently and none of them mean the DAW is at fault.
+- **Stateless.** MVP carries no memory between commands.
+
+## Testing
+
+`llmtest` is a real HTTP server speaking the documented wire format, built
+from openai/openai-openapi rather than from memory. It covers what a model
+does wrong as well as right: tool arguments that are not valid JSON (the spec
+warns the model "does not always generate valid JSON"), 401, 429, 500, and a
+body that is not JSON at all.
+
+What it cannot answer is whether a real model chooses the right tool. That
+needs a live endpoint and is the honest gap here, the same way the fake OSC
+receiver could not tell us REAPER's real behaviour.
+
+## Not built
 
 Guardrails: dry-run and confirmation on destructive commands. Worth
 designing alongside the tools rather than bolting on, since a live project is

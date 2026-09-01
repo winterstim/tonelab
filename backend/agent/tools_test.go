@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -43,9 +44,27 @@ func newFakeDAW() *fakeDAW {
 
 func (f *fakeDAW) Parameters() []daw.Parameter { return f.params }
 
+// Validates the name as a real backend does. A fake that accepts anything
+// would report success where the product reports param_not_found, which is the
+// kind of kindness that makes a test green and useless.
 func (f *fakeDAW) SetParam(track int, name string, value any) error {
+	if err := f.errs["set"]; err != nil {
+		return err
+	}
+	if !f.knows(name) {
+		return fmt.Errorf("%w %q", daw.ErrUnknownParam, name)
+	}
 	f.setCalls = append(f.setCalls, setCall{track, name, value})
-	return f.errs["set"]
+	return nil
+}
+
+func (f *fakeDAW) knows(name string) bool {
+	for _, param := range f.params {
+		if param.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Mirrors the real backend's asynchrony rather than answering instantly, so
