@@ -14,3 +14,22 @@ Not built yet, in rough order of when they will be needed:
   nothing above this layer needs a guarantee yet. Commands that must not be
   silently lost will need confirmation built on top — deliberately deferred
   until there is one, rather than guessed at now.
+
+## Testing
+
+Two levels, and the split matters — the first proves Tonelab sends what it
+thinks it sends, only the second proves a DAW acted on it.
+
+`go test ./...` needs no DAW: `osctest.Receiver` is a real UDP socket that
+records what arrives, so every layer above this one can assert on exact OSC
+traffic. This is what CI runs.
+
+`go test -tags reaper ./...` drives a real REAPER and asserts on REAPER's own
+feedback (`/play 1`, `/stop 1`) rather than on anything Tonelab believes.
+REAPER must be running with an OSC control surface (Preferences >
+Control/OSC/web > Add > OSC) that both listens on 8000 **and sends feedback
+to 127.0.0.1:9000** — REAPER defaults the device port to 0, which disables
+feedback and makes an automated round-trip impossible.
+
+Note that REAPER sends its feedback as OSC *bundles*, not bare messages; a
+receive path that only handles `*osc.Message` silently sees nothing.
