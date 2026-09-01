@@ -518,3 +518,76 @@ func TestSlowEndpointIsReportedAsATimeout(t *testing.T) {
 		t.Fatalf("expected llm_timeout, got %+v", response.Error)
 	}
 }
+
+// The project's whole policy on how a model may write a value, as a table.
+// Two of these rows were production failures found by running a real model,
+// which is why the list is written down rather than reasoned about: a new one
+// belongs here first, not in a user's session.
+func TestValueRepresentationPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		param    string
+		value    string
+		accepted bool
+		want     any
+	}{
+		// Numbers, however they are spelled.
+		{"volume", `0.5`, true, 0.5},
+		{"volume", `"0.5"`, true, 0.5}, // seen live
+		{"volume", `".5"`, true, 0.5},
+		{"volume", `" 0.5 "`, true, 0.5}, // whitespace a model may pad with
+		{"volume", `1`, true, 1.0},
+		{"volume", `"50%"`, true, 0.5}, // unambiguous against a 0-1 contract
+		{"volume", `0`, true, 0.0},
+
+		// Units need the DAW's own curve to convert, so guessing is worse
+		// than refusing.
+		{"volume", `"-6dB"`, false, nil},
+		{"volume", `"440Hz"`, false, nil},
+		{"volume", `"loud"`, false, nil},
+		{"volume", `"half"`, false, nil},
+		{"volume", `true`, false, nil},
+		{"volume", `""`, false, nil},
+		{"volume", `null`, false, nil},
+
+		// Switches, however they are spelled.
+		{"mute", `true`, true, true},
+		{"mute", `"true"`, true, true}, // seen live
+		{"mute", `"True"`, true, true},
+		{"mute", `1`, true, true}, // seen live
+		{"mute", `"yes"`, true, true},
+		{"mute", `"on"`, true, true},
+		{"mute", `false`, true, false},
+		{"mute", `"off"`, true, false},
+		{"mute", `0`, true, false},
+
+		// A switch is not a dial, and 0.5 of muted means nothing.
+		{"mute", `0.5`, false, nil},
+		{"mute", `"maybe"`, false, nil},
+		{"mute", `"muted"`, false, nil},
+	} {
+		name := tc.param + " " + tc.value
+		t.Run(name, func(t *testing.T) {
+			backend := newFakeDAW()
+			tools := agent.NewTools(backend)
+			args := `{"track_id":1,"param_name":"` + tc.param + `","value":` + tc.value + `}`
+
+			result := call(t, tools, "set_param", args)
+
+			if !tc.accepted {
+				if result.Error == nil {
+					t.Fatalf("expected a refusal, but the DAW received %v", backend.setCalls)
+				}
+				if len(backend.setCalls) != 0 {
+					t.Fatalf("a refused value still reached the DAW: %v", backend.setCalls)
+				}
+				return
+			}
+			if result.Error != nil {
+				t.Fatalf("expected acceptance, got %+v", result.Error)
+			}
+			if backend.setCalls[0].value != tc.want {
+				t.Fatalf("expected %#v, got %#v", tc.want, backend.setCalls[0].value)
+			}
+		})
+	}
+}

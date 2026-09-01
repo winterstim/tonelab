@@ -114,11 +114,16 @@ func (t *Tools) Definitions() []Tool {
 				"properties": map[string]any{
 					"track_id":   map[string]any{"type": "integer", "minimum": 1},
 					"param_name": map[string]any{"type": "string"},
+					// A type union rather than oneOf, which was measured
+					// against a live model: given oneOf it answered "true"
+					// as a string and misnamed the parameter, and given
+					// this it answered correctly. Coercion still stands
+					// behind it, since a schema only advises.
 					"value": map[string]any{
-						"oneOf": []any{
-							map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-							map[string]any{"type": "boolean"},
-						},
+						"type":        []string{"number", "boolean"},
+						"minimum":     0,
+						"maximum":     1,
+						"description": "A number from 0.0 to 1.0 for continuous parameters, or true/false for on-off parameters.",
 					},
 				},
 				"required": []string{"track_id", "param_name", "value"},
@@ -228,23 +233,39 @@ type setArgs struct {
 	Value     any     `json:"value"`
 }
 
-// asBool accepts a JSON boolean, the words spelled as a string, or 0 and 1.
-// Observed live: a model asked to mute a track sent "true" and then 1, and
-// each refusal cost a full retry against a slow model. None of those readings
-// is ambiguous, and refusing them serves nobody.
+// What counts as on and off when a model spells a switch as a word. Listed
+// rather than inferred, so widening the policy is a deliberate edit with a
+// test beside it instead of a guess made at runtime.
+var (
+	spelledTrue  = []string{"true", "yes", "on", "1"}
+	spelledFalse = []string{"false", "no", "off", "0"}
+)
+
+// asBool reads a switch from what models actually send. Observed live: asked
+// to mute a track, a model sent "true" and then 1, and each refusal cost a
+// full retry against a slow model while the user waited.
+//
+// The set is deliberately closed. Anything outside it is the model being wrong
+// rather than informal, and it needs to hear that.
 func asBool(value any) (bool, bool) {
 	switch typed := value.(type) {
 	case bool:
 		return typed, true
-	case string:
-		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
-		if err != nil {
-			return false, false
-		}
-		return parsed, true
 	case float64:
 		if typed == 0 || typed == 1 {
 			return typed == 1, true
+		}
+	case string:
+		word := strings.ToLower(strings.TrimSpace(typed))
+		for _, yes := range spelledTrue {
+			if word == yes {
+				return true, true
+			}
+		}
+		for _, no := range spelledFalse {
+			if word == no {
+				return false, true
+			}
 		}
 	}
 	return false, false
@@ -259,7 +280,21 @@ func asNumber(value any) (float64, bool) {
 	case float64:
 		return typed, true
 	case string:
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		text := strings.TrimSpace(typed)
+
+		// A percentage is unambiguous against a 0.0 to 1.0 contract, and it
+		// is a natural way to write "half". A unit such as dB or Hz is not:
+		// converting it needs the DAW's own curve, which this layer does not
+		// have and must not guess at.
+		if percent := strings.TrimSuffix(text, "%"); percent != text {
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(percent), 64)
+			if err != nil {
+				return 0, false
+			}
+			return parsed / 100, true
+		}
+
+		parsed, err := strconv.ParseFloat(text, 64)
 		if err != nil {
 			return 0, false
 		}

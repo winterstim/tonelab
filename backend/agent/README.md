@@ -49,6 +49,24 @@ tagged suites cover that: `-tags llm` drives a configured endpoint, and
 `-tags "llm reaper"` runs the MVP criterion itself, a free-text command
 changing a real REAPER.
 
+## How a model may write a value
+
+`TestValueRepresentationPolicy` is the policy, as a table: every accepted and
+refused spelling in one place. Two of its rows were production failures found
+by running a real model, which is why it is written down rather than reasoned
+about. A new case belongs in that table before it reaches a user.
+
+The rule behind the table: accept anything unambiguous (`"0.5"`, `"true"`,
+`1`, `"on"`, `"50%"`), refuse anything needing a guess (`"-6dB"`, `"loud"`,
+`0.5` for a switch). Units are the clearest refusal: converting decibels needs
+the DAW's own curve, which this layer does not have.
+
+Belt as well as braces. The schema itself was changed on measurement: given
+`oneOf`, a live model answered `"true"` as a string and misnamed the
+parameter; given `{"type": ["number", "boolean"]}` it answered correctly.
+`strict` made no difference, so the union was the cause rather than the
+absence of constraint.
+
 The first live run paid for itself immediately: the model answered a schema
 saying `number` with the string `"0.5"`. It had understood the command
 perfectly and formatted the type wrong, and strict decoding would have failed
