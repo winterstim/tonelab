@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"tonelab/backend/agent"
 	"tonelab/backend/daw"
@@ -20,6 +21,7 @@ type fakeDAW struct {
 
 	setCalls  []setCall
 	refreshed []int
+	readDelay time.Duration
 }
 
 type setCall struct {
@@ -46,16 +48,18 @@ func (f *fakeDAW) SetParam(track int, name string, value any) error {
 	return f.errs["set"]
 }
 
-func (f *fakeDAW) GetParam(track int, name string) (any, error) {
+// Mirrors the real backend's asynchrony rather than answering instantly, so
+// this fake cannot hide the timing the DAW actually imposes.
+func (f *fakeDAW) ReadParam(track int, name string, timeout time.Duration) (any, error) {
+	f.refreshed = append(f.refreshed, track)
 	if err := f.errs["get"]; err != nil {
 		return nil, err
 	}
+	if f.readDelay > timeout {
+		return nil, daw.ErrValueUnknown
+	}
+	time.Sleep(f.readDelay)
 	return f.values[name], nil
-}
-
-func (f *fakeDAW) Refresh(track int) error {
-	f.refreshed = append(f.refreshed, track)
-	return f.errs["refresh"]
 }
 
 func call(t *testing.T, tools *agent.Tools, name, args string) agent.Result {
@@ -257,5 +261,19 @@ func TestSchemaAndValidationAgreeOnRequiredFields(t *testing.T) {
 				t.Errorf("%s: schema requires %q but the call succeeded without it", def.Name, field)
 			}
 		}
+	}
+}
+
+// A DAW slower than the timeout must report the value as unknown rather than
+// hang an agent turn, which is the failure the caller can actually act on.
+func TestSlowDAWTimesOutAsUnknown(t *testing.T) {
+	backend := newFakeDAW()
+	backend.readDelay = time.Hour
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "get_param", `{"track_id":1,"param_name":"volume"}`)
+
+	if result.Error == nil || result.Error.Code != "value_unknown" {
+		t.Fatalf("expected value_unknown, got %+v", result.Error)
 	}
 }

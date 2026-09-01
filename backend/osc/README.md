@@ -41,5 +41,11 @@ Control/OSC/web > Add > OSC) that both listens on 8000 **and sends feedback
 to 127.0.0.1:9000** — REAPER defaults the device port to 0, which disables
 feedback and makes an automated round-trip impossible.
 
+Known flake: the tagged suite binds REAPER's single feedback port in more
+than one package, and REAPER can briefly stop sending after a socket it was
+writing to closes. Running `task test:reaper` end to end may fail one package
+spuriously; rerunning that package alone passes. Living with it beats papering
+over it with retries that would also hide a real regression.
+
 Note that REAPER sends its feedback as OSC *bundles*, not bare messages; a
 receive path that only handles `*osc.Message` silently sees nothing.

@@ -9,9 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"tonelab/backend/daw"
 )
+
+// How long a read waits for the DAW to answer. Long enough for a local DAW to
+// reply over UDP, short enough that an agent turn does not appear to hang.
+const readTimeout = 2 * time.Second
 
 // Tool is one callable definition, in the shape an OpenAI-compatible endpoint
 // expects.
@@ -46,10 +51,11 @@ type Result struct {
 }
 
 // reader is the read half, kept separate because not every backend can answer
-// and a caller must be told so rather than handed a silent zero.
+// and a caller must be told so rather than handed a silent zero. It is the
+// waiting form: asking a DAW and reading the reply are one operation from
+// here, since a caller has no way to know when the answer has arrived.
 type reader interface {
-	Refresh(track int) error
-	GetParam(track int, name string) (any, error)
+	ReadParam(track int, name string, timeout time.Duration) (any, error)
 }
 
 // Tools wraps one DAW backend. It holds no parameter list of its own: names
@@ -148,8 +154,9 @@ type setArgs struct {
 	Value     any     `json:"value"`
 }
 
-// getParam refreshes before reading because a DAW that only announces changes
-// may never have mentioned this value, and the agent has no way to know that.
+// getParam asks the DAW and waits for the reply. A DAW that only announces
+// changes may never have mentioned the value, and the reply travels back
+// asynchronously, so an immediate read would find an empty cache.
 func (t *Tools) getParam(args json.RawMessage) Result {
 	var decoded getArgs
 	if err := json.Unmarshal(args, &decoded); err != nil {
@@ -164,10 +171,7 @@ func (t *Tools) getParam(args json.RawMessage) Result {
 		return failure("not_supported", "This DAW backend cannot read values back.")
 	}
 
-	if err := source.Refresh(*decoded.TrackID); err != nil {
-		return domainFailure(err)
-	}
-	value, err := source.GetParam(*decoded.TrackID, *decoded.ParamName)
+	value, err := source.ReadParam(*decoded.TrackID, *decoded.ParamName, readTimeout)
 	if err != nil {
 		return domainFailure(err)
 	}

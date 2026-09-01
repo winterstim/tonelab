@@ -1,9 +1,11 @@
 package daw
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	goosc "github.com/hypebeast/go-osc/osc"
 )
@@ -11,17 +13,24 @@ import (
 // ErrValueUnknown is deliberately not "no such parameter": the value exists
 // and we simply have not been told it, so the recovery is a refresh rather
 // than a different name.
-var ErrValueUnknown = fmt.Errorf("daw: value not reported by the DAW yet")
+var ErrValueUnknown = errors.New("daw: value not reported by the DAW yet")
 
 // state overwrites rather than appends, since DAW feedback is current state
 // and not a log: an older reading is wrong, not history.
 type state struct {
 	mu     sync.RWMutex
 	values map[string]float64
+
+	// Closed and replaced on every update, so a waiter can block until
+	// something changes instead of polling a map on a timer.
+	updated chan struct{}
 }
 
 func newState() *state {
-	return &state{values: make(map[string]float64)}
+	return &state{
+		values:  make(map[string]float64),
+		updated: make(chan struct{}),
+	}
 }
 
 func key(track int, param string) string {
@@ -31,7 +40,19 @@ func key(track int, param string) string {
 func (s *state) set(track int, param string, value float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.values[key(track, param)] = value
+
+	close(s.updated)
+	s.updated = make(chan struct{})
+}
+
+// changed hands back the current generation's channel so a waiter cannot miss
+// an update that lands between its read and its wait.
+func (s *state) changed() <-chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.updated
 }
 
 func (s *state) get(track int, param string) (float64, bool) {
@@ -113,6 +134,38 @@ func (r *REAPER) Refresh(track int) error {
 		return err
 	}
 	return r.osc.Send("/device/track/select", int32(track))
+}
+
+// ReadParam is what a caller wanting a current value should use. GetParam
+// alone races the DAW: a refresh travels over UDP and the answer arrives
+// asynchronously, so reading immediately after asking finds an empty cache.
+// Waiting is therefore part of reading, and the timeout belongs to the caller
+// because how long to wait for a DAW is a product decision, not a fact.
+func (r *REAPER) ReadParam(track int, name string, timeout time.Duration) (any, error) {
+	if err := r.Refresh(track); err != nil {
+		return nil, err
+	}
+
+	deadline := time.After(timeout)
+	for {
+		// Take the change signal before reading, so an update arriving in
+		// between is not missed.
+		changed := r.state.changed()
+
+		value, err := r.GetParam(track, name)
+		if err == nil {
+			return value, nil
+		}
+		if !errors.Is(err, ErrValueUnknown) {
+			return nil, err // a name or track problem; waiting cannot fix it
+		}
+
+		select {
+		case <-changed:
+		case <-deadline:
+			return nil, err
+		}
+	}
 }
 
 // GetParam answers from the DAW's own account rather than what Tonelab last
