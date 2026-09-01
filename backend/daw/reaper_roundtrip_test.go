@@ -117,6 +117,45 @@ func TestREAPERAcceptsCommands(t *testing.T) {
 	})
 }
 
+// TestREAPERFeedbackReachesTheProductionListener checks the read path the
+// application will actually use, not the test helper that stands in for it
+// elsewhere in this file. get_param depends on this: a listener that works
+// against a fake receiver but not against REAPER would pass every test in
+// the normal suite and return nothing in the product.
+func TestREAPERFeedbackReachesTheProductionListener(t *testing.T) {
+	listener, err := osc.Listen(reaperHost, reaperFeedbackPort)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	reaper := daw.NewREAPER(osc.NewTransport(reaperHost, reaperListenPort))
+
+	// Stop first so the play that follows is a transition REAPER reports.
+	if err := reaper.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := reaper.Play(); err != nil {
+		t.Fatalf("Play: %v", err)
+	}
+
+	deadline := time.After(await)
+	for {
+		select {
+		case msg, open := <-listener.Messages():
+			if !open {
+				t.Fatal("the listener's stream closed while waiting for REAPER")
+			}
+			if msg.Address == "/play" {
+				_ = reaper.Stop() // do not leave REAPER rolling
+				return
+			}
+		case <-deadline:
+			t.Fatalf("REAPER's feedback never reached the listener within %s (dropped %d)", await, listener.Dropped())
+		}
+	}
+}
+
 func address(track int, param string) string {
 	return fmt.Sprintf("/track/%d/%s", track, param)
 }
