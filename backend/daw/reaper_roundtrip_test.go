@@ -30,7 +30,7 @@ const (
 	await = 3 * time.Second
 )
 
-// TestREAPERAcceptsTrackCommands is the check the fake receiver cannot make.
+// TestREAPERAcceptsCommands is the check the fake receiver cannot make.
 // Asserting on the address we send only proves we sent what we meant to; only
 // REAPER's own feedback proves REAPER understood it — including the argument
 // encoding, since mute and solo go out as 1.0/0.0 floats on a reading of
@@ -40,7 +40,7 @@ const (
 // device just set (no /track/N/volume, no /track/N/pan), only the derived
 // readouts. Asserting on those is stronger anyway — a dB figure proves REAPER
 // interpreted the normalized value, not merely that it stored it.
-func TestREAPERAcceptsTrackCommands(t *testing.T) {
+func TestREAPERAcceptsCommands(t *testing.T) {
 	feedback := osctest.NewFeedback(t, reaperFeedbackPort)
 	transport := osc.NewTransport(reaperHost, reaperListenPort)
 	reaper := daw.NewREAPER(transport)
@@ -52,6 +52,29 @@ func TestREAPERAcceptsTrackCommands(t *testing.T) {
 	}
 	track := awaitNewTrack(t, feedback)
 	t.Logf("operating on track %d", track)
+
+	// Transport first: it needs no track, and if REAPER is not actually
+	// acting on what we send, failing here says so before anything else.
+	t.Run("transport", func(t *testing.T) {
+		// REAPER reports transitions, not states, so stop first to make the
+		// play that follows an actual change.
+		if err := reaper.Stop(); err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+		feedback.AwaitValue("/stop", 1, 0, await)
+
+		if err := reaper.Play(); err != nil {
+			t.Fatalf("Play: %v", err)
+		}
+		feedback.AwaitValue("/play", 1, 0, await)
+
+		// Leave the transport stopped, so a rerun starts clean and REAPER is
+		// not left rolling after the suite exits.
+		if err := reaper.Stop(); err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+		feedback.AwaitValue("/stop", 1, 0, await)
+	})
 
 	t.Run("volume", func(t *testing.T) {
 		if err := reaper.SetTrackVolume(track, 0.25); err != nil {

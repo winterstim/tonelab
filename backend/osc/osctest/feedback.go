@@ -110,9 +110,9 @@ func numericArgument(msg *goosc.Message) (float64, error) {
 	return 0, fmt.Errorf("osctest: %s carried a non-numeric argument %#v", msg.Address, msg.Arguments[0])
 }
 
-// Flatten unwraps a packet into the messages it carries. REAPER sends its
-// feedback as OSC bundles, not bare messages, so a receive path that only
-// handles *osc.Message silently sees nothing at all.
+// Flatten unwraps a packet into the messages it carries. DAWs commonly send
+// their feedback as OSC bundles rather than bare messages (REAPER does), so a
+// receive path that only handles *osc.Message silently sees nothing at all.
 func Flatten(packet goosc.Packet) []*goosc.Message {
 	switch p := packet.(type) {
 	case *goosc.Message:
