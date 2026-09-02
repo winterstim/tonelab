@@ -30,6 +30,9 @@ type Settings struct {
 	// want to see every change first, and some want the tool to get on with
 	// it.
 	PreviewByDefault bool
+
+	// Theme is light, dark, or system.
+	Theme string
 }
 
 // SettingsResult reports what a save did, including what it could not do
@@ -46,10 +49,17 @@ type SettingsService struct {
 	path     string
 	agent    *agent.Orchestrator
 	previews *agent.Orchestrator
+}
 
-	// Preferences the UI owns but the backend stores, kept beside the file
-	// they live in.
-	preview bool
+// theme falls back rather than refusing, since a preference is not worth
+// failing a save over, and an unset one is the commonest case.
+func theme(name string) string {
+	switch name {
+	case "light", "dark", "system":
+		return name
+	default:
+		return "system"
+	}
 }
 
 func NewSettingsService(path string, live, previews *agent.Orchestrator) *SettingsService {
@@ -61,7 +71,7 @@ func NewSettingsService(path string, live, previews *agent.Orchestrator) *Settin
 func (s *SettingsService) Get() (Settings, error) {
 	settings, err := config.Load(s.path)
 	if err != nil {
-		return Settings{DAWAvailable: daw.Backends()}, nil
+		return Settings{DAWAvailable: daw.Backends(), Theme: "system"}, nil
 	}
 
 	return Settings{
@@ -73,7 +83,8 @@ func (s *SettingsService) Get() (Settings, error) {
 		DAWPort:          settings.DAW.Port,
 		DAWFeedback:      settings.DAW.FeedbackPort,
 		DAWAvailable:     daw.Backends(),
-		PreviewByDefault: s.preview,
+		PreviewByDefault: settings.UI.PreviewByDefault,
+		Theme:            theme(settings.UI.Theme),
 	}, nil
 }
 
@@ -100,6 +111,10 @@ func (s *SettingsService) Save(incoming Settings, apiKey string) (SettingsResult
 			Port:         incoming.DAWPort,
 			FeedbackPort: incoming.DAWFeedback,
 		},
+		UI: config.UI{
+			Theme:            theme(incoming.Theme),
+			PreviewByDefault: incoming.PreviewByDefault,
+		},
 	}
 	if key := strings.TrimSpace(apiKey); key != "" {
 		updated.LLM.APIKey = key
@@ -117,7 +132,6 @@ func (s *SettingsService) Save(incoming Settings, apiKey string) (SettingsResult
 	llm := agent.Config{BaseURL: updated.LLM.BaseURL, APIKey: updated.LLM.APIKey, Model: updated.LLM.Model}
 	s.agent.Reconfigure(llm)
 	s.previews.Reconfigure(llm)
-	s.preview = incoming.PreviewByDefault
 
 	// The DAW connection does not: its transport and listener are opened once
 	// at startup, and pretending otherwise would leave the app talking to the

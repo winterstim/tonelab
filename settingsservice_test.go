@@ -150,3 +150,47 @@ func TestSettingsCanBeSavedOverABrokenFile(t *testing.T) {
 		t.Fatalf("expected the save to succeed, got %+v", result)
 	}
 }
+
+// A preference that does not survive a restart is not a preference. This one
+// lived only in memory until it was noticed.
+func TestPreferencesSurviveAReload(t *testing.T) {
+	service, path := settingsService(t)
+
+	current, _ := service.Get()
+	current.PreviewByDefault = true
+	current.Theme = "light"
+	if _, err := service.Save(current, ""); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+
+	// A fresh service, as a restart would build.
+	reloaded := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil))
+	settings, _ := reloaded.Get()
+
+	if !settings.PreviewByDefault {
+		t.Error("the preview preference was lost")
+	}
+	if settings.Theme != "light" {
+		t.Errorf("expected the theme to be kept, got %q", settings.Theme)
+	}
+}
+
+// An unknown theme is not worth failing a save over, and a config written
+// before themes existed must still load.
+func TestAnUnsetThemeMeansSystem(t *testing.T) {
+	service, _ := settingsService(t)
+
+	current, _ := service.Get()
+	if current.Theme != "system" {
+		t.Fatalf("expected system, got %q", current.Theme)
+	}
+
+	current.Theme = "nonsense"
+	if _, err := service.Save(current, ""); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	settings, _ := service.Get()
+	if settings.Theme != "system" {
+		t.Fatalf("expected the unknown theme to fall back, got %q", settings.Theme)
+	}
+}

@@ -1,16 +1,27 @@
-/* Tonelab. Monochrome on purpose: the only colour in the window should be
-   meaning, and there is exactly one thing here worth colouring, which is
-   whether something failed. */
+/* Tonelab.
+
+   Light by default, because the app sits beside a DAW that is already dark and
+   dense, and a bright panel reads as a different kind of surface rather than
+   more of the same.
+
+   Colour is reserved for meaning. There is one thing here worth colouring,
+   which is that something failed. */
 
 :root {
-    --bg: #0a0a0a;
-    --raised: #141414;
-    --line: #262626;
-    --text: #f2f2f2;
-    --muted: #8a8a8a;
-    --faint: #5c5c5c;
-    --ink: #0a0a0a;
-    --alarm: #ff6b6b;
+    color-scheme: light;
+
+    --bg: #ffffff;
+    --raised: #f6f6f7;
+    --sunken: #f1f1f2;
+    --line: rgba(0, 0, 0, 0.09);
+    --line-strong: rgba(0, 0, 0, 0.16);
+    --text: #16161a;
+    --muted: #6b6b73;
+    --faint: #9a9aa2;
+    --inverse: #ffffff;
+    --solid: #16161a;
+    --alarm: #c0342b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.04);
 
     /* One spacing scale, so nothing is spaced by eye. */
     --gap-1: 6px;
@@ -19,7 +30,28 @@
     --gap-4: 24px;
     --gap-5: 40px;
 
-    --radius: 8px;
+    --radius: 10px;
+    --radius-sm: 7px;
+
+    /* Short enough to feel immediate, long enough to be seen. */
+    --quick: 130ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --bg: #0d0d0f;
+    --raised: #17171a;
+    --sunken: #121215;
+    --line: rgba(255, 255, 255, 0.09);
+    --line-strong: rgba(255, 255, 255, 0.18);
+    --text: #f0f0f2;
+    --muted: #9a9aa4;
+    --faint: #6a6a74;
+    --inverse: #0d0d0f;
+    --solid: #f0f0f2;
+    --alarm: #ff8078;
+    --shadow: none;
 }
 
 * {
@@ -35,9 +67,10 @@ body {
     background: var(--bg);
     color: var(--text);
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 14px;
-    line-height: 1.55;
+    font-size: 14.5px;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
 .app {
@@ -54,39 +87,44 @@ body {
     gap: var(--gap-4);
     /* Left padding clears the macOS traffic lights on an inset title bar. */
     padding: 0 var(--gap-3) 0 84px;
-    height: 52px;
-    border-bottom: 1px solid var(--line);
+    height: 54px;
     -webkit-app-region: drag;
 }
 
 .mark {
     font-weight: 600;
-    letter-spacing: -0.01em;
+    font-size: 14px;
+    letter-spacing: -0.012em;
 }
 
+/* Tabs read as text until chosen, so the bar stays quiet. */
 .tabs {
     display: flex;
-    gap: var(--gap-1);
+    gap: 2px;
     -webkit-app-region: no-drag;
 }
 
 .tab {
-    padding: 5px 11px;
+    padding: 5px 12px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--muted);
     font: inherit;
+    font-size: 13.5px;
     cursor: pointer;
+    transition: color var(--quick), background var(--quick);
 }
 
 .tab:hover {
     color: var(--text);
+    background: var(--raised);
 }
 
 .tab[aria-selected="true"] {
-    background: var(--raised);
     color: var(--text);
+    background: var(--raised);
+    font-weight: 500;
 }
 
 .status {
@@ -95,7 +133,7 @@ body {
     gap: var(--gap-1);
     margin-left: auto;
     color: var(--faint);
-    font-size: 12px;
+    font-size: 12.5px;
 }
 
 .dot {
@@ -103,14 +141,11 @@ body {
     height: 6px;
     border-radius: 50%;
     background: var(--faint);
+    transition: background var(--quick);
 }
 
 .status[data-connected="true"] .dot {
-    background: var(--text);
-}
-
-.status[data-connected="true"] {
-    color: var(--muted);
+    background: #22a06b;
 }
 
 /* Views -------------------------------------------------------------- */
@@ -120,7 +155,7 @@ body {
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    padding: var(--gap-4);
+    padding: 0 var(--gap-4) var(--gap-4);
     gap: var(--gap-3);
 }
 
@@ -137,17 +172,20 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--gap-4);
-    padding-right: var(--gap-1);
+    padding: var(--gap-3) 0;
 }
 
 .empty {
-    margin: auto 0;
-    color: var(--faint);
+    margin: auto;
+    max-width: 34ch;
+    text-align: center;
 }
 
 .empty-line {
-    margin: 0 0 var(--gap-2);
-    color: var(--muted);
+    margin: 0 0 var(--gap-3);
+    font-size: 17px;
+    letter-spacing: -0.012em;
+    color: var(--text);
 }
 
 .examples {
@@ -157,36 +195,38 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--gap-1);
+    color: var(--faint);
+    font-size: 13.5px;
 }
 
-.examples li::before {
-    content: "\201C";
-}
+/* Messages ----------------------------------------------------------- */
 
-.examples li::after {
-    content: "\201D";
-}
-
-/* Messages carry their role in weight and colour rather than in bubbles,
-   which keeps a long thread readable at a glance. */
 .msg {
     display: flex;
     flex-direction: column;
-    gap: var(--gap-1);
-    max-width: 62ch;
+    gap: var(--gap-2);
+    max-width: 64ch;
+    animation: rise 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
+@keyframes rise {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .msg { animation: none; }
+}
+
+/* What was said is told apart by position and surface rather than by a label
+   over every line, which is what made the first version read as a form. */
 .msg[data-from="you"] {
     align-self: flex-end;
     align-items: flex-end;
-    text-align: right;
 }
 
 .who {
-    color: var(--faint);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    display: none;
 }
 
 .said {
@@ -194,7 +234,9 @@ body {
 }
 
 .msg[data-from="you"] .said {
-    color: var(--muted);
+    padding: 9px 14px;
+    border-radius: var(--radius) var(--radius) 2px var(--radius);
+    background: var(--raised);
 }
 
 .msg[data-tone="problem"] .said {
@@ -205,13 +247,15 @@ body {
     color: var(--faint);
 }
 
-/* What the DAW confirmed, shown apart from what the model said about it. */
+/* What the DAW confirmed, kept visually apart from what the model said about
+   it: one of the two can be checked and the other cannot. */
 .did {
     margin: 0;
     padding: var(--gap-2) var(--gap-3);
-    border-left: 2px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--sunken);
     color: var(--muted);
-    font-size: 13px;
+    font-size: 13.5px;
 }
 
 .did li {
@@ -235,23 +279,30 @@ body {
     display: flex;
     gap: var(--gap-2);
     align-items: flex-end;
+    padding: var(--gap-2);
+    border-radius: var(--radius);
+    background: var(--raised);
+    box-shadow: var(--shadow);
+    transition: box-shadow var(--quick);
+}
+
+.composer:focus-within {
+    box-shadow: var(--shadow), 0 0 0 2px var(--line-strong);
 }
 
 .input {
     flex: 1;
-    padding: 11px 13px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: var(--raised);
+    padding: 6px 6px 6px 8px;
+    border: none;
+    background: transparent;
     color: inherit;
     font: inherit;
     resize: none;
-    max-height: 160px;
+    max-height: 168px;
 }
 
 .input:focus {
     outline: none;
-    border-color: var(--muted);
 }
 
 .input::placeholder {
@@ -263,31 +314,38 @@ body {
 }
 
 .send {
-    padding: 11px 18px;
+    padding: 8px 16px;
     border: none;
-    border-radius: var(--radius);
-    background: var(--text);
-    color: var(--ink);
+    border-radius: var(--radius-sm);
+    background: var(--solid);
+    color: var(--inverse);
     font: inherit;
+    font-size: 13.5px;
     font-weight: 500;
     cursor: pointer;
+    transition: opacity var(--quick);
+}
+
+.send:hover {
+    opacity: 0.85;
 }
 
 .send:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: default;
 }
 
 .stop {
     background: transparent;
-    border: 1px solid var(--line);
     color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .composer-row {
     display: flex;
     align-items: center;
     gap: var(--gap-3);
+    padding: 0 var(--gap-1);
 }
 
 .check {
@@ -299,6 +357,10 @@ body {
     cursor: pointer;
 }
 
+.check input {
+    accent-color: var(--solid);
+}
+
 .quiet {
     padding: 0;
     border: none;
@@ -307,8 +369,7 @@ body {
     font: inherit;
     font-size: 13px;
     cursor: pointer;
-    text-decoration: underline;
-    text-underline-offset: 3px;
+    transition: color var(--quick);
 }
 
 .quiet:hover {
@@ -327,15 +388,18 @@ body {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: var(--gap-3);
+    gap: var(--gap-2);
+    padding: var(--gap-3) 0;
+    max-width: 72ch;
 }
 
 .turn {
     display: flex;
     flex-direction: column;
     gap: var(--gap-1);
-    padding-bottom: var(--gap-3);
-    border-bottom: 1px solid var(--line);
+    padding: var(--gap-3);
+    border-radius: var(--radius);
+    background: var(--raised);
 }
 
 .turn-head {
@@ -346,55 +410,68 @@ body {
 
 .turn-time {
     color: var(--faint);
-    font-size: 12px;
+    font-size: 12.5px;
     font-variant-numeric: tabular-nums;
 }
 
 .turn-tag {
-    color: var(--faint);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    margin-left: auto;
+    padding: 1px 7px;
+    border-radius: 20px;
+    background: var(--sunken);
+    color: var(--muted);
+    font-size: 11.5px;
 }
 
 .turn-steps {
-    margin: 0;
+    margin: var(--gap-1) 0 0;
     padding: 0;
     list-style: none;
     color: var(--muted);
-    font-size: 13px;
-}
-
-.turn-steps li {
-    padding-left: var(--gap-3);
-    text-indent: calc(-1 * var(--gap-3));
+    font-size: 13.5px;
 }
 
 .turn-steps li[data-failed="true"] {
     color: var(--alarm);
 }
 
-/* The raw call, for someone checking rather than reading. */
+/* The exact call, for someone checking rather than reading. */
 .raw {
     margin-top: var(--gap-1);
     color: var(--faint);
-    font-size: 12px;
+    font-size: 12.5px;
 }
 
 .raw pre {
     margin: var(--gap-1) 0 0;
     padding: var(--gap-2);
-    border-radius: 6px;
-    background: var(--raised);
+    border-radius: var(--radius-sm);
+    background: var(--sunken);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
-    line-height: 1.5;
+    font-size: 11.5px;
+    line-height: 1.55;
     white-space: pre-wrap;
     overflow-x: auto;
 }
 
 .raw summary {
     cursor: pointer;
+    list-style: none;
+}
+
+.raw summary::marker,
+.raw summary::-webkit-details-marker {
+    display: none;
+}
+
+.raw summary::before {
+    content: "\203A ";
+    display: inline-block;
+    transition: transform var(--quick);
+}
+
+.raw[open] summary::before {
+    transform: rotate(90deg);
 }
 
 /* Settings ----------------------------------------------------------- */
@@ -406,16 +483,16 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--gap-3);
-    max-width: 560px;
+    padding: var(--gap-3) 0;
+    max-width: 46rem;
 }
 
 .group {
-    margin: var(--gap-3) 0 0;
-    font-size: 12px;
+    margin: var(--gap-4) 0 0;
+    font-size: 15px;
     font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--faint);
+    letter-spacing: -0.01em;
+    color: var(--text);
 }
 
 .group:first-child {
@@ -443,29 +520,61 @@ body {
 }
 
 .text {
-    padding: 9px 11px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
+    padding: 9px 12px;
+    border: none;
+    border-radius: var(--radius-sm);
     background: var(--raised);
     color: inherit;
     font: inherit;
+    font-size: 13.5px;
+    box-shadow: inset 0 0 0 1px var(--line);
+    transition: box-shadow var(--quick);
 }
 
 .text:focus {
     outline: none;
-    border-color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 .hint {
     color: var(--faint);
-    font-size: 12px;
+    font-size: 12.5px;
+}
+
+/* Theme choice reads as a row of options rather than a dropdown, since there
+   are three and the choice is worth seeing without opening anything. */
+.choices {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border-radius: var(--radius-sm);
+    background: var(--raised);
+    align-self: flex-start;
+}
+
+.choice {
+    padding: 5px 14px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background var(--quick), color var(--quick);
+}
+
+.choice[aria-pressed="true"] {
+    background: var(--bg);
+    color: var(--text);
+    box-shadow: var(--shadow);
 }
 
 .settings-actions {
     display: flex;
     align-items: center;
     gap: var(--gap-3);
-    margin-top: var(--gap-3);
+    margin-top: var(--gap-4);
 }
 
 .settings-actions .send {

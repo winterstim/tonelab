@@ -8,8 +8,12 @@ Everything worth deciding lives in Go. This layer calls the generated bindings
 directly, because an abstraction over a typed, generated client would only add
 a place for the two to drift.
 
-Monochrome on purpose. The only colour in the window is meaning, and there is
-exactly one thing worth colouring: that something failed.
+Light by default, because the app sits beside a DAW that is already dark and
+dense, and a bright panel reads as a different kind of surface rather than more
+of the same. Dark and system are offered and the choice is stored with the
+other settings, since a preference that does not survive a restart is not one.
+
+Colour is reserved for meaning: failure, and whether the DAW answered.
 
 Notes on what it does that is not obvious:
 

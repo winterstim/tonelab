@@ -32,9 +32,24 @@ type DAW struct {
 	FeedbackPort int    `json:"feedback_port"`
 }
 
+// UI holds what the person prefers rather than what the machine requires.
+// Stored with the rest so a preference survives a restart, which is the whole
+// point of one.
+type UI struct {
+	// Theme is light, dark, or system. Empty means system, so a config
+	// written before this existed still loads.
+	Theme string `json:"theme,omitempty"`
+
+	// PreviewByDefault decides whether commands are proposed before they run.
+	// A safety choice that belongs to the user: some want to see every change
+	// first, some want the tool to get on with it.
+	PreviewByDefault bool `json:"preview_by_default"`
+}
+
 type Config struct {
 	LLM LLM `json:"llm"`
 	DAW DAW `json:"daw"`
+	UI  UI  `json:"ui"`
 }
 
 // String masks the key. The likeliest way to leak a secret is a log line
@@ -99,6 +114,8 @@ func (c Config) validate() error {
 		return errors.New("daw.port is required, the port the DAW listens for OSC on")
 	case c.DAW.FeedbackPort == 0:
 		return errors.New("daw.feedback_port is required, the port the DAW sends feedback to")
+	case c.UI.Theme != "" && c.UI.Theme != "light" && c.UI.Theme != "dark" && c.UI.Theme != "system":
+		return fmt.Errorf("ui.theme %q is not one of: light, dark, system", c.UI.Theme)
 	}
 
 	// Checked against the registry rather than a list here, so a new backend
@@ -151,6 +168,7 @@ func writeTemplate(path string) error {
 	template := Config{
 		LLM: LLM{BaseURL: "http://localhost:11434/v1", APIKey: "", Model: "qwen2.5"},
 		DAW: DAW{Backend: "reaper", Host: "127.0.0.1", Port: 8000, FeedbackPort: 9000},
+		UI:  UI{Theme: "system"},
 	}
 	body, err := json.MarshalIndent(template, "", "  ")
 	if err != nil {

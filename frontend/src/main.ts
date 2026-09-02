@@ -20,6 +20,35 @@ const historyView = el("history");
 // connected; this only decides how often it is asked.
 const statusInterval = 3000;
 
+/* Theme -------------------------------------------------------------- */
+
+// Applied to the root rather than swapped stylesheet, so a change is one
+// attribute and the transition is free. "system" leaves the attribute off and
+// lets the media query decide.
+let chosenTheme = "system";
+
+function applyTheme(name: string) {
+    chosenTheme = name;
+    const dark = name === "dark" || (name === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+
+    for (const button of document.querySelectorAll<HTMLButtonElement>(".choice")) {
+        button.setAttribute("aria-pressed", String(button.dataset.theme === name));
+    }
+}
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (chosenTheme === "system") {
+        applyTheme("system");
+    }
+});
+
+for (const button of document.querySelectorAll<HTMLButtonElement>(".choice")) {
+    // Applied at once rather than on save: a theme you cannot see until you
+    // commit to it is one you cannot choose.
+    button.addEventListener("click", () => applyTheme(button.dataset.theme!));
+}
+
 /* Views ------------------------------------------------------------- */
 
 // Shown and hidden rather than routed: three views is not what a router is
@@ -393,6 +422,7 @@ async function loadSettings() {
     el<HTMLInputElement>("daw-feedback").value = String(settings.DAWFeedback);
     el<HTMLInputElement>("preview-default").checked = settings.PreviewByDefault;
     previewMode.checked = settings.PreviewByDefault;
+    applyTheme(settings.Theme || "system");
     el("settings-note").textContent = "";
 }
 
@@ -409,6 +439,7 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
         DAWFeedback: Number(el<HTMLInputElement>("daw-feedback").value),
         DAWAvailable: [],
         PreviewByDefault: el<HTMLInputElement>("preview-default").checked,
+        Theme: chosenTheme,
     };
 
     const result = await SettingsService.Save(settings, el<HTMLInputElement>("api-key").value);
