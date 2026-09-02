@@ -31,6 +31,10 @@ const pickList = el("pick-list");
 // connected; this only decides how often it is asked.
 const statusInterval = 3000;
 
+// Which conversation the window is showing. A turn can finish after the user
+// has moved to another one, and its answer belongs where it was asked.
+let showing = "";
+
 /* Greeting ----------------------------------------------------------- */
 
 // An empty screen is the one place with room for a sentence rather than
@@ -317,7 +321,7 @@ function renderChip(summary: ConversationSummary): HTMLElement {
         event.stopPropagation();
         const remaining = await AgentService.DeleteConversation(summary.ID);
         await renderConversations();
-        drawThread(remaining.Messages ?? []);
+        drawThread(remaining.Messages ?? [], remaining.ID);
     });
 
     chip.append(name, edit, drop);
@@ -327,7 +331,7 @@ function renderChip(summary: ConversationSummary): HTMLElement {
         }
         const opened = await AgentService.OpenConversation(summary.ID);
         await renderConversations();
-        drawThread(opened.Messages ?? []);
+        drawThread(opened.Messages ?? [], opened.ID);
     });
     return chip;
 }
@@ -349,12 +353,19 @@ async function submit() {
 
     const waiting = append("tonelab", "Working…", "working");
 
+    const asked = showing;
+
     try {
         const response = previewMode.checked
             ? await AgentService.PreviewCommand(text)
             : await AgentService.SendCommand(text);
         waiting.remove();
-        report(response);
+
+        // Drawn only if the window is still on the conversation that asked.
+        // The answer is kept either way; it is waiting in that thread.
+        if (response.Conversation === "" || response.Conversation === asked) {
+            report(response);
+        }
     } catch (error) {
         waiting.remove();
         // Reaching here means the call itself broke, rather than the command
@@ -410,9 +421,9 @@ el("undo").addEventListener("click", async () => {
 el("clear").addEventListener("click", async () => {
     // Starts a thread rather than destroying one: the old conversation stays
     // in the list, which is what the words on the button mean.
-    await AgentService.StartConversation();
+    const started = await AgentService.StartConversation();
     await renderConversations();
-    drawThread([]);
+    drawThread([], started.ID);
     input.focus();
 });
 
@@ -423,7 +434,8 @@ el("clear").addEventListener("click", async () => {
 // Faded out before it is rebuilt and back in after, so switching or starting
 // a conversation reads as one movement rather than a screen blinking into a
 // different one.
-async function drawThread(messages: ChatMessage[]) {
+async function drawThread(messages: ChatMessage[], id = showing) {
+    showing = id;
     thread.dataset.swapping = "true";
     await new Promise((done) => setTimeout(done, 110));
 
@@ -492,7 +504,7 @@ pick.addEventListener("click", async (event) => {
             closePicker();
             const opened = await AgentService.OpenConversation(summary.ID);
             await renderConversations();
-            drawThread(opened.Messages ?? []);
+            drawThread(opened.Messages ?? [], opened.ID);
         });
         pickList.append(item);
     }
@@ -748,7 +760,7 @@ loadSettings();
 // The window draws what the backend already holds, so reopening it after a
 // reload shows the conversation rather than an empty room.
 AgentService.CurrentConversation().then((current) => {
-    drawThread(current.Messages ?? []);
+    drawThread(current.Messages ?? [], current.ID);
     renderConversations();
 });
 

@@ -221,17 +221,33 @@ func (c *conversations) current() *Conversation {
 
 // add appends to the thread being spoken to, naming it from the first thing
 // said: a list of threads called "New conversation" is not a list.
-func (c *conversations) add(message ChatMessage) {
+func (c *conversations) add(message ChatMessage) string {
 	thread := c.current()
+	c.addTo(thread.ID, message)
+	return thread.ID
+}
 
+// addTo appends to a named thread, which is what a turn in flight needs: a
+// question asked in one conversation must have its answer land there, and by
+// the time an answer arrives the user may be reading another.
+func (c *conversations) addTo(id string, message ChatMessage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	thread.Messages = append(thread.Messages, message)
-	if message.From == "you" && thread.Title == "New conversation" {
-		thread.Title = title(message.Text)
+	for _, thread := range c.threads {
+		if thread.ID != id {
+			continue
+		}
+		thread.Messages = append(thread.Messages, message)
+		if message.From == "you" && thread.Title == "New conversation" {
+			thread.Title = title(message.Text)
+		}
+		c.saveLocked()
+		return
 	}
-	c.saveLocked()
+	// The thread was deleted while the turn ran, so there is nowhere for the
+	// answer to go. Dropping it is right: putting it somewhere else would put
+	// it in a conversation it was not part of.
 }
 
 func title(text string) string {

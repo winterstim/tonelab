@@ -33,6 +33,9 @@ type PlannedCall struct {
 
 type AgentResponse struct {
 	Message string
+	// Conversation is the thread this answers, which a window showing
+	// another one needs in order not to draw it there.
+	Conversation string
 	// Steps is what the turn did, tool by tool, for the history view.
 	Steps []JournalStep
 	// Plan is what a preview would do. Empty on an ordinary command.
@@ -239,10 +242,11 @@ func (a *AgentService) PreviewCommand(text string) (AgentResponse, error) {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
 
-	a.threads.add(ChatMessage{From: "you", Text: text})
+	asked := a.threads.add(ChatMessage{From: "you", Text: text})
 
 	response := a.planner.Preview(text)
-	a.threads.add(chatMessage(response))
+	a.threads.addTo(asked, chatMessage(response))
+	response.Conversation = asked
 	a.journal.record(JournalEntry{
 		Command: text,
 		Answer:  response.Message,
@@ -276,8 +280,10 @@ func (a *AgentService) ApplyPlan() (AgentResponse, error) {
 	if a.planner == nil {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
+	applied := a.threads.current().ID
 	response := a.planner.Apply(plan)
-	a.threads.add(chatMessage(response))
+	a.threads.addTo(applied, chatMessage(response))
+	response.Conversation = applied
 	a.journal.record(JournalEntry{
 		Command: "(applied the previewed plan)",
 		Answer:  response.Message,
@@ -334,16 +340,23 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 		stop()
 	}()
 
-	a.threads.add(ChatMessage{From: "you", Text: text})
+	// Bound to the thread the question was asked in. A turn can take most of
+	// a minute, and by the time it finishes the user may be reading another
+	// conversation; the answer belongs to the one that asked.
+	asked := a.threads.add(ChatMessage{From: "you", Text: text})
 
 	response := a.agent.SendContext(ctx, text)
-	a.threads.add(chatMessage(response))
+	a.threads.addTo(asked, chatMessage(response))
 	a.journal.record(JournalEntry{
 		Command: text,
 		Answer:  response.Message,
 		Steps:   response.Steps,
 		Error:   response.Error,
 	})
+
+	// Told which conversation this answers, so a window showing a different
+	// one does not draw it.
+	response.Conversation = asked
 	return response, nil
 }
 

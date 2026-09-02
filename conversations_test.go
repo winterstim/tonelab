@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The button says "new conversation", and one that destroyed the previous one
@@ -257,5 +258,92 @@ func TestDeletingTheOnlyConversationLeavesAFreshOne(t *testing.T) {
 	}
 	if len(current.Messages) != 0 {
 		t.Fatalf("expected a fresh conversation, got %+v", current.Messages)
+	}
+}
+
+// A turn can take most of a minute, and by the time it finishes the user may
+// be reading another conversation. The answer belongs to the one that asked.
+func TestAnAnswerLandsInTheConversationThatAskedIt(t *testing.T) {
+	// The blocking channel is fitted after the first command, or that one
+	// would block too and the test would wait on itself.
+	brain := &stubBrain{response: AgentResponse{Message: "Muted."}}
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
+	service.SendCommand("first")
+	asking, _ := service.CurrentConversation()
+
+	brain.mu.Lock()
+	brain.block = make(chan struct{})
+	block := brain.block
+	brain.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		service.SendCommand("mute the vocals")
+		close(done)
+	}()
+
+	// Wait for the turn to be under way, then move to another conversation.
+	deadline := time.Now().Add(time.Second)
+	for brain.seen() != "mute the vocals" {
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	service.StartConversation()
+	close(block)
+	<-done
+
+	elsewhere, _ := service.CurrentConversation()
+	if len(elsewhere.Messages) != 0 {
+		t.Fatalf("the answer landed in the conversation the user moved to: %+v", elsewhere.Messages)
+	}
+
+	original, _ := service.OpenConversation(asking.ID)
+	last := original.Messages[len(original.Messages)-1]
+	if last.Text != "Muted." {
+		t.Fatalf("the answer is missing from the conversation that asked: %+v", original.Messages)
+	}
+}
+
+// A conversation deleted while its turn ran has nowhere for the answer to go,
+// and putting it elsewhere would put it in a conversation it was not part of.
+func TestAnAnswerToADeletedConversationIsDropped(t *testing.T) {
+	// The two turns answer differently, or the assertion below would find the
+	// first one's reply and call it the second one's.
+	brain := &stubBrain{response: AgentResponse{Message: "The first answer."}}
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
+	service.SendCommand("first")
+	service.StartConversation()
+	doomed, _ := service.CurrentConversation()
+
+	brain.mu.Lock()
+	brain.block = make(chan struct{})
+	block := brain.block
+	brain.response = AgentResponse{Message: "Muted."}
+	brain.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		service.SendCommand("mute the vocals")
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for brain.seen() != "mute the vocals" {
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	service.DeleteConversation(doomed.ID)
+	close(block)
+	<-done
+
+	remaining, _ := service.CurrentConversation()
+	for _, message := range remaining.Messages {
+		if message.Text == "Muted." {
+			t.Fatal("the answer was moved into a conversation it was not part of")
+		}
 	}
 }

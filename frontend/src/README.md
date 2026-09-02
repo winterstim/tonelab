@@ -33,6 +33,11 @@ Notes on what it does that is not obvious:
   each other, and a conversation is only interesting beside what it changed.
   Renaming and deleting live there, in place on the row, because correcting a
   guessed title should not need a dialogue about correcting titles.
+- **A turn belongs to the conversation that asked it.** It can take most of a
+  minute, and by the time it finishes the window may be showing another
+  thread; the answer is kept in the one that asked and drawn only if that is
+  still the one on screen. Switching *views* is harmless by comparison, since
+  a turn runs in the backend and knows nothing about tabs.
 - **The chat keeps only switching**, as a menu on the bottom row rather than a
   strip above the thread. Switching is frequent enough that leaving the chat
   for it would be a tax, and rare enough that a permanent row would take
