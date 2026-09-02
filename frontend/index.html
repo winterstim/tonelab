@@ -49,14 +49,13 @@
     </header>
 
     <section class="view" id="view-chat">
+        <!-- Threads of this session. Hidden while there is only one, since a
+             switcher listing a single thing is noise. -->
+        <div class="switcher" id="switcher" hidden></div>
+
         <div class="thread" id="thread">
             <div class="empty" id="empty">
-                <p class="empty-line">Tell the DAW what you want.</p>
-                <ul class="examples">
-                    <li>Turn the vocals down a little</li>
-                    <li>Mute track 3</li>
-                    <li>Pan the drums slightly left</li>
-                </ul>
+                <p class="empty-line" id="greeting"></p>
             </div>
         </div>
 

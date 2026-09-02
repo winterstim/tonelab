@@ -71,6 +71,19 @@ type DAWStatus struct {
 type brain interface {
 	SendContext(ctx context.Context, text string) AgentResponse
 	Forget()
+
+	// Recall and Restore let a thread be put away and brought back with what
+	// the agent knew while it was open. Without them, switching threads would
+	// leave the new one inheriting the last one's subject.
+	Recall() []Exchange
+	Restore([]Exchange)
+}
+
+// Exchange is one question and its answer, which is all a later turn needs of
+// an earlier one.
+type Exchange struct {
+	Question string
+	Answer   string
 }
 
 // planner previews a command and carries out what it proposed. Separate from
@@ -108,6 +121,7 @@ type AgentService struct {
 	daw      any
 
 	journal journal
+	threads *conversations
 
 	// Cancels the turn in flight, if there is one.
 	stopTurn context.CancelFunc
@@ -119,7 +133,66 @@ type AgentService struct {
 }
 
 func NewAgentService(agent brain, previews planner, observer liveness, client any) *AgentService {
-	return &AgentService{agent: agent, planner: previews, liveness: observer, daw: client}
+	return &AgentService{
+		agent:    agent,
+		planner:  previews,
+		liveness: observer,
+		daw:      client,
+		threads:  newConversations(),
+	}
+}
+
+// Conversations lists the threads of this session, newest first.
+func (a *AgentService) Conversations() ([]ConversationSummary, error) {
+	return a.threads.list(), nil
+}
+
+// StartConversation opens a new thread and leaves the old one where it is.
+// The button that does this says "new conversation", and a button that
+// destroyed the previous one would be lying about the word.
+func (a *AgentService) StartConversation() (Conversation, error) {
+	a.threads.remember(recall(a.agent))
+	a.agent.Forget()
+	return *a.threads.start(), nil
+}
+
+// OpenConversation switches to a thread and gives back everything said in it,
+// so the window can show a conversation it did not keep.
+func (a *AgentService) OpenConversation(id string) (Conversation, error) {
+	a.threads.remember(recall(a.agent))
+
+	thread, memory, found := a.threads.selectThread(id)
+	if !found {
+		return Conversation{}, nil
+	}
+
+	restore(a.agent, memory)
+	return *thread, nil
+}
+
+// CurrentConversation is what the window draws on opening, since the thread
+// lives here rather than in the page.
+func (a *AgentService) CurrentConversation() (Conversation, error) {
+	return *a.threads.current(), nil
+}
+
+// recall and restore translate between the service's exchange type and the
+// agent's, keeping each package's vocabulary its own.
+func recall(agent brain) []exchange {
+	remembered := agent.Recall()
+	kept := make([]exchange, 0, len(remembered))
+	for _, one := range remembered {
+		kept = append(kept, exchange{Question: one.Question, Answer: one.Answer})
+	}
+	return kept
+}
+
+func restore(agent brain, memory []exchange) {
+	exchanges := make([]Exchange, 0, len(memory))
+	for _, one := range memory {
+		exchanges = append(exchanges, Exchange{Question: one.Question, Answer: one.Answer})
+	}
+	agent.Restore(exchanges)
 }
 
 // PreviewCommand says what a command would do without doing it, and holds the
@@ -132,7 +205,10 @@ func (a *AgentService) PreviewCommand(text string) (AgentResponse, error) {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
 
+	a.threads.add(ChatMessage{From: "you", Text: text})
+
 	response := a.planner.Preview(text)
+	a.threads.add(chatMessage(response))
 	a.journal.record(JournalEntry{
 		Command: text,
 		Answer:  response.Message,
@@ -167,6 +243,7 @@ func (a *AgentService) ApplyPlan() (AgentResponse, error) {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
 	response := a.planner.Apply(plan)
+	a.threads.add(chatMessage(response))
 	a.journal.record(JournalEntry{
 		Command: "(applied the previewed plan)",
 		Answer:  response.Message,
@@ -223,7 +300,10 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 		stop()
 	}()
 
+	a.threads.add(ChatMessage{From: "you", Text: text})
+
 	response := a.agent.SendContext(ctx, text)
+	a.threads.add(chatMessage(response))
 	a.journal.record(JournalEntry{
 		Command: text,
 		Answer:  response.Message,
@@ -231,6 +311,18 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 		Error:   response.Error,
 	})
 	return response, nil
+}
+
+// chatMessage turns a response into the line the thread keeps, which is what
+// makes a reopened conversation look like the one that was left.
+func chatMessage(response AgentResponse) ChatMessage {
+	return ChatMessage{
+		From:    "tonelab",
+		Text:    response.Message,
+		Changed: response.Changed,
+		Plan:    response.Plan,
+		Error:   response.Error,
+	}
 }
 
 // Forget drops the conversation. A user starting a new idea should not have
@@ -318,6 +410,23 @@ func (o orchestratorBrain) SendContext(ctx context.Context, text string) AgentRe
 
 func (o orchestratorBrain) Forget() {
 	o.orchestrator.Forget()
+}
+
+func (o orchestratorBrain) Recall() []Exchange {
+	remembered := o.orchestrator.Recall()
+	exchanges := make([]Exchange, 0, len(remembered))
+	for _, one := range remembered {
+		exchanges = append(exchanges, Exchange{Question: one.Question, Answer: one.Answer})
+	}
+	return exchanges
+}
+
+func (o orchestratorBrain) Restore(exchanges []Exchange) {
+	remembered := make([]agent.Exchange, 0, len(exchanges))
+	for _, one := range exchanges {
+		remembered = append(remembered, agent.Exchange{Question: one.Question, Answer: one.Answer})
+	}
+	o.orchestrator.Restore(remembered)
 }
 
 // convert moves an agent response across the UI boundary, keeping the

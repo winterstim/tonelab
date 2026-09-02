@@ -19,12 +19,29 @@ type stubBrain struct {
 	block     chan struct{}
 	cancelled bool
 	forgotten bool
+	memory    []Exchange
 }
 
+func (s *stubBrain) Recall() []Exchange {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.memory
+}
+
+func (s *stubBrain) Restore(exchanges []Exchange) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.memory = exchanges
+}
+
+// Clears what it remembers, as the real orchestrator does. A stub that only
+// noted the call would let a new conversation inherit the last one's subject
+// while the test said otherwise.
 func (s *stubBrain) Forget() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.forgotten = true
+	s.memory = nil
 }
 
 func (s *stubBrain) seen() string {

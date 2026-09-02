@@ -1,5 +1,5 @@
 import { AgentService, SettingsService } from "../bindings/tonelab";
-import type { AgentResponse, JournalEntry, Settings } from "../bindings/tonelab/models";
+import type { AgentResponse, ChatMessage, JournalEntry, Settings } from "../bindings/tonelab/models";
 
 type Tone = "answer" | "problem" | "working";
 
@@ -15,10 +15,46 @@ const previewMode = el<HTMLInputElement>("preview-mode");
 const status = el("status");
 const statusText = el("status-text");
 const historyView = el("history");
+const switcher = el("switcher");
 
 // How stale the connection light may be. The backend decides what counts as
 // connected; this only decides how often it is asked.
 const statusInterval = 3000;
+
+/* Greeting ----------------------------------------------------------- */
+
+// An empty screen is the one place with room for a sentence rather than
+// instructions. Chosen by the hour, because the same line every morning stops
+// being read after the second day.
+const greetings: Record<string, string[]> = {
+    night: [
+        "Let's make something at this hour.",
+        "The quiet part of the day.",
+        "Still going. Good.",
+    ],
+    morning: [
+        "Fresh ears this morning.",
+        "Let's hear it.",
+        "Start where you left off.",
+    ],
+    afternoon: [
+        "What are we shaping today?",
+        "Let's get into it.",
+        "Tell me what to move.",
+    ],
+    evening: [
+        "Let's create through your night.",
+        "The good hours.",
+        "What needs fixing tonight?",
+    ],
+};
+
+function greet() {
+    const hour = new Date().getHours();
+    const part = hour < 5 ? "night" : hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
+    const lines = greetings[part];
+    el("greeting").textContent = lines[Math.floor(Math.random() * lines.length)];
+}
 
 /* Theme -------------------------------------------------------------- */
 
@@ -228,6 +264,7 @@ async function submit() {
     } finally {
         setRunning(false);
         input.focus();
+        renderConversations();
     }
 }
 
@@ -269,11 +306,60 @@ el("undo").addEventListener("click", async () => {
 });
 
 el("clear").addEventListener("click", async () => {
-    await AgentService.Forget();
-    thread.querySelectorAll(".msg").forEach((node) => node.remove());
-    empty.hidden = false;
+    // Starts a thread rather than destroying one: the old conversation stays
+    // in the list, which is what the words on the button mean.
+    await AgentService.StartConversation();
+    await renderConversations();
+    drawThread([]);
     input.focus();
 });
+
+/* Conversations ------------------------------------------------------ */
+
+// The thread lives in the backend, because one that only exists in the page
+// cannot survive being switched away from.
+function drawThread(messages: ChatMessage[]) {
+    thread.querySelectorAll(".msg").forEach((node) => node.remove());
+    empty.hidden = messages.length > 0;
+    if (messages.length === 0) {
+        greet();
+    }
+
+    for (const message of messages) {
+        if (message.Error) {
+            append("tonelab", explain(message.Error.Code, message.Error.Message), "problem");
+            continue;
+        }
+        const node = append(message.From as "you" | "tonelab", message.Text || "Done.");
+        attachChanges(node, message.Changed);
+        // Plans are not redrawn: a plan is an offer made once, and one
+        // reopened hours later would invite accepting something stale.
+    }
+}
+
+async function renderConversations() {
+    const threads = (await AgentService.Conversations()) ?? [];
+    switcher.replaceChildren();
+
+    // Hidden with only one, since a switcher listing a single thing is noise.
+    switcher.hidden = threads.length < 2;
+    if (switcher.hidden) {
+        return;
+    }
+    for (const summary of threads) {
+        const button = document.createElement("button");
+        button.className = "thread-chip";
+        button.type = "button";
+        button.textContent = summary.Title;
+        button.setAttribute("aria-pressed", String(summary.Active));
+        button.addEventListener("click", async () => {
+            const opened = await AgentService.OpenConversation(summary.ID);
+            drawThread(opened.Messages ?? []);
+            await renderConversations();
+        });
+        switcher.append(button);
+    }
+}
 
 /* History ----------------------------------------------------------- */
 
@@ -498,4 +584,12 @@ async function refreshStatus() {
 refreshStatus();
 setInterval(refreshStatus, statusInterval);
 loadSettings();
+
+// The window draws what the backend already holds, so reopening it after a
+// reload shows the conversation rather than an empty room.
+AgentService.CurrentConversation().then((current) => {
+    drawThread(current.Messages ?? []);
+    renderConversations();
+});
+
 input.focus();

@@ -365,6 +365,46 @@ func (o *Orchestrator) settings() Config {
 	return o.config
 }
 
+// Exchange is one question and its answer, which is all a later turn needs of
+// an earlier one.
+type Exchange struct {
+	Question string
+	Answer   string
+}
+
+// Recall returns what the agent remembers, so a caller holding several
+// conversations can put this one away and bring it back.
+func (o *Orchestrator) Recall() []Exchange {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	exchanges := make([]Exchange, 0, len(o.history)/2)
+	for i := 0; i+1 < len(o.history); i += 2 {
+		exchanges = append(exchanges, Exchange{
+			Question: o.history[i].Content,
+			Answer:   o.history[i+1].Content,
+		})
+	}
+	return exchanges
+}
+
+// Restore replaces what the agent remembers, which is how switching
+// conversations stops the new one inheriting the last one's subject.
+func (o *Orchestrator) Restore(exchanges []Exchange) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.history = nil
+	for _, exchange := range exchanges {
+		o.history = append(o.history,
+			message{Role: "user", Content: exchange.Question},
+			message{Role: "assistant", Content: exchange.Answer})
+	}
+	if len(o.history) > maxRemembered*2 {
+		o.history = o.history[len(o.history)-maxRemembered*2:]
+	}
+}
+
 // Forget drops the conversation. Offered because a user starting a new idea
 // should not have to fight the last one, and because a wrong turn left in
 // context keeps being wrong.
