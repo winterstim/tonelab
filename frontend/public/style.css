@@ -20,32 +20,23 @@
     --faint: #9a9aa2;
     --inverse: #ffffff;
     --solid: #16161a;
-    /* Two colours in the whole window, and each means one thing.
-
-       Water is the working state: the thing you press, the thing that is
-       selected, the DAW answering. Fire is failure, which is what warm reds
-       already say to everyone before they read anything.
-
-       Keeping them apart is what lets either one be noticed. An accent that
-       shared a hue with the error colour would leave nothing to signal with. */
-    --accent: #0b82c9;
-    --accent-soft: rgba(11, 130, 201, 0.10);
-    --accent-line: rgba(11, 130, 201, 0.30);
+    /* No hue anywhere. Emphasis is carried by contrast, and failure by weight
+       and a heavier edge, which is what the colour was doing before it was
+       taken out. A palette with nothing to spend cannot spend it wrongly. */
+    --accent: var(--text);
+    --accent-soft: rgba(16, 16, 26, 0.05);
+    --accent-line: rgba(16, 16, 26, 0.20);
     --accent-ink: #ffffff;
 
-    --alarm: #cf4318;
-    --alarm-soft: rgba(207, 67, 24, 0.09);
-    --alarm-line: rgba(207, 67, 24, 0.26);
+    --alarm: var(--text);
+    --alarm-soft: transparent;
+    --alarm-line: rgba(16, 16, 26, 0.55);
 
     /* Gradients are kept nearly invisible on purpose: enough to give a
        surface a direction, not enough to become decoration. */
     --wash: linear-gradient(180deg, #ffffff 0%, #fbfbfd 100%);
-    /* Two water fills, because one cannot do both jobs. The bright one goes
-       under icons and small marks; the deep one goes under text, where the
-       light end of a cyan gradient does not carry white legibly. */
-    --accent-fill: linear-gradient(165deg, #21b3e0 0%, #0b74c4 100%);
-    --accent-fill-deep: linear-gradient(165deg, #0e7fc4 0%, #08589e 100%);
-    --alarm-fill: linear-gradient(165deg, #ff7a3c 0%, #dd4415 100%);
+    --accent-fill: linear-gradient(165deg, #3c3c46 0%, #16161a 100%);
+    --accent-fill-deep: linear-gradient(165deg, #34343d 0%, #101014 100%);
 
     /* Elevation as a scale. Each step is a tight contact shadow plus a wide
        ambient one, which is what makes a surface look lifted rather than
@@ -54,7 +45,7 @@
     --lift-2: 0 1px 2px rgba(16, 16, 40, 0.06), 0 8px 22px rgba(16, 16, 40, 0.07);
     --lift-3: 0 2px 4px rgba(16, 16, 40, 0.07), 0 18px 44px rgba(16, 16, 40, 0.10);
     --shadow: var(--lift-2);
-    --shadow-accent: 0 1px 2px rgba(6, 78, 122, 0.28), 0 6px 16px rgba(11, 130, 201, 0.30);
+    --shadow-accent: 0 1px 2px rgba(16, 16, 40, 0.20), 0 6px 16px rgba(16, 16, 40, 0.18);
 
     /* A hairline of light along the top edge, which is most of what reads as
        a physical surface under a light source. */
@@ -88,27 +79,26 @@
     --faint: #6a6a74;
     --inverse: #0d0d0f;
     --solid: #f0f0f2;
-    --accent: #4cc8f0;
-    --accent-soft: rgba(76, 200, 240, 0.13);
-    --accent-line: rgba(76, 200, 240, 0.34);
-    --accent-ink: #06131a;
+    --accent: var(--text);
+    --accent-soft: rgba(255, 255, 255, 0.07);
+    --accent-line: rgba(255, 255, 255, 0.24);
+    --accent-ink: #0d0d0f;
 
-    --alarm: #ff8a5c;
-    --alarm-soft: rgba(255, 138, 92, 0.12);
-    --alarm-line: rgba(255, 138, 92, 0.32);
+    --alarm: var(--text);
+    --alarm-soft: transparent;
+    --alarm-line: rgba(255, 255, 255, 0.58);
 
     --wash: linear-gradient(180deg, #131318 0%, #0d0d10 100%);
-    --accent-fill: linear-gradient(165deg, #5ad6f5 0%, #2b9fd8 100%);
-    /* On a dark window the ink is dark, so the deep fill is the bright one:
-       what has to stay legible is the text on top, not the surface. */
-    --accent-fill-deep: linear-gradient(165deg, #6fdcf7 0%, #34a9e2 100%);
-    --alarm-fill: linear-gradient(165deg, #ff9a63 0%, #e8562a 100%);
+    /* Inverted on a dark window: what has to stay legible is the text on
+       top, so the fill goes light and the ink goes dark. */
+    --accent-fill: linear-gradient(165deg, #f5f5f7 0%, #d2d2d9 100%);
+    --accent-fill-deep: linear-gradient(165deg, #f5f5f7 0%, #cbcbd3 100%);
 
     --lift-1: 0 1px 2px rgba(0, 0, 0, 0.4);
     --lift-2: 0 2px 6px rgba(0, 0, 0, 0.5), 0 10px 28px rgba(0, 0, 0, 0.35);
     --lift-3: 0 4px 10px rgba(0, 0, 0, 0.55), 0 22px 50px rgba(0, 0, 0, 0.45);
     --shadow: var(--lift-2);
-    --shadow-accent: 0 2px 10px rgba(43, 159, 216, 0.40);
+    --shadow-accent: 0 2px 10px rgba(0, 0, 0, 0.5);
     --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
@@ -252,18 +242,19 @@ body {
     gap: 7px;
     padding: 5px 12px 5px 10px;
     border-radius: var(--radius-pill);
-    background: var(--alarm-soft);
-    box-shadow: inset 0 0 0 1px var(--alarm-line);
+    box-shadow: inset 0 0 0 2px var(--alarm-line);
     color: var(--alarm);
+    font-weight: 500;
     font-size: 12.5px;
     white-space: nowrap;
     transition: background var(--quick), box-shadow var(--quick), color var(--quick);
 }
 
 .status[data-connected="true"] {
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1px var(--accent-line);
-    color: var(--accent);
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--muted);
+    font-weight: 400;
 }
 
 /* Not connected is a failure state, not an absence of one: the app cannot do
@@ -273,6 +264,7 @@ body {
     height: 6px;
     border-radius: 50%;
     background: var(--alarm);
+    box-shadow: 0 0 0 1px var(--bg);
     transition: background var(--quick);
 }
 
@@ -323,38 +315,176 @@ body {
 
 /* Conversations ------------------------------------------------------ */
 
-.switcher {
-    display: flex;
-    gap: var(--gap-1);
-    flex-wrap: wrap;
-    padding-top: var(--gap-2);
+/* Switching is a menu rather than a strip: a permanent row of threads above
+   the thread you are reading takes height from the thing it points at. */
+.picker {
+    position: relative;
 }
 
-.thread-chip {
-    max-width: 22ch;
-    padding: 6px 14px;
-    border: none;
-    border-radius: var(--radius-pill);
+.caret {
+    width: 11px;
+    height: 11px;
+    transition: transform var(--quick);
+}
+
+.picker[data-open="true"] .caret {
+    transform: rotate(180deg);
+}
+
+.pick-list {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    z-index: 5;
+    min-width: 240px;
+    max-width: 340px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 5px;
+    border-radius: 14px;
     background: var(--bg);
-    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line);
+    box-shadow: var(--lift-3), inset 0 0 0 1px var(--line);
+    animation: settle 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.pick-item {
+    display: block;
+    width: 100%;
+    padding: 8px 11px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
     color: var(--muted);
     font: inherit;
-    font-size: 12.5px;
+    font-size: 13px;
+    text-align: left;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     cursor: pointer;
+    transition: background var(--quick), color var(--quick);
+}
+
+.pick-item:hover {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.pick-item[aria-pressed="true"] {
+    background: var(--raised);
+    color: var(--text);
+    font-weight: 500;
+}
+
+/* Two columns of history: what was said, and what was done. Side by side
+   because they answer each other, and a chat is only interesting alongside
+   what it changed. */
+.panes {
+    display: flex;
+    gap: var(--gap-4);
+    flex: 1;
+    min-height: 0;
+}
+
+.pane {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-2);
+    min-width: 0;
+    flex: 1;
+}
+
+.pane:first-child {
+    flex: 0 0 clamp(220px, 30%, 340px);
+}
+
+.chats {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.thread-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-1);
+    padding: 9px 8px 9px 13px;
+    border: none;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
     transition: color var(--quick), background var(--quick), box-shadow var(--quick);
+    animation: rise 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .thread-chip:hover {
+    background: var(--raised);
     color: var(--text);
 }
 
 .thread-chip[aria-pressed="true"] {
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1px var(--accent-line);
-    color: var(--accent);
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    color: var(--text);
+    font-weight: 500;
+}
+
+.chip-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Editable in place, because renaming a thread should not need a dialogue
+   about renaming a thread. */
+.chip-name[contenteditable="true"] {
+    max-width: none;
+    outline: none;
+    cursor: text;
+    box-shadow: 0 1px 0 var(--line-strong);
+}
+
+/* Shown on the chip being pointed at rather than on all of them, since a row
+   of delete buttons reads as a row of hazards. */
+.chip-drop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--faint);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--quick), background var(--quick), color var(--quick);
+}
+
+.thread-chip:hover .chip-drop,
+.thread-chip:focus-within .chip-drop {
+    opacity: 1;
+}
+
+.chip-drop:hover {
+    background: var(--sunken);
+    color: var(--text);
+}
+
+.chip-drop .icon {
+    width: 13px;
+    height: 13px;
 }
 
 /* Thread ------------------------------------------------------------- */
@@ -400,12 +530,45 @@ body {
 }
 
 @keyframes rise {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: none; }
 }
 
+@keyframes settle {
+    from { opacity: 0; transform: translateY(-4px) scale(0.99); }
+    to { opacity: 1; transform: none; }
+}
+
+/* The thread fades as a whole when it is replaced, so switching or starting a
+   conversation reads as one movement rather than a screen being rebuilt. */
+.thread[data-swapping="true"] {
+    opacity: 0;
+    transition: opacity 110ms ease-out;
+}
+
+.thread {
+    transition: opacity 160ms ease-in;
+}
+
+.empty {
+    animation: settle 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.view {
+    animation: settle 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .msg { animation: none; }
+    .msg,
+    .empty,
+    .view,
+    .thread-chip {
+        animation: none;
+    }
+
+    .thread {
+        transition: none;
+    }
 }
 
 /* What was said is told apart by position and surface rather than by a label
@@ -431,12 +594,15 @@ body {
     box-shadow: var(--shadow-accent);
 }
 
+/* Failure is told apart by weight and a heavier edge, since there is no hue
+   left to tell it apart with. Without that a refusal would look like a
+   remark. */
 .msg[data-tone="problem"] .said {
     padding: 10px 16px;
     border-radius: 14px;
-    background: var(--alarm-soft);
-    box-shadow: inset 0 0 0 1px var(--alarm-line);
+    box-shadow: inset 0 0 0 2px var(--alarm-line);
     color: var(--alarm);
+    font-weight: 500;
 }
 
 .msg[data-tone="working"] .said {
@@ -485,12 +651,8 @@ body {
     transition: box-shadow var(--quick);
 }
 
-/* Focus lifts the surface rather than ringing it. The halo drew a second
-   outline around a shape that already had one, which is what made it read as
-   a highlighted form field instead of the place you type. */
-.composer:focus-within {
-    box-shadow: var(--lift-3), var(--sheen), inset 0 0 0 1px var(--accent-line);
-}
+/* Nothing changes on focus. A ring around the place you type is a decoration
+   for a state you already know you are in, since the cursor is in it. */
 
 .input {
     flex: 1;
@@ -727,13 +889,13 @@ body {
 .turn-steps li[data-failed="true"],
 .turn-steps li[data-failed="true"] .icon {
     color: var(--alarm);
+    font-weight: 500;
 }
 
-/* A failed turn is warm all over rather than red in one line, so it can be
-   found in a list without being read. */
+/* A failed turn is outlined rather than tinted, so it can be found in a list
+   without being read. */
 .turn:has(.turn-steps li[data-failed="true"]) {
-    background: var(--alarm-soft);
-    box-shadow: var(--lift-1), inset 0 0 0 1px var(--alarm-line);
+    box-shadow: var(--lift-1), inset 0 0 0 2px var(--alarm-line);
 }
 
 /* The exact call, for someone checking rather than reading. */
@@ -837,7 +999,7 @@ body {
 
 .text:focus {
     outline: none;
-    box-shadow: var(--lift-1), inset 0 0 0 1px var(--accent-line);
+    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line-strong);
 }
 
 .hint {
@@ -894,6 +1056,16 @@ body {
         padding: 0 var(--gap-3) var(--gap-3);
     }
 
+    /* Two columns stop being two columns before they stop fitting. */
+    .panes {
+        flex-direction: column;
+    }
+
+    .pane:first-child {
+        flex: 0 0 auto;
+        max-height: 180px;
+    }
+
     /* Three ports side by side stop being readable long before they stop
        fitting, so they stack. */
     .row {
@@ -948,51 +1120,4 @@ body {
     .quiet:last-of-type {
         margin-left: 0;
     }
-}
-
-/* Monochrome --------------------------------------------------------- */
-
-/* The palette drops to greys, and the two things colour was carrying have to
-   be carried by something else: emphasis for the working state, weight and a
-   heavier edge for failure. Removing the hue without replacing the signal
-   would make a refusal look like a remark. */
-:root[data-accent="mono"] {
-    --accent: var(--text);
-    --accent-soft: rgba(0, 0, 0, 0.05);
-    --accent-line: rgba(0, 0, 0, 0.22);
-    --accent-ink: #ffffff;
-    --accent-fill: linear-gradient(165deg, #3a3a42 0%, #16161a 100%);
-    --accent-fill-deep: linear-gradient(165deg, #33333b 0%, #101014 100%);
-    --shadow-accent: 0 1px 2px rgba(16, 16, 40, 0.18), 0 6px 16px rgba(16, 16, 40, 0.16);
-
-    --alarm: var(--text);
-    --alarm-soft: transparent;
-    --alarm-line: rgba(0, 0, 0, 0.55);
-    --alarm-fill: linear-gradient(165deg, #3a3a42 0%, #16161a 100%);
-}
-
-:root[data-theme="dark"][data-accent="mono"] {
-    --accent: var(--text);
-    --accent-soft: rgba(255, 255, 255, 0.07);
-    --accent-line: rgba(255, 255, 255, 0.26);
-    --accent-ink: #0d0d0f;
-    --accent-fill: linear-gradient(165deg, #f4f4f6 0%, #cfcfd6 100%);
-    --accent-fill-deep: linear-gradient(165deg, #f4f4f6 0%, #c8c8d0 100%);
-    --shadow-accent: 0 2px 10px rgba(0, 0, 0, 0.5);
-
-    --alarm: var(--text);
-    --alarm-soft: transparent;
-    --alarm-line: rgba(255, 255, 255, 0.6);
-}
-
-/* Failure keeps its own shape when it cannot keep its own hue. */
-:root[data-accent="mono"] .msg[data-tone="problem"] .said,
-:root[data-accent="mono"] .turn:has(.turn-steps li[data-failed="true"]),
-:root[data-accent="mono"] .status:not([data-connected="true"]) {
-    box-shadow: inset 0 0 0 2px var(--alarm-line);
-    font-weight: 500;
-}
-
-:root[data-accent="mono"] .dot {
-    box-shadow: inset 0 0 0 1.5px var(--bg);
 }

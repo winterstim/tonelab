@@ -13,15 +13,11 @@ dense, and a bright panel reads as a different kind of surface rather than more
 of the same. Dark and system are offered and the choice is stored with the
 other settings, since a preference that does not survive a restart is not one.
 
-Two colours, each meaning one thing. Water is the working state: the thing you
-press, the thing selected, the DAW answering. Fire is failure, which is what
-warm reds already say before anything is read. Keeping them apart is what lets
-either be noticed; an accent sharing a hue with the error colour would leave
-nothing to signal with.
-
-Monochrome is offered as a choice, and it has to replace the signal rather than
-remove it: with the hue gone, a failure is told apart by weight and a heavier
-edge instead. Otherwise a refusal would look like a remark.
+No hue anywhere. Emphasis is carried by contrast, and failure by weight and a
+heavier edge, which is what colour was carrying before it was taken out. A
+palette with nothing to spend cannot spend it wrongly, and a refusal still has
+to look like one, which is why removing the colour meant replacing the signal
+rather than dropping it.
 
 Notes on what it does that is not obvious:
 
@@ -33,6 +29,22 @@ Notes on what it does that is not obvious:
   always the one that applies.
 - **Enter sends and Shift+Enter breaks a line**, which is what a text box in a
   chat is expected to do.
+- **History holds two panes: what was said, and what was done.** They answer
+  each other, and a conversation is only interesting beside what it changed.
+  Renaming and deleting live there, in place on the row, because correcting a
+  guessed title should not need a dialogue about correcting titles.
+- **A turn belongs to the conversation that asked it.** It can take most of a
+  minute, and by the time it finishes the window may be showing another
+  thread; the answer is kept in the one that asked and drawn only if that is
+  still the one on screen. Switching *views* is harmless by comparison, since
+  a turn runs in the backend and knows nothing about tabs.
+- **The chat keeps only switching**, as a menu on the bottom row rather than a
+  strip above the thread. Switching is frequent enough that leaving the chat
+  for it would be a tax, and rare enough that a permanent row would take
+  height from the thread it points at.
+- **The thread fades out before it is rebuilt and back in after**, so
+  switching or starting a conversation reads as one movement rather than a
+  screen blinking into a different one.
 - **Icons come from one inline sprite**, referenced rather than repeated, so
   adding one costs a symbol and the set keeps a single stroke weight. Nothing
   is fetched, which also keeps it working under a strict content policy.

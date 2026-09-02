@@ -33,6 +33,9 @@ type PlannedCall struct {
 
 type AgentResponse struct {
 	Message string
+	// Conversation is the thread this answers, which a window showing
+	// another one needs in order not to draw it there.
+	Conversation string
 	// Steps is what the turn did, tool by tool, for the history view.
 	Steps []JournalStep
 	// Plan is what a preview would do. Empty on an ordinary command.
@@ -132,14 +135,48 @@ type AgentService struct {
 	pending []PlannedCall
 }
 
-func NewAgentService(agent brain, previews planner, observer liveness, client any) *AgentService {
+// NewAgentService takes where to keep conversations. An empty path keeps them
+// in memory, which is what tests want and what a machine with nowhere to write
+// gets rather than a crash.
+func NewAgentService(agent brain, previews planner, observer liveness, client any, threadsPath string) *AgentService {
 	return &AgentService{
 		agent:    agent,
 		planner:  previews,
 		liveness: observer,
 		daw:      client,
-		threads:  newConversations(),
+		threads:  newConversations(threadsPath),
 	}
+}
+
+// RenameConversation replaces a title. The generated one is a guess from the
+// first thing said, and a guess should be correctable.
+func (a *AgentService) RenameConversation(id, name string) (AgentResponse, error) {
+	if !a.threads.rename(id, name) {
+		return AgentResponse{Error: &AgentError{
+			Code:    "not_found",
+			Message: "That conversation is gone.",
+		}}, nil
+	}
+	return AgentResponse{Message: "Renamed."}, nil
+}
+
+// DeleteConversation drops a thread and everything said in it.
+func (a *AgentService) DeleteConversation(id string) (Conversation, error) {
+	wasActive := a.threads.current().ID == id
+	if !a.threads.remove(id) {
+		return Conversation{}, nil
+	}
+
+	// Deleting what was being spoken to leaves the agent remembering a
+	// conversation that no longer exists, so it is given the one that
+	// replaced it.
+	if wasActive {
+		current := a.threads.current()
+		_, memory, _ := a.threads.selectThread(current.ID)
+		restore(a.agent, memory)
+		return *current, nil
+	}
+	return *a.threads.current(), nil
 }
 
 // Conversations lists the threads of this session, newest first.
@@ -205,10 +242,11 @@ func (a *AgentService) PreviewCommand(text string) (AgentResponse, error) {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
 
-	a.threads.add(ChatMessage{From: "you", Text: text})
+	asked := a.threads.add(ChatMessage{From: "you", Text: text})
 
 	response := a.planner.Preview(text)
-	a.threads.add(chatMessage(response))
+	a.threads.addTo(asked, chatMessage(response))
+	response.Conversation = asked
 	a.journal.record(JournalEntry{
 		Command: text,
 		Answer:  response.Message,
@@ -242,8 +280,10 @@ func (a *AgentService) ApplyPlan() (AgentResponse, error) {
 	if a.planner == nil {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
+	applied := a.threads.current().ID
 	response := a.planner.Apply(plan)
-	a.threads.add(chatMessage(response))
+	a.threads.addTo(applied, chatMessage(response))
+	response.Conversation = applied
 	a.journal.record(JournalEntry{
 		Command: "(applied the previewed plan)",
 		Answer:  response.Message,
@@ -300,16 +340,23 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 		stop()
 	}()
 
-	a.threads.add(ChatMessage{From: "you", Text: text})
+	// Bound to the thread the question was asked in. A turn can take most of
+	// a minute, and by the time it finishes the user may be reading another
+	// conversation; the answer belongs to the one that asked.
+	asked := a.threads.add(ChatMessage{From: "you", Text: text})
 
 	response := a.agent.SendContext(ctx, text)
-	a.threads.add(chatMessage(response))
+	a.threads.addTo(asked, chatMessage(response))
 	a.journal.record(JournalEntry{
 		Command: text,
 		Answer:  response.Message,
 		Steps:   response.Steps,
 		Error:   response.Error,
 	})
+
+	// Told which conversation this answers, so a window showing a different
+	// one does not draw it.
+	response.Conversation = asked
 	return response, nil
 }
 

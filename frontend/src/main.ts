@@ -1,5 +1,11 @@
 import { AgentService, SettingsService } from "../bindings/tonelab";
-import type { AgentResponse, ChatMessage, JournalEntry, Settings } from "../bindings/tonelab/models";
+import type {
+    AgentResponse,
+    ChatMessage,
+    ConversationSummary,
+    JournalEntry,
+    Settings,
+} from "../bindings/tonelab/models";
 
 type Tone = "answer" | "problem" | "working";
 
@@ -15,12 +21,19 @@ const previewMode = el<HTMLInputElement>("preview-mode");
 const status = el("status");
 const statusText = el("status-text");
 const historyView = el("history");
-const switcher = el("switcher");
+const chats = el("chats");
+const pick = el<HTMLButtonElement>("pick");
+const pickName = el("pick-name");
+const pickList = el("pick-list");
 
 
 // How stale the connection light may be. The backend decides what counts as
 // connected; this only decides how often it is asked.
 const statusInterval = 3000;
+
+// Which conversation the window is showing. A turn can finish after the user
+// has moved to another one, and its answer belongs where it was asked.
+let showing = "";
 
 /* Greeting ----------------------------------------------------------- */
 
@@ -63,7 +76,6 @@ function greet() {
 // attribute and the transition is free. "system" leaves the attribute off and
 // lets the media query decide.
 let chosenTheme = "system";
-let chosenAccent = "colour";
 
 function applyTheme(name: string) {
     chosenTheme = name;
@@ -81,15 +93,6 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     }
 });
 
-function applyAccent(name: string) {
-    chosenAccent = name;
-    document.documentElement.dataset.accent = name;
-
-    for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
-        button.setAttribute("aria-pressed", String(button.dataset.accent === name));
-    }
-}
-
 // Applied at once rather than on save: a look you cannot see until you commit
 // to it is one you cannot choose. Marked as unsaved too, so leaving the screen
 // and coming back does not undo it.
@@ -100,12 +103,6 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("#theme .choic
     });
 }
 
-for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
-    button.addEventListener("click", () => {
-        applyAccent(button.dataset.accent!);
-        settingsTouched = true;
-    });
-}
 
 /* Views ------------------------------------------------------------- */
 
@@ -120,6 +117,7 @@ function show(view: string) {
     }
     if (view === "history") {
         renderHistory();
+        renderConversations();
     }
     if (view === "settings") {
         // Reloaded only when nothing is half-typed. Reading the file on every
@@ -257,6 +255,87 @@ function report(response: AgentResponse) {
     attachPlan(message, response.Plan);
 }
 
+function renderChip(summary: ConversationSummary): HTMLElement {
+    const chip = document.createElement("button");
+    chip.className = "thread-chip";
+    chip.type = "button";
+    chip.setAttribute("aria-pressed", String(summary.Active));
+
+    const name = document.createElement("span");
+    name.className = "chip-name";
+    name.textContent = summary.Title;
+
+    // Renaming happens in place: a guess made from the first thing said
+    // should be correctable without a dialogue about correcting it.
+    name.addEventListener("dblclick", (event) => {
+        event.stopPropagation();
+        name.contentEditable = "true";
+        name.focus();
+        getSelection()?.selectAllChildren(name);
+    });
+
+    const commit = async () => {
+        if (name.contentEditable !== "true") {
+            return;
+        }
+        name.contentEditable = "false";
+        const chosen = (name.textContent ?? "").trim();
+        if (chosen === "" || chosen === summary.Title) {
+            name.textContent = summary.Title;
+            return;
+        }
+        await AgentService.RenameConversation(summary.ID, chosen);
+        await renderConversations();
+    };
+
+    name.addEventListener("blur", commit);
+    name.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+        }
+        if (event.key === "Escape") {
+            name.textContent = summary.Title;
+            name.contentEditable = "false";
+        }
+    });
+
+    const edit = document.createElement("span");
+    edit.className = "chip-drop";
+    edit.setAttribute("role", "button");
+    edit.setAttribute("aria-label", `Rename ${summary.Title}`);
+    edit.append(icon("pencil"));
+    edit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        name.contentEditable = "true";
+        name.focus();
+        getSelection()?.selectAllChildren(name);
+    });
+
+    const drop = document.createElement("span");
+    drop.className = "chip-drop";
+    drop.setAttribute("role", "button");
+    drop.setAttribute("aria-label", `Delete ${summary.Title}`);
+    drop.append(icon("trash"));
+    drop.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const remaining = await AgentService.DeleteConversation(summary.ID);
+        await renderConversations();
+        drawThread(remaining.Messages ?? [], remaining.ID);
+    });
+
+    chip.append(name, edit, drop);
+    chip.addEventListener("click", async () => {
+        if (name.contentEditable === "true") {
+            return;
+        }
+        const opened = await AgentService.OpenConversation(summary.ID);
+        await renderConversations();
+        drawThread(opened.Messages ?? [], opened.ID);
+    });
+    return chip;
+}
+
 /* Sending ----------------------------------------------------------- */
 
 let running = false;
@@ -274,12 +353,19 @@ async function submit() {
 
     const waiting = append("tonelab", "Working…", "working");
 
+    const asked = showing;
+
     try {
         const response = previewMode.checked
             ? await AgentService.PreviewCommand(text)
             : await AgentService.SendCommand(text);
         waiting.remove();
-        report(response);
+
+        // Drawn only if the window is still on the conversation that asked.
+        // The answer is kept either way; it is waiting in that thread.
+        if (response.Conversation === "" || response.Conversation === asked) {
+            report(response);
+        }
     } catch (error) {
         waiting.remove();
         // Reaching here means the call itself broke, rather than the command
@@ -335,9 +421,9 @@ el("undo").addEventListener("click", async () => {
 el("clear").addEventListener("click", async () => {
     // Starts a thread rather than destroying one: the old conversation stays
     // in the list, which is what the words on the button mean.
-    await AgentService.StartConversation();
+    const started = await AgentService.StartConversation();
     await renderConversations();
-    drawThread([]);
+    drawThread([], started.ID);
     input.focus();
 });
 
@@ -345,7 +431,14 @@ el("clear").addEventListener("click", async () => {
 
 // The thread lives in the backend, because one that only exists in the page
 // cannot survive being switched away from.
-function drawThread(messages: ChatMessage[]) {
+// Faded out before it is rebuilt and back in after, so switching or starting
+// a conversation reads as one movement rather than a screen blinking into a
+// different one.
+async function drawThread(messages: ChatMessage[], id = showing) {
+    showing = id;
+    thread.dataset.swapping = "true";
+    await new Promise((done) => setTimeout(done, 110));
+
     thread.querySelectorAll(".msg").forEach((node) => node.remove());
     empty.hidden = messages.length > 0;
     if (messages.length === 0) {
@@ -362,31 +455,72 @@ function drawThread(messages: ChatMessage[]) {
         // Plans are not redrawn: a plan is an offer made once, and one
         // reopened hours later would invite accepting something stale.
     }
+
+    thread.dataset.swapping = "false";
 }
 
 async function renderConversations() {
     const threads = (await AgentService.Conversations()) ?? [];
-    switcher.replaceChildren();
 
-    // Hidden with only one, since a switcher listing a single thing is noise.
-    switcher.hidden = threads.length < 2;
-    if (switcher.hidden) {
+    // The full list, where a conversation can be renamed or thrown away.
+    chats.replaceChildren();
+    for (const summary of threads) {
+        chats.append(renderChip(summary));
+    }
+
+    // And the name of the one being spoken to, which is all the chat needs.
+    const active = threads.find((summary) => summary.Active);
+    pickName.textContent = active ? active.Title : "New conversation";
+    pick.hidden = threads.length < 2;
+}
+
+/* Picker ------------------------------------------------------------- */
+
+// Opened on demand rather than shown always: switching is frequent enough
+// that leaving the chat for it would be a tax, and rare enough that a
+// permanent row would take height from the thread it points at.
+function closePicker() {
+    pickList.hidden = true;
+    pick.parentElement!.dataset.open = "false";
+    pick.setAttribute("aria-expanded", "false");
+}
+
+pick.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (!pickList.hidden) {
+        closePicker();
         return;
     }
+
+    const threads = (await AgentService.Conversations()) ?? [];
+    pickList.replaceChildren();
     for (const summary of threads) {
-        const button = document.createElement("button");
-        button.className = "thread-chip";
-        button.type = "button";
-        button.textContent = summary.Title;
-        button.setAttribute("aria-pressed", String(summary.Active));
-        button.addEventListener("click", async () => {
+        const item = document.createElement("button");
+        item.className = "pick-item";
+        item.type = "button";
+        item.textContent = summary.Title;
+        item.setAttribute("aria-pressed", String(summary.Active));
+        item.addEventListener("click", async () => {
+            closePicker();
             const opened = await AgentService.OpenConversation(summary.ID);
-            drawThread(opened.Messages ?? []);
             await renderConversations();
+            drawThread(opened.Messages ?? [], opened.ID);
         });
-        switcher.append(button);
+        pickList.append(item);
     }
-}
+
+    pickList.hidden = false;
+    pick.parentElement!.dataset.open = "true";
+    pick.setAttribute("aria-expanded", "true");
+});
+
+// Anywhere else dismisses it, which is what a menu is expected to do.
+document.addEventListener("click", () => closePicker());
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        closePicker();
+    }
+});
 
 /* History ----------------------------------------------------------- */
 
@@ -570,7 +704,6 @@ async function loadSettings() {
     el<HTMLInputElement>("preview-default").checked = settings.PreviewByDefault;
     previewMode.checked = settings.PreviewByDefault;
     applyTheme(settings.Theme || "system");
-    applyAccent(settings.Accent || "colour");
     el("settings-note").textContent = "";
     settingsTouched = false;
 }
@@ -589,7 +722,7 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
         DAWAvailable: [],
         PreviewByDefault: el<HTMLInputElement>("preview-default").checked,
         Theme: chosenTheme,
-        Accent: chosenAccent,
+        Accent: "mono",
     };
 
     const result = await SettingsService.Save(settings, el<HTMLInputElement>("api-key").value);
@@ -627,7 +760,7 @@ loadSettings();
 // The window draws what the backend already holds, so reopening it after a
 // reload shows the conversation rather than an empty room.
 AgentService.CurrentConversation().then((current) => {
-    drawThread(current.Messages ?? []);
+    drawThread(current.Messages ?? [], current.ID);
     renderConversations();
 });
 
