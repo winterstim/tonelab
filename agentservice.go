@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -68,7 +69,7 @@ type DAWStatus struct {
 // brain is the agent seen from the UI boundary, narrow enough that testing
 // this layer does not mean driving a language model.
 type brain interface {
-	Send(text string) AgentResponse
+	SendContext(ctx context.Context, text string) AgentResponse
 }
 
 // planner previews a command and carries out what it proposed. Separate from
@@ -106,6 +107,9 @@ type AgentService struct {
 	daw      any
 
 	journal journal
+
+	// Cancels the turn in flight, if there is one.
+	stopTurn context.CancelFunc
 
 	// The last plan a preview produced. Held so applying it runs exactly what
 	// was shown; a plan the user did not see must never be what runs.
@@ -204,7 +208,21 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 			Message: "Type a command first.",
 		}}, nil
 	}
-	response := a.agent.Send(text)
+	// A turn can take most of a minute against a local model, and a user who
+	// changed their mind should not have to watch it finish.
+	ctx, stop := context.WithCancel(context.Background())
+	a.mu.Lock()
+	a.stopTurn = stop
+	a.mu.Unlock()
+
+	defer func() {
+		a.mu.Lock()
+		a.stopTurn = nil
+		a.mu.Unlock()
+		stop()
+	}()
+
+	response := a.agent.SendContext(ctx, text)
 	a.journal.record(JournalEntry{
 		Command: text,
 		Answer:  response.Message,
@@ -212,6 +230,23 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 		Error:   response.Error,
 	})
 	return response, nil
+}
+
+// Stop ends the turn in flight. Commands already sent to the DAW stay sent,
+// which is what undo is for; what stops is the agent deciding to send more.
+func (a *AgentService) Stop() (AgentResponse, error) {
+	a.mu.Lock()
+	stop := a.stopTurn
+	a.mu.Unlock()
+
+	if stop == nil {
+		return AgentResponse{Error: &AgentError{
+			Code:    "nothing_running",
+			Message: "Nothing is running.",
+		}}, nil
+	}
+	stop()
+	return AgentResponse{Message: "Stopping."}, nil
 }
 
 // History is what the agent has done, newest first. Read by the UI rather than
@@ -268,8 +303,8 @@ func (p previewBrain) Apply(plan []PlannedCall) AgentResponse {
 	return convert(p.live.Apply(calls))
 }
 
-func (o orchestratorBrain) Send(text string) AgentResponse {
-	return convert(o.orchestrator.Send(text))
+func (o orchestratorBrain) SendContext(ctx context.Context, text string) AgentResponse {
+	return convert(o.orchestrator.SendContext(ctx, text))
 }
 
 // convert moves an agent response across the UI boundary, keeping the

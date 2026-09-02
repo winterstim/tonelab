@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +28,12 @@ const maxSchemaRetries = 4
 // refill. Free tiers refill in seconds, so a longer wait means the limit is
 // not the kind waiting fixes, and the user should hear about it instead.
 const maxWaitForRateLimit = 20 * time.Second
+
+// maxRemembered is how many past exchanges a turn carries. Enough for the
+// follow-ups a conversation actually produces ("a bit more", "now the drums
+// too"), short enough that a long session neither costs a fortune in tokens
+// nor buries the current request in history.
+const maxRemembered = 6
 
 // maxSteps bounds the tool loop. A model that keeps calling tools is driving a
 // live DAW, so an unbounded loop is not slow, it is destructive.
@@ -110,6 +118,12 @@ type Orchestrator struct {
 	config Config
 	tools  *Tools
 	http   *http.Client
+
+	// What was said before. A chat interface invites follow-ups, and without
+	// this they fail in a way that reads as the agent being stupid rather
+	// than as the product having no memory.
+	mu      sync.Mutex
+	history []message
 }
 
 func NewOrchestrator(config Config, tools *Tools) *Orchestrator {
@@ -180,13 +194,18 @@ type apiError struct {
 	} `json:"error"`
 }
 
-// Send runs one user command to completion. Nothing is remembered between
-// calls: MVP is stateless by scope, so every command carries its own context.
+// Send runs one user command to completion.
 func (o *Orchestrator) Send(text string) Response {
-	conversation := []message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: text},
-	}
+	return o.SendContext(context.Background(), text)
+}
+
+// SendContext is Send with a way out. A turn against a local model can take
+// most of a minute, and a user who has changed their mind should not have to
+// watch it finish; commands already sent to the DAW stay sent, which is what
+// undo is for.
+func (o *Orchestrator) SendContext(ctx context.Context, text string) Response {
+	conversation := append([]message{{Role: "system", Content: systemPrompt}}, o.remembered()...)
+	conversation = append(conversation, message{Role: "user", Content: text})
 
 	// Once only: a second wait means the quota is not refilling on the scale
 	// the endpoint claimed, and the user is better told than kept waiting.
@@ -198,7 +217,11 @@ func (o *Orchestrator) Send(text string) Response {
 	var steps []Step
 
 	for step := 0; step < maxSteps; step++ {
-		reply, failure := o.complete(conversation)
+		if cancelled(ctx) {
+			return stopped(changed, steps)
+		}
+
+		reply, failure := o.complete(ctx, conversation)
 		if failure != nil {
 			// A tool call the endpoint itself refused is the same situation
 			// as one our tools refused: the model can fix it if told. Some
@@ -224,11 +247,21 @@ func (o *Orchestrator) Send(text string) Response {
 			return Response{Error: failure}
 		}
 		if len(reply.ToolCalls) == 0 {
+			// Only the exchange is kept, not the tool traffic: what a
+			// follow-up needs is which track was meant, and replaying every
+			// call would spend the context on detail the model already used.
+			o.remember(text, reply.Content)
 			return Response{Message: reply.Content, Changed: changed, Plan: plan, Steps: steps}
 		}
 
 		conversation = append(conversation, reply)
 		for _, call := range reply.ToolCalls {
+			// Checked between calls rather than during one: a half-sent OSC
+			// command is worse than one more command.
+			if cancelled(ctx) {
+				return stopped(changed, steps)
+			}
+
 			result, applied, planned := o.execute(call)
 			conversation = append(conversation, result)
 			steps = append(steps, describe(call, result))
@@ -286,7 +319,62 @@ func (o *Orchestrator) execute(call toolCall) (message, *Change, *PlannedCall) {
 }
 
 // complete performs one request and returns the assistant's reply.
-func (o *Orchestrator) complete(conversation []message) (message, *Error) {
+// remembered returns the exchanges to carry into this turn.
+func (o *Orchestrator) remembered() []message {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]message(nil), o.history...)
+}
+
+// remember keeps the exchange, trimming the oldest.
+func (o *Orchestrator) remember(question, answer string) {
+	if answer == "" {
+		return
+	}
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.history = append(o.history,
+		message{Role: "user", Content: question},
+		message{Role: "assistant", Content: answer})
+
+	if len(o.history) > maxRemembered*2 {
+		o.history = o.history[len(o.history)-maxRemembered*2:]
+	}
+}
+
+// Forget drops the conversation. Offered because a user starting a new idea
+// should not have to fight the last one, and because a wrong turn left in
+// context keeps being wrong.
+func (o *Orchestrator) Forget() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.history = nil
+}
+
+// cancelled reports whether the caller has given up.
+func cancelled(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// stopped reports a turn the user ended, with what it had already done. The
+// changes are real and stay, so hiding them would leave a project altered in
+// ways nothing mentioned.
+func stopped(changed []Change, steps []Step) Response {
+	return Response{
+		Message: "Stopped.",
+		Changed: changed,
+		Steps:   steps,
+	}
+}
+
+func (o *Orchestrator) complete(ctx context.Context, conversation []message) (message, *Error) {
 	body, err := json.Marshal(completionRequest{
 		Model:       o.config.Model,
 		Messages:    conversation,
@@ -297,7 +385,7 @@ func (o *Orchestrator) complete(conversation []message) (message, *Error) {
 		return message{}, &Error{Code: "internal", Message: "The request could not be encoded."}
 	}
 
-	request, err := http.NewRequest(http.MethodPost, o.config.BaseURL+"/chat/completions", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, o.config.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return message{}, &Error{Code: "llm_unreachable", Message: "The configured endpoint URL is not usable."}
 	}
@@ -308,6 +396,11 @@ func (o *Orchestrator) complete(conversation []message) (message, *Error) {
 
 	response, err := o.http.Do(request)
 	if err != nil {
+		// A cancelled request is the user's decision, not a fault worth
+		// naming as one.
+		if cancelled(ctx) {
+			return message{}, &Error{Code: "stopped", Message: "Stopped."}
+		}
 		// A local model can be slow enough to hit the deadline while being
 		// perfectly reachable, and calling that "unreachable" sends the user
 		// to check a URL that is fine.
@@ -438,6 +531,8 @@ Use get_param before set_param when a request is relative, such as "a bit quiete
 set_param returns what the DAW reports after the change. If it comes back with a note saying the change is unverified, say so rather than claiming the change was confirmed.
 
 When the user names a track instead of numbering it, call list_tracks and match the name yourself. Never guess a track number.
+
+Earlier turns in this conversation are shown above. A follow-up like "a bit more" or "now the drums too" refers to them, so read them before deciding what is meant. Do not assume a value is still what it was: read it with get_param.
 
 If a request is ambiguous, or names something the tools do not offer, say so instead of guessing. A wrong command changes a real project.
 

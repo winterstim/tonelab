@@ -215,3 +215,57 @@ func TestPreviewThenApply(t *testing.T) {
 	}
 	t.Logf("volume %v -> preview (unchanged) -> applied %v", before, after)
 }
+
+// What a chat interface promises: that "them" means what was just discussed.
+// Without this the follow-up fails in a way that reads as the agent being
+// stupid rather than as the product having no memory.
+func TestFollowUpUnderstandsWhatWasMeant(t *testing.T) {
+	llm := liveConfig(t)
+
+	listener, err := osc.Listen("127.0.0.1", 9000)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	transport := osc.NewTransport("127.0.0.1", 8000)
+	reaper := daw.NewREAPER(transport)
+	reaper.Observe(listener.Messages())
+
+	if err := transport.Send("/track/2/name", "Vocals"); err != nil {
+		t.Fatalf("could not name the track: %v", err)
+	}
+	if err := reaper.SetTrackMute(2, false); err != nil {
+		t.Fatalf("could not clear the starting state: %v", err)
+	}
+	time.Sleep(400 * time.Millisecond)
+
+	orchestrator := agent.NewOrchestrator(
+		agent.Config{BaseURL: llm.BaseURL, APIKey: llm.APIKey, Model: llm.Model},
+		agent.NewTools(reaper),
+	)
+
+	first := orchestrator.Send("Which track is the vocals?")
+	if first.Error != nil {
+		t.Fatalf("the first turn failed: %+v", first.Error)
+	}
+	t.Logf("asked which: %s", first.Message)
+
+	// No track named, no number given: only the conversation says what "it"
+	// is.
+	second := orchestrator.Send("Mute it.")
+	if second.Error != nil {
+		t.Fatalf("the follow-up failed: %+v", second.Error)
+	}
+	t.Logf("said: %s", second.Message)
+
+	muted, err := reaper.ReadParam(2, "mute", 5*time.Second)
+	if err != nil {
+		t.Fatalf("could not read the mute state: %v", err)
+	}
+	if on, ok := muted.(bool); !ok || !on {
+		t.Fatalf("expected the vocals track to be muted, got %#v", muted)
+	}
+
+	_ = reaper.SetTrackMute(2, false)
+}

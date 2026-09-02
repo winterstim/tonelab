@@ -1,21 +1,52 @@
 package main
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 // A stub rather than a real orchestrator: this layer's job is the boundary,
 // and driving a language model to test a boundary would test the model.
+// Guarded because a stopped turn is inspected from the test's goroutine while
+// it runs in another, which is the shape the real service has too.
 type stubBrain struct {
-	lastText string
-	response AgentResponse
+	mu        sync.Mutex
+	lastText  string
+	response  AgentResponse
+	block     chan struct{}
+	cancelled bool
 }
 
-func (s *stubBrain) Send(text string) AgentResponse {
+func (s *stubBrain) seen() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastText
+}
+
+func (s *stubBrain) wasCancelled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelled
+}
+
+func (s *stubBrain) SendContext(ctx context.Context, text string) AgentResponse {
+	s.mu.Lock()
 	s.lastText = text
-	return s.response
+	block := s.block
+	response := s.response
+	s.mu.Unlock()
+
+	if block != nil {
+		<-block
+	}
+
+	s.mu.Lock()
+	s.cancelled = ctx.Err() != nil
+	s.mu.Unlock()
+	return response
 }
 
 // Mirrors the real backend: recent feedback proves the DAW is there, and
@@ -42,7 +73,7 @@ func TestSendCommandPassesTheTextThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a domain call must not return a Go error: %v", err)
 	}
-	if brain.lastText != "turn track 2 down" {
+	if brain.seen() != "turn track 2 down" {
 		t.Errorf("expected the text to reach the agent, got %q", brain.lastText)
 	}
 	if response.Message != "done" {
@@ -81,7 +112,7 @@ func TestEmptyCommandIsRejectedWithoutCallingTheAgent(t *testing.T) {
 	if response.Error == nil || response.Error.Code != "empty_command" {
 		t.Fatalf("expected empty_command, got %+v", response.Error)
 	}
-	if brain.lastText != "" {
+	if brain.seen() != "" {
 		t.Error("the agent should not have been called at all")
 	}
 }
@@ -183,7 +214,7 @@ func TestUndoDoesNotGoThroughTheAgent(t *testing.T) {
 	if daw.undos != 1 {
 		t.Errorf("expected the DAW to be asked once, got %d", daw.undos)
 	}
-	if brain.lastText != "" {
+	if brain.seen() != "" {
 		t.Error("undo must not be routed through the language model")
 	}
 }
@@ -271,5 +302,58 @@ func TestApplyingNothingRefuses(t *testing.T) {
 	}
 	if response.Error == nil || response.Error.Code != "nothing_to_apply" {
 		t.Fatalf("expected nothing_to_apply, got %+v", response.Error)
+	}
+}
+
+// A turn against a local model can take most of a minute, and a user who
+// changed their mind should not have to watch it finish.
+func TestStopEndsTheTurnInFlight(t *testing.T) {
+	brain := &stubBrain{block: make(chan struct{}), response: AgentResponse{Message: "Stopped."}}
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+
+	done := make(chan struct{})
+	go func() {
+		service.SendCommand("something slow")
+		close(done)
+	}()
+
+	// Wait until the turn is actually running, or Stop would find nothing.
+	deadline := time.Now().Add(time.Second)
+	for {
+		if brain.seen() != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the turn never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if _, err := service.Stop(); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	close(brain.block)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("the turn did not finish after being stopped")
+	}
+	if !brain.wasCancelled() {
+		t.Error("the agent was not told the turn was cancelled")
+	}
+}
+
+// Stopping when nothing is running says so rather than pretending.
+func TestStopWithNothingRunning(t *testing.T) {
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil)
+
+	response, err := service.Stop()
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "nothing_running" {
+		t.Fatalf("expected nothing_running, got %+v", response.Error)
 	}
 }
