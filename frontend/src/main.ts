@@ -16,6 +16,13 @@ const status = el("status");
 const statusText = el("status-text");
 const historyView = el("history");
 const switcher = el("switcher");
+const bar = document.querySelector(".bar") as HTMLElement;
+
+// The separator under the bar appears only once something has scrolled under
+// it, so an empty screen has no line drawn across it for its own sake.
+thread.addEventListener("scroll", () => {
+    bar.dataset.scrolled = String(thread.scrollTop > 4);
+});
 
 // How stale the connection light may be. The backend decides what counts as
 // connected; this only decides how often it is asked.

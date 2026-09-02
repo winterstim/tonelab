@@ -31,6 +31,13 @@ Notes on what it does that is not obvious:
 - **The two toggles are switches, not checkboxes.** Both are a mode the app is
   in rather than an item being ticked, and a switch says which is on from
   across a desk.
+- **The window can be dragged, so the layout has to survive it.** Below 720px
+  the app name goes and the connection reads as a dot; below 560px the tabs
+  keep their icons and drop their words. A toolbar that abbreviates beats one
+  that overflows, and a desktop window that scrolls sideways reads as broken.
+- **The rule under the bar appears only once something has scrolled under
+  it.** A permanent line across an empty screen is a border drawn for its own
+  sake.
 - **Settings are not reloaded while something is half-typed.** Reading the
   file on every visit threw away unsaved edits; it showed up first as the
   theme snapping back, but applied to every field on the screen.
