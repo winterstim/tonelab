@@ -21,7 +21,10 @@ const previewMode = el<HTMLInputElement>("preview-mode");
 const status = el("status");
 const statusText = el("status-text");
 const historyView = el("history");
-const switcher = el("switcher");
+const chats = el("chats");
+const pick = el<HTMLButtonElement>("pick");
+const pickName = el("pick-name");
+const pickList = el("pick-list");
 
 
 // How stale the connection light may be. The backend decides what counts as
@@ -110,6 +113,7 @@ function show(view: string) {
     }
     if (view === "history") {
         renderHistory();
+        renderConversations();
     }
     if (view === "settings") {
         // Reloaded only when nothing is half-typed. Reading the file on every
@@ -292,11 +296,23 @@ function renderChip(summary: ConversationSummary): HTMLElement {
         }
     });
 
+    const edit = document.createElement("span");
+    edit.className = "chip-drop";
+    edit.setAttribute("role", "button");
+    edit.setAttribute("aria-label", `Rename ${summary.Title}`);
+    edit.append(icon("pencil"));
+    edit.addEventListener("click", (event) => {
+        event.stopPropagation();
+        name.contentEditable = "true";
+        name.focus();
+        getSelection()?.selectAllChildren(name);
+    });
+
     const drop = document.createElement("span");
     drop.className = "chip-drop";
     drop.setAttribute("role", "button");
     drop.setAttribute("aria-label", `Delete ${summary.Title}`);
-    drop.append(icon("close"));
+    drop.append(icon("trash"));
     drop.addEventListener("click", async (event) => {
         event.stopPropagation();
         const remaining = await AgentService.DeleteConversation(summary.ID);
@@ -304,7 +320,7 @@ function renderChip(summary: ConversationSummary): HTMLElement {
         drawThread(remaining.Messages ?? []);
     });
 
-    chip.append(name, drop);
+    chip.append(name, edit, drop);
     chip.addEventListener("click", async () => {
         if (name.contentEditable === "true") {
             return;
@@ -433,15 +449,66 @@ async function drawThread(messages: ChatMessage[]) {
 
 async function renderConversations() {
     const threads = (await AgentService.Conversations()) ?? [];
-    switcher.replaceChildren();
 
-    // Hidden only when there is nothing at all: at one thread it still holds
-    // the way to rename or delete it, and hiding it would hide those.
-    switcher.hidden = threads.length === 0;
+    // The full list, where a conversation can be renamed or thrown away.
+    chats.replaceChildren();
     for (const summary of threads) {
-        switcher.append(renderChip(summary));
+        chats.append(renderChip(summary));
     }
+
+    // And the name of the one being spoken to, which is all the chat needs.
+    const active = threads.find((summary) => summary.Active);
+    pickName.textContent = active ? active.Title : "New conversation";
+    pick.hidden = threads.length < 2;
 }
+
+/* Picker ------------------------------------------------------------- */
+
+// Opened on demand rather than shown always: switching is frequent enough
+// that leaving the chat for it would be a tax, and rare enough that a
+// permanent row would take height from the thread it points at.
+function closePicker() {
+    pickList.hidden = true;
+    pick.parentElement!.dataset.open = "false";
+    pick.setAttribute("aria-expanded", "false");
+}
+
+pick.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (!pickList.hidden) {
+        closePicker();
+        return;
+    }
+
+    const threads = (await AgentService.Conversations()) ?? [];
+    pickList.replaceChildren();
+    for (const summary of threads) {
+        const item = document.createElement("button");
+        item.className = "pick-item";
+        item.type = "button";
+        item.textContent = summary.Title;
+        item.setAttribute("aria-pressed", String(summary.Active));
+        item.addEventListener("click", async () => {
+            closePicker();
+            const opened = await AgentService.OpenConversation(summary.ID);
+            await renderConversations();
+            drawThread(opened.Messages ?? []);
+        });
+        pickList.append(item);
+    }
+
+    pickList.hidden = false;
+    pick.parentElement!.dataset.open = "true";
+    pick.setAttribute("aria-expanded", "true");
+});
+
+// Anywhere else dismisses it, which is what a menu is expected to do.
+document.addEventListener("click", () => closePicker());
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        closePicker();
+    }
+});
 
 /* History ----------------------------------------------------------- */
 

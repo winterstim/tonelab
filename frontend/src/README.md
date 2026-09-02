@@ -29,10 +29,14 @@ Notes on what it does that is not obvious:
   always the one that applies.
 - **Enter sends and Shift+Enter breaks a line**, which is what a text box in a
   chat is expected to do.
-- **Conversations are a row that scrolls, never a block that wraps.** Twenty
-  threads wrapped into four rows ate the window and buried the thing they were
-  there to reach. Renaming happens in place on the chip, because correcting a
+- **History holds two panes: what was said, and what was done.** They answer
+  each other, and a conversation is only interesting beside what it changed.
+  Renaming and deleting live there, in place on the row, because correcting a
   guessed title should not need a dialogue about correcting titles.
+- **The chat keeps only switching**, as a menu on the bottom row rather than a
+  strip above the thread. Switching is frequent enough that leaving the chat
+  for it would be a tax, and rare enough that a permanent row would take
+  height from the thread it points at.
 - **The thread fades out before it is rebuilt and back in after**, so
   switching or starting a conversation reads as one movement rather than a
   screen blinking into a different one.
