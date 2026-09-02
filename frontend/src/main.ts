@@ -63,13 +63,14 @@ function greet() {
 // attribute and the transition is free. "system" leaves the attribute off and
 // lets the media query decide.
 let chosenTheme = "system";
+let chosenAccent = "colour";
 
 function applyTheme(name: string) {
     chosenTheme = name;
     const dark = name === "dark" || (name === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
 
-    for (const button of document.querySelectorAll<HTMLButtonElement>(".choice")) {
+    for (const button of document.querySelectorAll<HTMLButtonElement>("#theme .choice")) {
         button.setAttribute("aria-pressed", String(button.dataset.theme === name));
     }
 }
@@ -80,12 +81,28 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     }
 });
 
-for (const button of document.querySelectorAll<HTMLButtonElement>(".choice")) {
-    // Applied at once rather than on save: a theme you cannot see until you
-    // commit to it is one you cannot choose. Marked as unsaved too, so
-    // leaving the screen and coming back does not undo the choice.
+function applyAccent(name: string) {
+    chosenAccent = name;
+    document.documentElement.dataset.accent = name;
+
+    for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
+        button.setAttribute("aria-pressed", String(button.dataset.accent === name));
+    }
+}
+
+// Applied at once rather than on save: a look you cannot see until you commit
+// to it is one you cannot choose. Marked as unsaved too, so leaving the screen
+// and coming back does not undo it.
+for (const button of document.querySelectorAll<HTMLButtonElement>("#theme .choice")) {
     button.addEventListener("click", () => {
         applyTheme(button.dataset.theme!);
+        settingsTouched = true;
+    });
+}
+
+for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
+    button.addEventListener("click", () => {
+        applyAccent(button.dataset.accent!);
         settingsTouched = true;
     });
 }
@@ -553,6 +570,7 @@ async function loadSettings() {
     el<HTMLInputElement>("preview-default").checked = settings.PreviewByDefault;
     previewMode.checked = settings.PreviewByDefault;
     applyTheme(settings.Theme || "system");
+    applyAccent(settings.Accent || "colour");
     el("settings-note").textContent = "";
     settingsTouched = false;
 }
@@ -571,6 +589,7 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
         DAWAvailable: [],
         PreviewByDefault: el<HTMLInputElement>("preview-default").checked,
         Theme: chosenTheme,
+        Accent: chosenAccent,
     };
 
     const result = await SettingsService.Save(settings, el<HTMLInputElement>("api-key").value);

@@ -13,7 +13,15 @@ dense, and a bright panel reads as a different kind of surface rather than more
 of the same. Dark and system are offered and the choice is stored with the
 other settings, since a preference that does not survive a restart is not one.
 
-Colour is reserved for meaning: failure, and whether the DAW answered.
+Two colours, each meaning one thing. Water is the working state: the thing you
+press, the thing selected, the DAW answering. Fire is failure, which is what
+warm reds already say before anything is read. Keeping them apart is what lets
+either be noticed; an accent sharing a hue with the error colour would leave
+nothing to signal with.
+
+Monochrome is offered as a choice, and it has to replace the signal rather than
+remove it: with the hue gone, a failure is told apart by weight and a heavier
+edge instead. Otherwise a refusal would look like a remark.
 
 Notes on what it does that is not obvious:
 

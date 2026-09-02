@@ -33,6 +33,9 @@ type Settings struct {
 
 	// Theme is light, dark, or system.
 	Theme string
+
+	// Accent is colour or mono.
+	Accent string
 }
 
 // SettingsResult reports what a save did, including what it could not do
@@ -62,6 +65,13 @@ func theme(name string) string {
 	}
 }
 
+func accent(name string) string {
+	if name == "mono" {
+		return "mono"
+	}
+	return "colour"
+}
+
 func NewSettingsService(path string, live, previews *agent.Orchestrator) *SettingsService {
 	return &SettingsService{path: path, agent: live, previews: previews}
 }
@@ -71,7 +81,7 @@ func NewSettingsService(path string, live, previews *agent.Orchestrator) *Settin
 func (s *SettingsService) Get() (Settings, error) {
 	settings, err := config.Load(s.path)
 	if err != nil {
-		return Settings{DAWAvailable: daw.Backends(), Theme: "system"}, nil
+		return Settings{DAWAvailable: daw.Backends(), Theme: "system", Accent: "colour"}, nil
 	}
 
 	return Settings{
@@ -85,6 +95,7 @@ func (s *SettingsService) Get() (Settings, error) {
 		DAWAvailable:     daw.Backends(),
 		PreviewByDefault: settings.UI.PreviewByDefault,
 		Theme:            theme(settings.UI.Theme),
+		Accent:           accent(settings.UI.Accent),
 	}, nil
 }
 
@@ -113,6 +124,7 @@ func (s *SettingsService) Save(incoming Settings, apiKey string) (SettingsResult
 		},
 		UI: config.UI{
 			Theme:            theme(incoming.Theme),
+			Accent:           accent(incoming.Accent),
 			PreviewByDefault: incoming.PreviewByDefault,
 		},
 	}

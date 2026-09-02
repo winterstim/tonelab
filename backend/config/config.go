@@ -40,6 +40,9 @@ type UI struct {
 	// written before this existed still loads.
 	Theme string `json:"theme,omitempty"`
 
+	// Accent is colour or mono. Empty means colour, for the same reason.
+	Accent string `json:"accent,omitempty"`
+
 	// PreviewByDefault decides whether commands are proposed before they run.
 	// A safety choice that belongs to the user: some want to see every change
 	// first, some want the tool to get on with it.
@@ -116,6 +119,8 @@ func (c Config) validate() error {
 		return errors.New("daw.feedback_port is required, the port the DAW sends feedback to")
 	case c.UI.Theme != "" && c.UI.Theme != "light" && c.UI.Theme != "dark" && c.UI.Theme != "system":
 		return fmt.Errorf("ui.theme %q is not one of: light, dark, system", c.UI.Theme)
+	case c.UI.Accent != "" && c.UI.Accent != "colour" && c.UI.Accent != "mono":
+		return fmt.Errorf("ui.accent %q is not one of: colour, mono", c.UI.Accent)
 	}
 
 	// Checked against the registry rather than a list here, so a new backend
@@ -168,7 +173,7 @@ func writeTemplate(path string) error {
 	template := Config{
 		LLM: LLM{BaseURL: "http://localhost:11434/v1", APIKey: "", Model: "qwen2.5"},
 		DAW: DAW{Backend: "reaper", Host: "127.0.0.1", Port: 8000, FeedbackPort: 9000},
-		UI:  UI{Theme: "system"},
+		UI:  UI{Theme: "system", Accent: "colour"},
 	}
 	body, err := json.MarshalIndent(template, "", "  ")
 	if err != nil {

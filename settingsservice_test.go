@@ -194,3 +194,41 @@ func TestAnUnsetThemeMeansSystem(t *testing.T) {
 		t.Fatalf("expected the unknown theme to fall back, got %q", settings.Theme)
 	}
 }
+
+// Monochrome is a preference like the theme, and it has to survive a restart
+// or it is not one.
+func TestTheColourChoiceIsKept(t *testing.T) {
+	service, path := settingsService(t)
+
+	current, _ := service.Get()
+	current.Accent = "mono"
+	if _, err := service.Save(current, ""); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+
+	reloaded := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil))
+	settings, _ := reloaded.Get()
+	if settings.Accent != "mono" {
+		t.Fatalf("expected mono, got %q", settings.Accent)
+	}
+}
+
+// An unknown value falls back rather than failing a save, as the theme does,
+// and a config written before this existed still loads.
+func TestAnUnsetColourMeansColour(t *testing.T) {
+	service, _ := settingsService(t)
+
+	current, _ := service.Get()
+	if current.Accent != "colour" {
+		t.Fatalf("expected colour, got %q", current.Accent)
+	}
+
+	current.Accent = "nonsense"
+	if _, err := service.Save(current, ""); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	settings, _ := service.Get()
+	if settings.Accent != "colour" {
+		t.Fatalf("expected the unknown value to fall back, got %q", settings.Accent)
+	}
+}
