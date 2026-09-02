@@ -90,7 +90,7 @@ func (s *stubLiveness) Probe(timeout time.Duration) bool {
 
 func TestSendCommandPassesTheTextThrough(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{Message: "done"}}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	response, err := service.SendCommand("turn track 2 down")
 
@@ -111,7 +111,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{
 		Error: &AgentError{Code: "param_not_found", Message: "No such parameter."},
 	}}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	response, err := service.SendCommand("add reverb")
 
@@ -126,7 +126,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 // Empty input is worth catching here rather than spending a model call on it.
 func TestEmptyCommandIsRejectedWithoutCallingTheAgent(t *testing.T) {
 	brain := &stubBrain{}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	response, err := service.SendCommand("   ")
 
@@ -160,7 +160,7 @@ func TestDAWStatusAsksWhenItHasNotHeardRecently(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			observer := &stubLiveness{lastSeen: tc.lastSeen, answers: tc.answers}
-			service := NewAgentService(&stubBrain{}, nil, observer, nil)
+			service := NewAgentService(&stubBrain{}, nil, observer, nil, "")
 
 			status, err := service.GetDAWStatus()
 
@@ -182,7 +182,7 @@ func TestDAWStatusAsksWhenItHasNotHeardRecently(t *testing.T) {
 // A backend that cannot report liveness must say "unknown" rather than claim a
 // connection it cannot see.
 func TestDAWStatusIsFalseWithoutALivenessSource(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil, nil, nil)
+	service := NewAgentService(&stubBrain{}, nil, nil, nil, "")
 
 	status, err := service.GetDAWStatus()
 
@@ -205,7 +205,7 @@ func TestChangesReachTheUI(t *testing.T) {
 		Message: "Muted the vocals.",
 		Changed: []ParamChange{{Track: 2, Param: "mute", Requested: true, NewValue: true}},
 	}}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	response, err := service.SendCommand("mute the vocals")
 	if err != nil {
@@ -225,7 +225,7 @@ func TestChangesReachTheUI(t *testing.T) {
 func TestUndoDoesNotGoThroughTheAgent(t *testing.T) {
 	brain := &stubBrain{}
 	daw := &stubReverser{}
-	service := NewAgentService(brain, nil, &stubLiveness{}, daw)
+	service := NewAgentService(brain, nil, &stubLiveness{}, daw, "")
 
 	response, err := service.Undo()
 
@@ -246,7 +246,7 @@ func TestUndoDoesNotGoThroughTheAgent(t *testing.T) {
 // A DAW that cannot undo says so rather than reporting a reversal that never
 // happened.
 func TestUndoOnABackendWithoutItIsReported(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil, "")
 
 	response, err := service.Undo()
 
@@ -282,7 +282,7 @@ func TestApplyRunsExactlyWhatWasPreviewed(t *testing.T) {
 	planner := &stubPlanner{plan: []PlannedCall{
 		{Tool: "set_param", Arguments: `{"track_id":2}`, Description: "set track 2 volume to 0.3"},
 	}}
-	service := NewAgentService(&stubBrain{}, planner, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, planner, &stubLiveness{}, nil, "")
 
 	preview, err := service.PreviewCommand("turn track 2 down")
 	if err != nil {
@@ -303,7 +303,7 @@ func TestApplyRunsExactlyWhatWasPreviewed(t *testing.T) {
 // Applying twice must not repeat the command: the plan was accepted once.
 func TestAPlanIsAppliedOnlyOnce(t *testing.T) {
 	planner := &stubPlanner{plan: []PlannedCall{{Tool: "set_param", Arguments: `{}`}}}
-	service := NewAgentService(&stubBrain{}, planner, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, planner, &stubLiveness{}, nil, "")
 
 	service.PreviewCommand("anything")
 	service.ApplyPlan()
@@ -317,7 +317,7 @@ func TestAPlanIsAppliedOnlyOnce(t *testing.T) {
 // Applying with nothing pending must refuse rather than fall back to asking
 // the model, since the user is accepting something specific.
 func TestApplyingNothingRefuses(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, &stubPlanner{}, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, &stubPlanner{}, &stubLiveness{}, nil, "")
 
 	response, err := service.ApplyPlan()
 
@@ -333,7 +333,7 @@ func TestApplyingNothingRefuses(t *testing.T) {
 // changed their mind should not have to watch it finish.
 func TestStopEndsTheTurnInFlight(t *testing.T) {
 	brain := &stubBrain{block: make(chan struct{}), response: AgentResponse{Message: "Stopped."}}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	done := make(chan struct{})
 	go func() {
@@ -370,7 +370,7 @@ func TestStopEndsTheTurnInFlight(t *testing.T) {
 
 // Stopping when nothing is running says so rather than pretending.
 func TestStopWithNothingRunning(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil, "")
 
 	response, err := service.Stop()
 
@@ -385,7 +385,7 @@ func TestStopWithNothingRunning(t *testing.T) {
 // A user starting a new idea should not have to fight the last one.
 func TestForgettingClearsTheAgentsMemory(t *testing.T) {
 	brain := &stubBrain{}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	if _, err := service.Forget(); err != nil {
 		t.Fatalf("unexpected Go error: %v", err)

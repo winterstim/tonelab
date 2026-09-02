@@ -4,6 +4,7 @@ import (
 	"embed"
 
 	"log"
+	"path/filepath"
 
 	goosc "github.com/hypebeast/go-osc/osc"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -71,7 +72,7 @@ func main() {
 	agentService := NewAgentService(
 		orchestratorBrain{orchestrator: orchestrator},
 		previewBrain{orchestrator: previews, live: orchestrator},
-		observer, dawClient)
+		observer, dawClient, filepath.Join(filepath.Dir(configPath), "conversations.json"))
 	settingsService := NewSettingsService(configPath, orchestrator, previews)
 
 	app := application.New(application.Options{

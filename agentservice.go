@@ -132,14 +132,48 @@ type AgentService struct {
 	pending []PlannedCall
 }
 
-func NewAgentService(agent brain, previews planner, observer liveness, client any) *AgentService {
+// NewAgentService takes where to keep conversations. An empty path keeps them
+// in memory, which is what tests want and what a machine with nowhere to write
+// gets rather than a crash.
+func NewAgentService(agent brain, previews planner, observer liveness, client any, threadsPath string) *AgentService {
 	return &AgentService{
 		agent:    agent,
 		planner:  previews,
 		liveness: observer,
 		daw:      client,
-		threads:  newConversations(),
+		threads:  newConversations(threadsPath),
 	}
+}
+
+// RenameConversation replaces a title. The generated one is a guess from the
+// first thing said, and a guess should be correctable.
+func (a *AgentService) RenameConversation(id, name string) (AgentResponse, error) {
+	if !a.threads.rename(id, name) {
+		return AgentResponse{Error: &AgentError{
+			Code:    "not_found",
+			Message: "That conversation is gone.",
+		}}, nil
+	}
+	return AgentResponse{Message: "Renamed."}, nil
+}
+
+// DeleteConversation drops a thread and everything said in it.
+func (a *AgentService) DeleteConversation(id string) (Conversation, error) {
+	wasActive := a.threads.current().ID == id
+	if !a.threads.remove(id) {
+		return Conversation{}, nil
+	}
+
+	// Deleting what was being spoken to leaves the agent remembering a
+	// conversation that no longer exists, so it is given the one that
+	// replaced it.
+	if wasActive {
+		current := a.threads.current()
+		_, memory, _ := a.threads.selectThread(current.ID)
+		restore(a.agent, memory)
+		return *current, nil
+	}
+	return *a.threads.current(), nil
 }
 
 // Conversations lists the threads of this session, newest first.

@@ -1,5 +1,11 @@
 import { AgentService, SettingsService } from "../bindings/tonelab";
-import type { AgentResponse, ChatMessage, JournalEntry, Settings } from "../bindings/tonelab/models";
+import type {
+    AgentResponse,
+    ChatMessage,
+    ConversationSummary,
+    JournalEntry,
+    Settings,
+} from "../bindings/tonelab/models";
 
 type Tone = "answer" | "problem" | "working";
 
@@ -63,7 +69,6 @@ function greet() {
 // attribute and the transition is free. "system" leaves the attribute off and
 // lets the media query decide.
 let chosenTheme = "system";
-let chosenAccent = "colour";
 
 function applyTheme(name: string) {
     chosenTheme = name;
@@ -81,15 +86,6 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     }
 });
 
-function applyAccent(name: string) {
-    chosenAccent = name;
-    document.documentElement.dataset.accent = name;
-
-    for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
-        button.setAttribute("aria-pressed", String(button.dataset.accent === name));
-    }
-}
-
 // Applied at once rather than on save: a look you cannot see until you commit
 // to it is one you cannot choose. Marked as unsaved too, so leaving the screen
 // and coming back does not undo it.
@@ -100,12 +96,6 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("#theme .choic
     });
 }
 
-for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
-    button.addEventListener("click", () => {
-        applyAccent(button.dataset.accent!);
-        settingsTouched = true;
-    });
-}
 
 /* Views ------------------------------------------------------------- */
 
@@ -257,6 +247,75 @@ function report(response: AgentResponse) {
     attachPlan(message, response.Plan);
 }
 
+function renderChip(summary: ConversationSummary): HTMLElement {
+    const chip = document.createElement("button");
+    chip.className = "thread-chip";
+    chip.type = "button";
+    chip.setAttribute("aria-pressed", String(summary.Active));
+
+    const name = document.createElement("span");
+    name.className = "chip-name";
+    name.textContent = summary.Title;
+
+    // Renaming happens in place: a guess made from the first thing said
+    // should be correctable without a dialogue about correcting it.
+    name.addEventListener("dblclick", (event) => {
+        event.stopPropagation();
+        name.contentEditable = "true";
+        name.focus();
+        getSelection()?.selectAllChildren(name);
+    });
+
+    const commit = async () => {
+        if (name.contentEditable !== "true") {
+            return;
+        }
+        name.contentEditable = "false";
+        const chosen = (name.textContent ?? "").trim();
+        if (chosen === "" || chosen === summary.Title) {
+            name.textContent = summary.Title;
+            return;
+        }
+        await AgentService.RenameConversation(summary.ID, chosen);
+        await renderConversations();
+    };
+
+    name.addEventListener("blur", commit);
+    name.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+        }
+        if (event.key === "Escape") {
+            name.textContent = summary.Title;
+            name.contentEditable = "false";
+        }
+    });
+
+    const drop = document.createElement("span");
+    drop.className = "chip-drop";
+    drop.setAttribute("role", "button");
+    drop.setAttribute("aria-label", `Delete ${summary.Title}`);
+    drop.append(icon("close"));
+    drop.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const remaining = await AgentService.DeleteConversation(summary.ID);
+        await renderConversations();
+        drawThread(remaining.Messages ?? []);
+    });
+
+    chip.append(name, drop);
+    chip.addEventListener("click", async () => {
+        if (name.contentEditable === "true") {
+            return;
+        }
+        const opened = await AgentService.OpenConversation(summary.ID);
+        await renderConversations();
+        drawThread(opened.Messages ?? []);
+    });
+    return chip;
+}
+
 /* Sending ----------------------------------------------------------- */
 
 let running = false;
@@ -345,7 +404,13 @@ el("clear").addEventListener("click", async () => {
 
 // The thread lives in the backend, because one that only exists in the page
 // cannot survive being switched away from.
-function drawThread(messages: ChatMessage[]) {
+// Faded out before it is rebuilt and back in after, so switching or starting
+// a conversation reads as one movement rather than a screen blinking into a
+// different one.
+async function drawThread(messages: ChatMessage[]) {
+    thread.dataset.swapping = "true";
+    await new Promise((done) => setTimeout(done, 110));
+
     thread.querySelectorAll(".msg").forEach((node) => node.remove());
     empty.hidden = messages.length > 0;
     if (messages.length === 0) {
@@ -362,29 +427,19 @@ function drawThread(messages: ChatMessage[]) {
         // Plans are not redrawn: a plan is an offer made once, and one
         // reopened hours later would invite accepting something stale.
     }
+
+    thread.dataset.swapping = "false";
 }
 
 async function renderConversations() {
     const threads = (await AgentService.Conversations()) ?? [];
     switcher.replaceChildren();
 
-    // Hidden with only one, since a switcher listing a single thing is noise.
-    switcher.hidden = threads.length < 2;
-    if (switcher.hidden) {
-        return;
-    }
+    // Hidden only when there is nothing at all: at one thread it still holds
+    // the way to rename or delete it, and hiding it would hide those.
+    switcher.hidden = threads.length === 0;
     for (const summary of threads) {
-        const button = document.createElement("button");
-        button.className = "thread-chip";
-        button.type = "button";
-        button.textContent = summary.Title;
-        button.setAttribute("aria-pressed", String(summary.Active));
-        button.addEventListener("click", async () => {
-            const opened = await AgentService.OpenConversation(summary.ID);
-            drawThread(opened.Messages ?? []);
-            await renderConversations();
-        });
-        switcher.append(button);
+        switcher.append(renderChip(summary));
     }
 }
 
@@ -570,7 +625,6 @@ async function loadSettings() {
     el<HTMLInputElement>("preview-default").checked = settings.PreviewByDefault;
     previewMode.checked = settings.PreviewByDefault;
     applyTheme(settings.Theme || "system");
-    applyAccent(settings.Accent || "colour");
     el("settings-note").textContent = "";
     settingsTouched = false;
 }
@@ -589,7 +643,7 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
         DAWAvailable: [],
         PreviewByDefault: el<HTMLInputElement>("preview-default").checked,
         Theme: chosenTheme,
-        Accent: chosenAccent,
+        Accent: "mono",
     };
 
     const result = await SettingsService.Save(settings, el<HTMLInputElement>("api-key").value);

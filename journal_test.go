@@ -16,7 +16,7 @@ func TestHistoryRecordsWhatTheAgentDid(t *testing.T) {
 			{Tool: "set_param", Arguments: `{"track_id":2}`, Outcome: `{}`},
 		},
 	}}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	service.SendCommand("mute the vocals")
 
@@ -42,7 +42,7 @@ func TestHistoryRecordsWhatTheAgentDid(t *testing.T) {
 // Newest first, which is the order someone looking for what just happened
 // reads in.
 func TestHistoryIsNewestFirst(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil, "")
 
 	service.SendCommand("first")
 	service.SendCommand("second")
@@ -56,7 +56,7 @@ func TestHistoryIsNewestFirst(t *testing.T) {
 // A plan that was never applied must not read later as something that
 // happened.
 func TestPreviewsAreMarkedInHistory(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, &stubPlanner{}, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, &stubPlanner{}, &stubLiveness{}, nil, "")
 
 	service.PreviewCommand("turn track 2 down")
 
@@ -69,7 +69,7 @@ func TestPreviewsAreMarkedInHistory(t *testing.T) {
 // Undo happens outside the agent, and a history missing it would be a history
 // of the wrong thing.
 func TestUndoIsRecorded(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, &stubReverser{})
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, &stubReverser{}, "")
 
 	service.Undo()
 
@@ -81,7 +81,7 @@ func TestUndoIsRecorded(t *testing.T) {
 
 // An app left running for a session must not grow a log without end.
 func TestHistoryIsBounded(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil, "")
 
 	for i := 0; i < journalLimit+20; i++ {
 		service.SendCommand("command " + strconv.Itoa(i))
@@ -103,7 +103,7 @@ func TestFailedTurnsAreRecorded(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{
 		Error: &AgentError{Code: "param_not_found", Message: "No such parameter."},
 	}}
-	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil, "")
 
 	service.SendCommand("add reverb")
 
