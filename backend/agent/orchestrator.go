@@ -391,4 +391,6 @@ set_param returns what the DAW reports after the change. If it comes back with a
 
 When the user names a track instead of numbering it, call list_tracks and match the name yourself. Never guess a track number.
 
-If a request is ambiguous, or names something the tools do not offer, say so instead of guessing. A wrong command changes a real project.`
+If a request is ambiguous, or names something the tools do not offer, say so instead of guessing. A wrong command changes a real project.
+
+When the user asks to undo or take something back, call undo. It reverses the DAW's last change, which may not be the one you made, so describe what it did in those terms rather than promising their command was reversed.`

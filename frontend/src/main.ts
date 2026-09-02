@@ -107,6 +107,15 @@ async function refreshStatus() {
     }
 }
 
+document.getElementById("undo")!.addEventListener("click", async () => {
+    const response = await AgentService.Undo();
+    if (response.Error) {
+        show(explain(response.Error.Code, response.Error.Message), "problem");
+    } else {
+        show(response.Message, "answer");
+    }
+});
+
 document.getElementById("transport-play")!.addEventListener("click", async () => {
     show(await TransportService.Play(), "answer");
 });

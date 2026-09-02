@@ -56,6 +56,14 @@ deliberate:
 
 - `Refresh(track)` makes the DAW volunteer a track's state.
 - `GetParam(track, name)` returns what it last said.
+- `ReadParam(track, name, timeout)` asks, and falls back to what was last
+  heard: a DAW reporting only changes stays silent about a value that has not
+  moved, so silence means unchanged far more often than unknown.
+- `ConfirmParam(track, name, timeout)` checks, and accepts only a reading from
+  after the call. Right after a change the cached value is exactly the one
+  being disproved, and answering from it reports a number that is confidently
+  wrong. That bug shipped briefly and was caught by a live run reporting
+  `requested: 0.9, confirmed: 0.5`.
 
 Folding them together would hide a network round-trip inside what looks like
 a map lookup, with no way for a caller to control the waiting.

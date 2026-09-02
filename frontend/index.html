@@ -36,6 +36,10 @@
     <!-- Kept because they reach the DAW without the language model, which makes
          them the fastest way to tell a DAW problem from a model problem. -->
     <footer class="transport">
+        <!-- Beside the agent rather than behind it: after a command goes
+             wrong, asking the model to fix it means trusting what just
+             erred. -->
+        <button class="transport-btn transport-undo" id="undo" type="button">Undo last change</button>
         <span class="transport-label">Transport</span>
         <button class="transport-btn" id="transport-play" type="button">Play</button>
         <button class="transport-btn" id="transport-stop" type="button">Stop</button>

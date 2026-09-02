@@ -62,6 +62,12 @@ type Result struct {
 	Error *Error `json:"error,omitempty"`
 }
 
+// reverser is optional because not every DAW can be asked to take something
+// back, and a tool that cannot work is worse than one that is absent.
+type reverser interface {
+	Undo() error
+}
+
 // lister is optional because a DAW that cannot name its tracks still works by
 // number, and the tool is simply not offered rather than offered and broken.
 type lister interface {
@@ -79,6 +85,7 @@ type lister interface {
 // correct command unverified.
 type reader interface {
 	ReadParam(track int, name string, timeout time.Duration) (any, error)
+	ConfirmParam(track int, name string, timeout time.Duration) (any, error)
 	GetParam(track int, name string) (any, error)
 }
 
@@ -146,6 +153,18 @@ func (t *Tools) Definitions() []Tool {
 	// Offered only when the backend can answer it. The other tools address
 	// tracks by number, so a user saying "the vocals" is unanswerable without
 	// this, and a tool that always fails is worse than one that is absent.
+	if _, ok := t.daw.(reverser); ok {
+		definitions = append(definitions, Tool{
+			Name: "undo",
+			Description: "Reverse the DAW's last change. Use this when the user asks to undo, " +
+				"take something back, or revert what was just done.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		})
+	}
+
 	if _, ok := t.daw.(lister); ok {
 		definitions = append(definitions, Tool{
 			Name: "list_tracks",
@@ -185,6 +204,8 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 		return t.setParam(args)
 	case "list_tracks":
 		return t.listTracks()
+	case "undo":
+		return t.undo()
 	default:
 		return failure("unknown_tool", fmt.Sprintf("There is no tool called %q.", name))
 	}
@@ -192,6 +213,34 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 
 // track_id is decoded loosely because models quote numbers. Rejecting a
 // correct answer over its quotes fails the user for the model's formatting.
+// Reverted deliberately reports what was asked of the DAW rather than a bare
+// success. Undo reverses the DAW's last change, which is not necessarily ours:
+// a user who moved a fader by hand since has that taken back instead, so
+// claiming "your command was undone" would be a claim we cannot make.
+type Reverted struct {
+	Note string `json:"note"`
+}
+
+// undo asks the DAW to take back its last change. Reading the result back is
+// left to the caller: which parameters to check depends on what was done, and
+// guessing here would mean keeping state this layer has no other reason to
+// hold.
+func (t *Tools) undo() Result {
+	source, ok := t.daw.(reverser)
+	if !ok {
+		return failure("not_supported", "This DAW backend cannot undo.")
+	}
+	if err := source.Undo(); err != nil {
+		return failure("daw_command_failed", "The DAW did not accept the undo.")
+	}
+
+	return Result{Value: Reverted{
+		Note: "The DAW reversed its most recent change. That is the DAW's last change, " +
+			"which may not be the one just made if anything else has happened since. " +
+			"Use get_param to state what a value is now rather than assuming.",
+	}}
+}
+
 // listTracks reads the project's shape. It takes no arguments: the DAW knows
 // what it contains, and asking the model how many tracks to look for would be
 // asking it to guess.
@@ -276,7 +325,9 @@ func (t *Tools) confirm(track int, name string, requested any) Applied {
 		return applied
 	}
 
-	value, err := source.ReadParam(track, name, confirmTimeout)
+	// Confirming, not asking: only a reading from after the change counts,
+	// since the cached one is exactly the value we are trying to disprove.
+	value, err := source.ConfirmParam(track, name, confirmTimeout)
 	if err != nil {
 		applied.Note = "The DAW did not report this parameter back, so the change is unverified."
 		return applied

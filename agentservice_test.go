@@ -24,7 +24,7 @@ func (s stubLiveness) LastSeen() time.Time { return s.lastSeen }
 
 func TestSendCommandPassesTheTextThrough(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{Message: "done"}}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("turn track 2 down")
 
@@ -45,7 +45,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{
 		Error: &AgentError{Code: "param_not_found", Message: "No such parameter."},
 	}}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("add reverb")
 
@@ -60,7 +60,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 // Empty input is worth catching here rather than spending a model call on it.
 func TestEmptyCommandIsRejectedWithoutCallingTheAgent(t *testing.T) {
 	brain := &stubBrain{}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("   ")
 
@@ -88,7 +88,7 @@ func TestDAWStatusFollowsRecentFeedback(t *testing.T) {
 		{"silent for a long time", time.Now().Add(-time.Hour), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := NewAgentService(&stubBrain{}, stubLiveness{lastSeen: tc.lastSeen})
+			service := NewAgentService(&stubBrain{}, stubLiveness{lastSeen: tc.lastSeen}, nil)
 
 			status, err := service.GetDAWStatus()
 
@@ -105,7 +105,7 @@ func TestDAWStatusFollowsRecentFeedback(t *testing.T) {
 // A backend that cannot report liveness must say "unknown" rather than claim a
 // connection it cannot see.
 func TestDAWStatusIsFalseWithoutALivenessSource(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil)
+	service := NewAgentService(&stubBrain{}, nil, nil)
 
 	status, err := service.GetDAWStatus()
 
@@ -128,7 +128,7 @@ func TestChangesReachTheUI(t *testing.T) {
 		Message: "Muted the vocals.",
 		Changed: []ParamChange{{Track: 2, Param: "mute", Requested: true, NewValue: true}},
 	}}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("mute the vocals")
 	if err != nil {
@@ -142,3 +142,45 @@ func TestChangesReachTheUI(t *testing.T) {
 		t.Fatalf("unexpected change %+v", response.Changed[0])
 	}
 }
+
+// Undo sits beside the agent, not behind it: when a command went wrong, asking
+// the model to fix it means trusting the thing that just erred.
+func TestUndoDoesNotGoThroughTheAgent(t *testing.T) {
+	brain := &stubBrain{}
+	daw := &stubReverser{}
+	service := NewAgentService(brain, stubLiveness{}, daw)
+
+	response, err := service.Undo()
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if response.Error != nil {
+		t.Fatalf("expected success, got %+v", response.Error)
+	}
+	if daw.undos != 1 {
+		t.Errorf("expected the DAW to be asked once, got %d", daw.undos)
+	}
+	if brain.lastText != "" {
+		t.Error("undo must not be routed through the language model")
+	}
+}
+
+// A DAW that cannot undo says so rather than reporting a reversal that never
+// happened.
+func TestUndoOnABackendWithoutItIsReported(t *testing.T) {
+	service := NewAgentService(&stubBrain{}, stubLiveness{}, nil)
+
+	response, err := service.Undo()
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "not_supported" {
+		t.Fatalf("expected not_supported, got %+v", response.Error)
+	}
+}
+
+type stubReverser struct{ undos int }
+
+func (s *stubReverser) Undo() error { s.undos++; return nil }

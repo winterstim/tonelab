@@ -53,6 +53,12 @@ type brain interface {
 	Send(text string) AgentResponse
 }
 
+// reverser is optional: not every DAW can be asked to take something back, and
+// a button that cannot work should not be offered.
+type reverser interface {
+	Undo() error
+}
+
 // liveness is optional: a backend that cannot observe its DAW must be able to
 // say so rather than have a connection assumed for it.
 type liveness interface {
@@ -65,10 +71,33 @@ type liveness interface {
 type AgentService struct {
 	agent    brain
 	liveness liveness
+	daw      any
 }
 
-func NewAgentService(agent brain, observer liveness) *AgentService {
-	return &AgentService{agent: agent, liveness: observer}
+func NewAgentService(agent brain, observer liveness, client any) *AgentService {
+	return &AgentService{agent: agent, liveness: observer, daw: client}
+}
+
+// Undo exists beside the agent rather than only through it. When a command
+// went wrong, asking the model to fix it means trusting the thing that just
+// erred, and a user reaching for undo wants it to happen, not to be
+// interpreted.
+func (a *AgentService) Undo() (AgentResponse, error) {
+	source, ok := a.daw.(reverser)
+	if !ok {
+		return AgentResponse{Error: &AgentError{
+			Code:    "not_supported",
+			Message: "This DAW cannot undo.",
+		}}, nil
+	}
+
+	if err := source.Undo(); err != nil {
+		return AgentResponse{Error: &AgentError{
+			Code:    "daw_command_failed",
+			Message: "The DAW did not accept the undo.",
+		}}, nil
+	}
+	return AgentResponse{Message: "Asked the DAW to undo its last change."}, nil
 }
 
 // SendCommand runs one natural-language command. Blank input is refused here

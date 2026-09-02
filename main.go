@@ -63,7 +63,7 @@ func main() {
 	}, agent.NewTools(dawClient))
 
 	observer, _ := dawClient.(liveness)
-	agentService := NewAgentService(orchestratorBrain{orchestrator: orchestrator}, observer)
+	agentService := NewAgentService(orchestratorBrain{orchestrator: orchestrator}, observer, dawClient)
 
 	app := application.New(application.Options{
 		Name:        "Tonelab",

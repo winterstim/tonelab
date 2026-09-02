@@ -149,6 +149,12 @@ body {
     border-top: 1px solid var(--border);
 }
 
+/* Sits apart from the transport buttons: it undoes project state, not
+   playback, and the two should not be reached for by accident. */
+.transport-undo {
+    margin-right: 20px;
+}
+
 .transport-label {
     margin-right: auto;
     color: var(--muted);
