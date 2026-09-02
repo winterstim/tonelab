@@ -58,6 +58,23 @@ type Response struct {
 	// the model's own account of it. Nil when nothing was changed, including
 	// when the model only answered a question.
 	Changed []Change
+
+	// Plan is what a preview turn would have done, in the form it would have
+	// done it. Kept executable rather than described, because re-asking a
+	// model to carry out what it just proposed can produce something else,
+	// and the user would have approved the first while getting the second.
+	Plan []PlannedCall
+}
+
+// PlannedCall is one tool call held for later execution, exactly as the model
+// produced it.
+type PlannedCall struct {
+	Tool      string
+	Arguments string
+
+	// Description is the tool's own account of what this would do, for
+	// showing a user who is deciding rather than reading JSON.
+	Description string
 }
 
 // Change is one parameter a turn altered, as the DAW reported it afterwards.
@@ -159,6 +176,7 @@ func (o *Orchestrator) Send(text string) Response {
 
 	rejections := 0
 	var changed []Change
+	var plan []PlannedCall
 
 	for step := 0; step < maxSteps; step++ {
 		reply, failure := o.complete(conversation)
@@ -187,15 +205,20 @@ func (o *Orchestrator) Send(text string) Response {
 			return Response{Error: failure}
 		}
 		if len(reply.ToolCalls) == 0 {
-			return Response{Message: reply.Content, Changed: changed}
+			return Response{Message: reply.Content, Changed: changed, Plan: plan}
 		}
 
 		conversation = append(conversation, reply)
 		for _, call := range reply.ToolCalls {
-			result, applied := o.execute(call)
+			result, applied, planned := o.execute(call)
 			conversation = append(conversation, result)
 			if applied != nil {
 				changed = append(changed, *applied)
+			}
+			if planned != nil {
+				planned.Tool = call.Function.Name
+				planned.Arguments = call.Function.Arguments
+				plan = append(plan, *planned)
 			}
 		}
 	}
@@ -211,7 +234,7 @@ func (o *Orchestrator) Send(text string) Response {
 // execute runs one tool call and phrases the outcome as a tool message. A
 // failure is reported to the model rather than ending the turn, because the
 // codes exist precisely so it can choose a different move.
-func (o *Orchestrator) execute(call toolCall) (message, *Change) {
+func (o *Orchestrator) execute(call toolCall) (message, *Change, *PlannedCall) {
 	result := o.tools.Call(call.Function.Name, json.RawMessage(call.Function.Arguments))
 
 	body, err := json.Marshal(result)
@@ -234,7 +257,12 @@ func (o *Orchestrator) execute(call toolCall) (message, *Change) {
 		}
 	}
 
-	return message{Role: "tool", ToolCallID: call.ID, Content: string(body)}, changed
+	var planned *PlannedCall
+	if proposal, ok := result.Value.(Planned); ok {
+		planned = &PlannedCall{Description: proposal.Description}
+	}
+
+	return message{Role: "tool", ToolCallID: call.ID, Content: string(body)}, changed, planned
 }
 
 // complete performs one request and returns the assistant's reply.
@@ -394,3 +422,33 @@ When the user names a track instead of numbering it, call list_tracks and match 
 If a request is ambiguous, or names something the tools do not offer, say so instead of guessing. A wrong command changes a real project.
 
 When the user asks to undo or take something back, call undo. It reverses the DAW's last change, which may not be the one you made, so describe what it did in those terms rather than promising their command was reversed.`
+
+// Apply carries out a plan a preview produced, without consulting the model
+// again. That is the point of holding it: a model asked twice can answer
+// differently, and the user approved the first answer.
+func (o *Orchestrator) Apply(plan []PlannedCall) Response {
+	var changed []Change
+
+	for _, call := range plan {
+		result := o.tools.Call(call.Tool, json.RawMessage(call.Arguments))
+		if result.Error != nil {
+			// Reported rather than continued: the rest of a plan may depend
+			// on the step that failed, and guessing which is worse than
+			// stopping.
+			return Response{
+				Changed: changed,
+				Error:   &Error{Code: result.Error.Code, Message: result.Error.Message},
+			}
+		}
+		if applied, ok := result.Value.(Applied); ok {
+			changed = append(changed, Change{
+				Track:     applied.Track,
+				Param:     applied.Param,
+				Requested: applied.Requested,
+				Confirmed: applied.Confirmed,
+				Note:      applied.Note,
+			})
+		}
+	}
+	return Response{Message: "Applied.", Changed: changed}
+}

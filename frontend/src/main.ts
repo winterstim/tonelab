@@ -5,6 +5,8 @@ const form = document.getElementById("command-form") as HTMLFormElement;
 const input = document.getElementById("command-input") as HTMLInputElement;
 const send = document.getElementById("command-send") as HTMLButtonElement;
 const answer = document.getElementById("answer") as HTMLElement;
+const previewMode = document.getElementById("preview-mode") as HTMLInputElement;
+const apply = document.getElementById("apply") as HTMLButtonElement;
 const status = document.getElementById("daw-status") as HTMLElement;
 const statusText = document.getElementById("daw-status-text") as HTMLElement;
 
@@ -50,6 +52,14 @@ function describe(changed: AgentResponse["Changed"]): string {
     return "\n\n" + lines.join("\n");
 }
 
+// Shown as intentions rather than results, since nothing has happened yet.
+function proposed(plan: AgentResponse["Plan"]): string {
+    if (!plan || plan.length === 0) {
+        return "";
+    }
+    return "\n\nWould:\n" + plan.map((step) => `• ${step.Description}`).join("\n");
+}
+
 function format(value: unknown): string {
     if (typeof value === "boolean") {
         return value ? "on" : "off";
@@ -71,15 +81,24 @@ form.addEventListener("submit", async (event) => {
     show("Working…", "working");
 
     try {
-        const response = await AgentService.SendCommand(text);
+        const response = previewMode.checked
+            ? await AgentService.PreviewCommand(text)
+            : await AgentService.SendCommand(text);
+
+        // A plan is offered for acceptance rather than applied, and the button
+        // stays hidden when the turn proposed nothing to accept.
+        apply.hidden = !response.Plan || response.Plan.length === 0;
+
         if (response.Error) {
             show(explain(response.Error.Code, response.Error.Message), "problem");
         } else {
             // The model's summary, then what the DAW actually confirmed. The
             // model is the one account of the turn that cannot check itself,
             // so it is shown beside the DAW's rather than instead of it.
-            show(response.Message + describe(response.Changed), "answer");
-            input.value = "";
+            show(response.Message + describe(response.Changed) + proposed(response.Plan), "answer");
+            if (!previewMode.checked) {
+                input.value = "";
+            }
         }
     } catch (error) {
         // Reaching here means the call itself broke rather than the command
@@ -106,6 +125,23 @@ async function refreshStatus() {
         statusText.textContent = "Backend not responding";
     }
 }
+
+apply.addEventListener("click", async () => {
+    apply.disabled = true;
+    try {
+        const response = await AgentService.ApplyPlan();
+        if (response.Error) {
+            show(explain(response.Error.Code, response.Error.Message), "problem");
+        } else {
+            show(response.Message + describe(response.Changed), "answer");
+            input.value = "";
+        }
+    } finally {
+        // One acceptance per plan: the button returns only with a new preview.
+        apply.disabled = false;
+        apply.hidden = true;
+    }
+});
 
 document.getElementById("undo")!.addEventListener("click", async () => {
     const response = await AgentService.Undo();

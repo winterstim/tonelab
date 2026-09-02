@@ -375,3 +375,117 @@ func TestAnswersReportNoChanges(t *testing.T) {
 		t.Fatalf("expected no changes, got %v", response.Changed)
 	}
 }
+
+// Preview runs the turn for its plan without touching the project, which is
+// the guardrail: the agent shows what it means to do before doing
+// it.
+func TestPreviewPlansWithoutChangingAnything(t *testing.T) {
+	backend := newFakeDAW()
+	server := llmtest.New(t,
+		llmtest.Turn{ToolCalls: []llmtest.ToolCall{{
+			ID: "call_1", Name: "set_param",
+			Arguments: `{"track_id":2,"param_name":"volume","value":0.3}`,
+		}}},
+		llmtest.Turn{Content: "I would turn track 2 down."},
+	)
+	orchestrator := agent.NewOrchestrator(
+		agent.Config{BaseURL: server.BaseURL(), Model: "test"},
+		agent.NewPreviewTools(backend),
+	)
+
+	response := orchestrator.Send("turn track 2 down")
+
+	if response.Error != nil {
+		t.Fatalf("expected success, got %+v", response.Error)
+	}
+	if len(backend.setCalls) != 0 {
+		t.Fatalf("a preview reached the DAW: %v", backend.setCalls)
+	}
+	if len(response.Plan) != 1 {
+		t.Fatalf("expected one planned call, got %v", response.Plan)
+	}
+	if !strings.Contains(response.Plan[0].Description, "track 2 volume") {
+		t.Errorf("expected the plan to read plainly, got %q", response.Plan[0].Description)
+	}
+}
+
+// The plan is held in the form the model produced, so applying it runs what
+// the user approved. Asking a model to repeat itself can produce something
+// else, and the user would have approved the first while getting the second.
+func TestApplyingAPlanDoesNotAskTheModelAgain(t *testing.T) {
+	backend := newFakeDAW()
+	// One turn scripted: a second request would exhaust it and fail.
+	server := llmtest.New(t, llmtest.Turn{Content: "unused"})
+	orchestrator := agent.NewOrchestrator(
+		agent.Config{BaseURL: server.BaseURL(), Model: "test"},
+		agent.NewTools(backend),
+	)
+
+	response := orchestrator.Apply([]agent.PlannedCall{{
+		Tool:      "set_param",
+		Arguments: `{"track_id":2,"param_name":"volume","value":0.3}`,
+	}})
+
+	if response.Error != nil {
+		t.Fatalf("expected success, got %+v", response.Error)
+	}
+	if len(server.Requests()) != 0 {
+		t.Fatalf("applying consulted the model %d times", len(server.Requests()))
+	}
+	if len(backend.setCalls) != 1 || backend.setCalls[0].track != 2 {
+		t.Fatalf("expected the approved command, got %v", backend.setCalls)
+	}
+	if len(response.Changed) != 1 {
+		t.Errorf("expected the change to be reported, got %v", response.Changed)
+	}
+}
+
+// A plan whose step fails stops there. The rest may depend on it, and guessing
+// which is worse than saying where it stopped.
+func TestApplyingStopsAtTheFirstFailure(t *testing.T) {
+	backend := newFakeDAW()
+	orchestrator := agent.NewOrchestrator(agent.Config{BaseURL: "http://unused", Model: "m"}, agent.NewTools(backend))
+
+	response := orchestrator.Apply([]agent.PlannedCall{
+		{Tool: "set_param", Arguments: `{"track_id":1,"param_name":"volume","value":0.3}`},
+		{Tool: "set_param", Arguments: `{"track_id":1,"param_name":"nonsense","value":0.3}`},
+		{Tool: "set_param", Arguments: `{"track_id":1,"param_name":"pan","value":0.3}`},
+	})
+
+	if response.Error == nil {
+		t.Fatal("expected the failure to be reported")
+	}
+	if len(backend.setCalls) != 1 {
+		t.Fatalf("expected only the first step to have run, got %v", backend.setCalls)
+	}
+	if len(response.Changed) != 1 {
+		t.Errorf("expected what did happen to be reported, got %v", response.Changed)
+	}
+}
+
+// Reads still run in preview, since a plan made without looking at the project
+// would be a guess.
+func TestPreviewStillReadsTheProject(t *testing.T) {
+	backend := newFakeDAW()
+	server := llmtest.New(t,
+		llmtest.Turn{ToolCalls: []llmtest.ToolCall{{ID: "call_1", Name: "list_tracks", Arguments: `{}`}}},
+		llmtest.Turn{Content: "Track 2 is the vocals."},
+	)
+	orchestrator := agent.NewOrchestrator(
+		agent.Config{BaseURL: server.BaseURL(), Model: "test"},
+		agent.NewPreviewTools(backend),
+	)
+
+	response := orchestrator.Send("which track is the vocals")
+
+	if response.Error != nil {
+		t.Fatalf("expected success, got %+v", response.Error)
+	}
+	body := ""
+	for _, msg := range server.Requests()[1].Messages {
+		body += string(msg)
+	}
+	if !strings.Contains(body, "Vocals") {
+		t.Fatalf("expected the read to have run, got: %s", body)
+	}
+}

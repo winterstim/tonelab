@@ -94,10 +94,23 @@ type reader interface {
 // needs no change here.
 type Tools struct {
 	daw daw.Client
+
+	// dryRun makes the changing tools describe themselves instead of acting.
+	// Reads still run: seeing the plan is worth nothing if the agent could
+	// not look at the project to make one.
+	dryRun bool
 }
 
 func NewTools(client daw.Client) *Tools {
 	return &Tools{daw: client}
+}
+
+// NewPreviewTools builds the same tools with the changing ones disarmed, so a
+// turn can be run for its plan without touching the project. Set once at
+// construction rather than toggled, since a flag flipped on a shared object is
+// a race with someone else's command.
+func NewPreviewTools(client daw.Client) *Tools {
+	return &Tools{daw: client, dryRun: true}
 }
 
 // Definitions describes the two generic tools. param_name stays a
@@ -213,6 +226,12 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 
 // track_id is decoded loosely because models quote numbers. Rejecting a
 // correct answer over its quotes fails the user for the model's formatting.
+// Planned is what a changing tool returns in preview: what it would do, said
+// plainly enough for a user to accept or reject before anything happens.
+type Planned struct {
+	Description string `json:"would"`
+}
+
 // Reverted deliberately reports what was asked of the DAW rather than a bare
 // success. Undo reverses the DAW's last change, which is not necessarily ours:
 // a user who moved a fader by hand since has that taken back instead, so
@@ -229,6 +248,9 @@ func (t *Tools) undo() Result {
 	source, ok := t.daw.(reverser)
 	if !ok {
 		return failure("not_supported", "This DAW backend cannot undo.")
+	}
+	if t.dryRun {
+		return Result{Value: Planned{Description: "undo the DAW's last change"}}
 	}
 	if err := source.Undo(); err != nil {
 		return failure("daw_command_failed", "The DAW did not accept the undo.")
@@ -476,6 +498,17 @@ func (t *Tools) setParam(args json.RawMessage) Result {
 	value, failure := t.coerce(*decoded.ParamName, decoded.Value)
 	if failure != nil {
 		return *failure
+	}
+
+	if t.dryRun {
+		// Validated as far as possible without acting, so a preview shows a
+		// command that would fail as failing rather than as planned.
+		if _, err := daw.FindParameter(t.daw, *decoded.ParamName); err != nil {
+			return t.domainFailureFor(*decoded.ParamName, err)
+		}
+		return Result{Value: Planned{
+			Description: fmt.Sprintf("set track %d %s to %v", track, *decoded.ParamName, value),
+		}}
 	}
 
 	if err := t.daw.SetParam(track, *decoded.ParamName, value); err != nil {

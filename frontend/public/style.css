@@ -112,6 +112,27 @@ body {
     cursor: default;
 }
 
+.preview-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: -8px;
+}
+
+.preview-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.preview-apply {
+    padding: 7px 14px;
+    font-size: 13px;
+}
+
 .answer {
     flex: 1;
     display: block;

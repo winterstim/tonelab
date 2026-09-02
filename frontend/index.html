@@ -31,6 +31,16 @@
         <button class="command-send" id="command-send" type="submit">Send</button>
     </form>
 
+    <!-- Preview runs the turn without touching the project, and Apply carries
+         out those exact steps rather than asking the model again. -->
+    <div class="preview-row">
+        <label class="preview-toggle">
+            <input type="checkbox" id="preview-mode"/>
+            Preview before applying
+        </label>
+        <button class="command-send preview-apply" id="apply" type="button" hidden>Apply this plan</button>
+    </div>
+
     <output class="answer" id="answer" role="status" aria-live="polite"></output>
 
     <!-- Kept because they reach the DAW without the language model, which makes
