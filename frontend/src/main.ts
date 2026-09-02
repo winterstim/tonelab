@@ -122,7 +122,9 @@ form.addEventListener("submit", async (event) => {
 // what happened is another account to be wrong, and the raw call is what
 // someone checking the agent actually wants.
 async function refreshHistory() {
-    const entries = await AgentService.History();
+    // The binding types this as nullable, since a Go slice with no elements
+    // crosses as null rather than an empty array.
+    const entries = (await AgentService.History()) ?? [];
     if (entries.length === 0) {
         history.hidden = true;
         return;
