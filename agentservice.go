@@ -28,6 +28,8 @@ type PlannedCall struct {
 
 type AgentResponse struct {
 	Message string
+	// Steps is what the turn did, tool by tool, for the history view.
+	Steps []JournalStep
 	// Plan is what a preview would do. Empty on an ordinary command.
 	Plan []PlannedCall
 	// Changed is plural because one command can move several parameters, and
@@ -94,6 +96,8 @@ type AgentService struct {
 	liveness liveness
 	daw      any
 
+	journal journal
+
 	// The last plan a preview produced. Held so applying it runs exactly what
 	// was shown; a plan the user did not see must never be what runs.
 	mu      sync.Mutex
@@ -115,6 +119,13 @@ func (a *AgentService) PreviewCommand(text string) (AgentResponse, error) {
 	}
 
 	response := a.planner.Preview(text)
+	a.journal.record(JournalEntry{
+		Command: text,
+		Answer:  response.Message,
+		Steps:   response.Steps,
+		Error:   response.Error,
+		Preview: true,
+	})
 
 	a.mu.Lock()
 	a.pending = response.Plan
@@ -141,7 +152,14 @@ func (a *AgentService) ApplyPlan() (AgentResponse, error) {
 	if a.planner == nil {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
-	return a.planner.Apply(plan), nil
+	response := a.planner.Apply(plan)
+	a.journal.record(JournalEntry{
+		Command: "(applied the previewed plan)",
+		Answer:  response.Message,
+		Steps:   response.Steps,
+		Error:   response.Error,
+	})
+	return response, nil
 }
 
 // Undo exists beside the agent rather than only through it. When a command
@@ -158,12 +176,14 @@ func (a *AgentService) Undo() (AgentResponse, error) {
 	}
 
 	if err := source.Undo(); err != nil {
-		return AgentResponse{Error: &AgentError{
-			Code:    "daw_command_failed",
-			Message: "The DAW did not accept the undo.",
-		}}, nil
+		failure := &AgentError{Code: "daw_command_failed", Message: "The DAW did not accept the undo."}
+		a.journal.record(JournalEntry{Command: "(undo button)", Error: failure})
+		return AgentResponse{Error: failure}, nil
 	}
-	return AgentResponse{Message: "Asked the DAW to undo its last change."}, nil
+
+	answer := "Asked the DAW to undo its last change."
+	a.journal.record(JournalEntry{Command: "(undo button)", Answer: answer})
+	return AgentResponse{Message: answer}, nil
 }
 
 // SendCommand runs one natural-language command. Blank input is refused here
@@ -175,7 +195,21 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 			Message: "Type a command first.",
 		}}, nil
 	}
-	return a.agent.Send(text), nil
+	response := a.agent.Send(text)
+	a.journal.record(JournalEntry{
+		Command: text,
+		Answer:  response.Message,
+		Steps:   response.Steps,
+		Error:   response.Error,
+	})
+	return response, nil
+}
+
+// History is what the agent has done, newest first. Read by the UI rather than
+// only written to a terminal, since the person who needs it is the one whose
+// project changed.
+func (a *AgentService) History() ([]JournalEntry, error) {
+	return a.journal.list(), nil
 }
 
 // GetDAWStatus infers connection from recent feedback. Nothing about sending
@@ -245,6 +279,14 @@ func convert(response agent.Response) AgentResponse {
 			NewValue:  change.Confirmed,
 			Requested: change.Requested,
 			Note:      change.Note,
+		})
+	}
+	for _, step := range response.Steps {
+		converted.Steps = append(converted.Steps, JournalStep{
+			Tool:      step.Tool,
+			Arguments: step.Arguments,
+			Outcome:   step.Outcome,
+			Failed:    step.Failed,
 		})
 	}
 	for _, step := range response.Plan {

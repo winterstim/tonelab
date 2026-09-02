@@ -43,6 +43,13 @@
 
     <output class="answer" id="answer" role="status" aria-live="polite"></output>
 
+    <!-- What the agent did, from the tools rather than from its own summary:
+         the summary is the one account of a turn that cannot be checked. -->
+    <details class="history" id="history">
+        <summary class="history-summary">What the agent did</summary>
+        <div class="history-body" id="history-body"></div>
+    </details>
+
     <!-- Kept because they reach the DAW without the language model, which makes
          them the fastest way to tell a DAW problem from a model problem. -->
     <footer class="transport">

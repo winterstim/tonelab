@@ -59,11 +59,29 @@ type Response struct {
 	// when the model only answered a question.
 	Changed []Change
 
+	// Steps is what the turn actually did, tool by tool. Recorded for the
+	// user rather than for debugging: an agent that changes someone's project
+	// has to be answerable for what it did, and the model's own summary is
+	// the one account that cannot be checked.
+	Steps []Step
+
 	// Plan is what a preview turn would have done, in the form it would have
 	// done it. Kept executable rather than described, because re-asking a
 	// model to carry out what it just proposed can produce something else,
 	// and the user would have approved the first while getting the second.
 	Plan []PlannedCall
+}
+
+// Step is one tool call and its outcome, as it happened.
+type Step struct {
+	Tool      string
+	Arguments string
+	Outcome   string
+
+	// Failed marks a step the tools refused, which is worth seeing: a turn
+	// that succeeded after three refusals looks different from one that did
+	// not, and only the log shows it.
+	Failed bool
 }
 
 // PlannedCall is one tool call held for later execution, exactly as the model
@@ -177,6 +195,7 @@ func (o *Orchestrator) Send(text string) Response {
 	rejections := 0
 	var changed []Change
 	var plan []PlannedCall
+	var steps []Step
 
 	for step := 0; step < maxSteps; step++ {
 		reply, failure := o.complete(conversation)
@@ -205,13 +224,14 @@ func (o *Orchestrator) Send(text string) Response {
 			return Response{Error: failure}
 		}
 		if len(reply.ToolCalls) == 0 {
-			return Response{Message: reply.Content, Changed: changed, Plan: plan}
+			return Response{Message: reply.Content, Changed: changed, Plan: plan, Steps: steps}
 		}
 
 		conversation = append(conversation, reply)
 		for _, call := range reply.ToolCalls {
 			result, applied, planned := o.execute(call)
 			conversation = append(conversation, result)
+			steps = append(steps, describe(call, result))
 			if applied != nil {
 				changed = append(changed, *applied)
 			}
@@ -423,20 +443,45 @@ If a request is ambiguous, or names something the tools do not offer, say so ins
 
 When the user asks to undo or take something back, call undo. It reverses the DAW's last change, which may not be the one you made, so describe what it did in those terms rather than promising their command was reversed.`
 
+// describe records a step from the tool message that was sent to the model,
+// so the log shows what the model was told rather than a separate account of
+// it that could drift.
+func describe(call toolCall, result message) Step {
+	step := Step{
+		Tool:      call.Function.Name,
+		Arguments: call.Function.Arguments,
+		Outcome:   result.Content,
+	}
+	step.Failed = strings.Contains(result.Content, `"error"`)
+	return step
+}
+
 // Apply carries out a plan a preview produced, without consulting the model
 // again. That is the point of holding it: a model asked twice can answer
 // differently, and the user approved the first answer.
 func (o *Orchestrator) Apply(plan []PlannedCall) Response {
 	var changed []Change
 
+	var steps []Step
+
 	for _, call := range plan {
 		result := o.tools.Call(call.Tool, json.RawMessage(call.Arguments))
+
+		body, _ := json.Marshal(result)
+		steps = append(steps, Step{
+			Tool:      call.Tool,
+			Arguments: call.Arguments,
+			Outcome:   string(body),
+			Failed:    result.Error != nil,
+		})
+
 		if result.Error != nil {
 			// Reported rather than continued: the rest of a plan may depend
 			// on the step that failed, and guessing which is worse than
 			// stopping.
 			return Response{
 				Changed: changed,
+				Steps:   steps,
 				Error:   &Error{Code: result.Error.Code, Message: result.Error.Message},
 			}
 		}
@@ -450,5 +495,5 @@ func (o *Orchestrator) Apply(plan []PlannedCall) Response {
 			})
 		}
 	}
-	return Response{Message: "Applied.", Changed: changed}
+	return Response{Message: "Applied.", Changed: changed, Steps: steps}
 }
