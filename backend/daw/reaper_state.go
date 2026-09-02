@@ -189,10 +189,10 @@ func (r *REAPER) Refresh(track int) error {
 	// Bounce off a different track so the second message is a change; REAPER
 	// says nothing when asked to select what is already selected.
 	other := track + 1
-	if err := r.osc.Send("/device/track/select", int32(other)); err != nil {
+	if err := r.send("/device/track/select", int32(other)); err != nil {
 		return err
 	}
-	return r.osc.Send("/device/track/select", int32(track))
+	return r.send("/device/track/select", int32(track))
 }
 
 // ReadParam answers what the value is, for a caller who asked a question.

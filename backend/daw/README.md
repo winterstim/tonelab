@@ -82,6 +82,16 @@ Two consequences worth knowing before they surprise someone:
 whenever a command was lost on the way out or a user moved a control by hand,
 and the DAW's account is the true one.
 
+## What may be sent
+
+The backend has one exit, and it refuses anything not on a list.
+REAPER's `/action <id>` reaches every menu command it has, including quitting
+and closing without saving, which are outside its undo history: an agent
+reaching those could destroy work nothing here could take back.
+
+Undo is the only action permitted. Adding another means editing the list, on
+purpose, beside the reason it is safe.
+
 ## Scope
 
 Track-level parameters only — volume, pan, mute, solo, send volume. That is

@@ -18,5 +18,5 @@ const actionUndo = 40029
 // check what the values became, which is why the tools layer reports them
 // rather than reporting success.
 func (r *REAPER) Undo() error {
-	return r.osc.Send("/action", int32(actionUndo))
+	return r.send("/action", int32(actionUndo))
 }
