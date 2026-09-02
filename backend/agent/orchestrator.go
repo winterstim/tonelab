@@ -344,6 +344,67 @@ func (o *Orchestrator) remember(question, answer string) {
 	}
 }
 
+// Reconfigure points the agent at a different endpoint or model without a
+// restart, since a user correcting a typo in a key should not have to relaunch
+// the app to find out whether it was the typo.
+func (o *Orchestrator) Reconfigure(config Config) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.config = config
+	if config.Timeout > 0 {
+		o.http.Timeout = config.Timeout
+	}
+}
+
+// settings reads the current configuration, which Reconfigure may change from
+// another goroutine while a turn is running.
+func (o *Orchestrator) settings() Config {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.config
+}
+
+// Exchange is one question and its answer, which is all a later turn needs of
+// an earlier one.
+type Exchange struct {
+	Question string
+	Answer   string
+}
+
+// Recall returns what the agent remembers, so a caller holding several
+// conversations can put this one away and bring it back.
+func (o *Orchestrator) Recall() []Exchange {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	exchanges := make([]Exchange, 0, len(o.history)/2)
+	for i := 0; i+1 < len(o.history); i += 2 {
+		exchanges = append(exchanges, Exchange{
+			Question: o.history[i].Content,
+			Answer:   o.history[i+1].Content,
+		})
+	}
+	return exchanges
+}
+
+// Restore replaces what the agent remembers, which is how switching
+// conversations stops the new one inheriting the last one's subject.
+func (o *Orchestrator) Restore(exchanges []Exchange) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.history = nil
+	for _, exchange := range exchanges {
+		o.history = append(o.history,
+			message{Role: "user", Content: exchange.Question},
+			message{Role: "assistant", Content: exchange.Answer})
+	}
+	if len(o.history) > maxRemembered*2 {
+		o.history = o.history[len(o.history)-maxRemembered*2:]
+	}
+}
+
 // Forget drops the conversation. Offered because a user starting a new idea
 // should not have to fight the last one, and because a wrong turn left in
 // context keeps being wrong.
@@ -375,8 +436,10 @@ func stopped(changed []Change, steps []Step) Response {
 }
 
 func (o *Orchestrator) complete(ctx context.Context, conversation []message) (message, *Error) {
+	config := o.settings()
+
 	body, err := json.Marshal(completionRequest{
-		Model:       o.config.Model,
+		Model:       config.Model,
 		Messages:    conversation,
 		Tools:       o.apiTools(),
 		Temperature: 0,
@@ -385,13 +448,13 @@ func (o *Orchestrator) complete(ctx context.Context, conversation []message) (me
 		return message{}, &Error{Code: "internal", Message: "The request could not be encoded."}
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, o.config.BaseURL+"/chat/completions", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, config.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return message{}, &Error{Code: "llm_unreachable", Message: "The configured endpoint URL is not usable."}
 	}
 	request.Header.Set("Content-Type", "application/json")
-	if o.config.APIKey != "" {
-		request.Header.Set("Authorization", "Bearer "+o.config.APIKey)
+	if config.APIKey != "" {
+		request.Header.Set("Authorization", "Bearer "+config.APIKey)
 	}
 
 	response, err := o.http.Do(request)

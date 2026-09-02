@@ -1,13 +1,57 @@
 # frontend/src
 
-One screen: a command field, its answer, and whether the DAW is connected.
-No message history.
+Three views: a chat, the agent's history, and settings. Switched by showing
+and hiding sections rather than by a router, which is enough for three and is
+the thing to revisit if there is ever a fourth.
 
 Everything worth deciding lives in Go. This layer calls the generated bindings
 directly, because an abstraction over a typed, generated client would only add
 a place for the two to drift.
 
+Light by default, because the app sits beside a DAW that is already dark and
+dense, and a bright panel reads as a different kind of surface rather than more
+of the same. Dark and system are offered and the choice is stored with the
+other settings, since a preference that does not survive a restart is not one.
+
+Two colours, each meaning one thing. Water is the working state: the thing you
+press, the thing selected, the DAW answering. Fire is failure, which is what
+warm reds already say before anything is read. Keeping them apart is what lets
+either be noticed; an accent sharing a hue with the error colour would leave
+nothing to signal with.
+
+Monochrome is offered as a choice, and it has to replace the signal rather than
+remove it: with the hue gone, a failure is told apart by weight and a heavier
+edge instead. Otherwise a refusal would look like a remark.
+
 Notes on what it does that is not obvious:
+
+- **The history reads as sentences, with the raw calls behind a disclosure.**
+  Someone reading their history wants to know what happened; someone debugging
+  wants the call. Showing the second to everyone is what made the first
+  version unreadable.
+- **Stop replaces Send while a turn runs**, so the button under the cursor is
+  always the one that applies.
+- **Enter sends and Shift+Enter breaks a line**, which is what a text box in a
+  chat is expected to do.
+- **Icons come from one inline sprite**, referenced rather than repeated, so
+  adding one costs a symbol and the set keeps a single stroke weight. Nothing
+  is fetched, which also keeps it working under a strict content policy.
+- **The two toggles are switches, not checkboxes.** Both are a mode the app is
+  in rather than an item being ticked, and a switch says which is on from
+  across a desk.
+- **The window can be dragged, so the layout has to survive it.** Below 720px
+  the app name goes and the connection reads as a dot; below 560px the tabs
+  keep their icons and drop their words. A toolbar that abbreviates beats one
+  that overflows, and a desktop window that scrolls sideways reads as broken.
+- **There is no header band**, only what would have sat in it: the views as
+  one pill centred on the window, and the connection at the right. A strip
+  across the top is another rectangle to look at, and neither of those two
+  things needs one to be found.
+- **Settings are not reloaded while something is half-typed.** Reading the
+  file on every visit threw away unsaved edits; it showed up first as the
+  theme snapping back, but applied to every field on the screen.
+- **The API key is never received from the backend**, only replaced. A key
+  that never crosses cannot be read off a screen or out of a screenshot.
 
 - **Connection is polled, not pushed.** The backend judges what counts as
   connected (it infers it from DAW feedback); this only decides how stale the

@@ -1,193 +1,634 @@
-import { AgentService, TransportService } from "../bindings/tonelab";
-import type { AgentResponse } from "../bindings/tonelab/models";
-
-const form = document.getElementById("command-form") as HTMLFormElement;
-const input = document.getElementById("command-input") as HTMLInputElement;
-const send = document.getElementById("command-send") as HTMLButtonElement;
-const answer = document.getElementById("answer") as HTMLElement;
-const previewMode = document.getElementById("preview-mode") as HTMLInputElement;
-const history = document.getElementById("history") as HTMLDetailsElement;
-const historyBody = document.getElementById("history-body") as HTMLElement;
-const apply = document.getElementById("apply") as HTMLButtonElement;
-const status = document.getElementById("daw-status") as HTMLElement;
-const statusText = document.getElementById("daw-status-text") as HTMLElement;
-
-// How often to ask whether the DAW is still there. The backend decides what
-// counts as connected; this only decides how stale the display may be.
-const statusInterval = 2000;
+import { AgentService, SettingsService } from "../bindings/tonelab";
+import type { AgentResponse, ChatMessage, JournalEntry, Settings } from "../bindings/tonelab/models";
 
 type Tone = "answer" | "problem" | "working";
 
-function show(text: string, tone: Tone) {
-    answer.textContent = text;
-    answer.dataset.tone = tone;
+const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+const thread = el("thread");
+const empty = el("empty");
+const composer = el<HTMLFormElement>("composer");
+const input = el<HTMLTextAreaElement>("input");
+const send = el<HTMLButtonElement>("send");
+const stop = el<HTMLButtonElement>("stop");
+const previewMode = el<HTMLInputElement>("preview-mode");
+const status = el("status");
+const statusText = el("status-text");
+const historyView = el("history");
+const switcher = el("switcher");
+
+
+// How stale the connection light may be. The backend decides what counts as
+// connected; this only decides how often it is asked.
+const statusInterval = 3000;
+
+/* Greeting ----------------------------------------------------------- */
+
+// An empty screen is the one place with room for a sentence rather than
+// instructions. Chosen by the hour, because the same line every morning stops
+// being read after the second day.
+const greetings: Record<string, string[]> = {
+    night: [
+        "Let's make something at this hour.",
+        "The quiet part of the day.",
+        "Still going. Good.",
+    ],
+    morning: [
+        "Fresh ears this morning.",
+        "Let's hear it.",
+        "Start where you left off.",
+    ],
+    afternoon: [
+        "What are we shaping today?",
+        "Let's get into it.",
+        "Tell me what to move.",
+    ],
+    evening: [
+        "Let's create through your night.",
+        "The good hours.",
+        "What needs fixing tonight?",
+    ],
+};
+
+function greet() {
+    const hour = new Date().getHours();
+    const part = hour < 5 ? "night" : hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
+    const lines = greetings[part];
+    el("greeting").textContent = lines[Math.floor(Math.random() * lines.length)];
 }
 
-// The backend distinguishes its failures by code so they can be acted on
-// differently. Only a few change what the user should do next; the rest carry
-// a message already written for them.
-function explain(code: string, message: string): string {
-    switch (code) {
-        case "llm_unreachable":
-            return `${message} Check the endpoint in your config file, and that a local model is running.`;
-        case "llm_unauthorized":
-            return `${message} Check the API key in your config file.`;
-        case "daw_command_failed":
-            return `${message} Check the DAW is running and listening for OSC.`;
-        default:
-            return message;
+/* Theme -------------------------------------------------------------- */
+
+// Applied to the root rather than swapped stylesheet, so a change is one
+// attribute and the transition is free. "system" leaves the attribute off and
+// lets the media query decide.
+let chosenTheme = "system";
+let chosenAccent = "colour";
+
+function applyTheme(name: string) {
+    chosenTheme = name;
+    const dark = name === "dark" || (name === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+
+    for (const button of document.querySelectorAll<HTMLButtonElement>("#theme .choice")) {
+        button.setAttribute("aria-pressed", String(button.dataset.theme === name));
     }
 }
 
-// A change the DAW did not report is shown as unconfirmed rather than
-// omitted, since silence about it is what a user would read as success.
-function describe(changed: AgentResponse["Changed"]): string {
-    if (!changed || changed.length === 0) {
-        return "";
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (chosenTheme === "system") {
+        applyTheme("system");
     }
-    const lines = changed.map((change) => {
-        const target = `track ${change.Track} ${change.Param}`;
-        return change.NewValue === null || change.NewValue === undefined
-            ? `• ${target}: sent ${format(change.Requested)}, not confirmed by the DAW`
-            : `• ${target}: ${format(change.NewValue)}`;
+});
+
+function applyAccent(name: string) {
+    chosenAccent = name;
+    document.documentElement.dataset.accent = name;
+
+    for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
+        button.setAttribute("aria-pressed", String(button.dataset.accent === name));
+    }
+}
+
+// Applied at once rather than on save: a look you cannot see until you commit
+// to it is one you cannot choose. Marked as unsaved too, so leaving the screen
+// and coming back does not undo it.
+for (const button of document.querySelectorAll<HTMLButtonElement>("#theme .choice")) {
+    button.addEventListener("click", () => {
+        applyTheme(button.dataset.theme!);
+        settingsTouched = true;
     });
-    return "\n\n" + lines.join("\n");
 }
 
-// Shown as intentions rather than results, since nothing has happened yet.
-function proposed(plan: AgentResponse["Plan"]): string {
-    if (!plan || plan.length === 0) {
-        return "";
+for (const button of document.querySelectorAll<HTMLButtonElement>("#accent .choice")) {
+    button.addEventListener("click", () => {
+        applyAccent(button.dataset.accent!);
+        settingsTouched = true;
+    });
+}
+
+/* Views ------------------------------------------------------------- */
+
+// Shown and hidden rather than routed: three views is not what a router is
+// for; a fourth, or a view with state that outlives it, is where that changes.
+function show(view: string) {
+    for (const tab of document.querySelectorAll<HTMLButtonElement>(".tab")) {
+        tab.setAttribute("aria-selected", String(tab.dataset.view === view));
     }
-    return "\n\nWould:\n" + plan.map((step) => `• ${step.Description}`).join("\n");
+    for (const section of document.querySelectorAll<HTMLElement>(".view")) {
+        section.hidden = section.id !== `view-${view}`;
+    }
+    if (view === "history") {
+        renderHistory();
+    }
+    if (view === "settings") {
+        // Reloaded only when nothing is half-typed. Reading the file on every
+        // visit threw away unsaved edits, which showed up first as the theme
+        // snapping back but applied to every field on the screen.
+        if (!settingsTouched) {
+            loadSettings();
+        }
+    }
+    if (view === "chat") {
+        input.focus();
+    }
+}
+
+for (const tab of document.querySelectorAll<HTMLButtonElement>(".tab")) {
+    tab.addEventListener("click", () => show(tab.dataset.view!));
+}
+
+/* Thread ------------------------------------------------------------ */
+
+function append(from: "you" | "tonelab", text: string, tone: Tone = "answer"): HTMLElement {
+    empty.hidden = true;
+
+    const message = document.createElement("div");
+    message.className = "msg";
+    message.dataset.from = from;
+    message.dataset.tone = tone;
+
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = from;
+
+    const said = document.createElement("div");
+    said.className = "said";
+    said.textContent = text;
+
+    message.append(who, said);
+    thread.append(message);
+    thread.scrollTop = thread.scrollHeight;
+    return message;
+}
+
+// What the DAW confirmed, shown apart from what the model said about it: the
+// model is the one account of a turn that cannot check itself.
+function attachChanges(message: HTMLElement, changed: AgentResponse["Changed"]) {
+    if (!changed || changed.length === 0) {
+        return;
+    }
+    const list = document.createElement("ul");
+    list.className = "did";
+
+    for (const change of changed) {
+        const line = document.createElement("li");
+        const target = `track ${change.Track} ${change.Param}`;
+        if (change.NewValue === null || change.NewValue === undefined) {
+            line.className = "unconfirmed";
+            line.textContent = `${target}: sent ${format(change.Requested)}, not confirmed`;
+        } else {
+            line.textContent = `${target}: ${format(change.NewValue)}`;
+        }
+        list.append(line);
+    }
+    message.append(list);
+    thread.scrollTop = thread.scrollHeight;
+}
+
+// A plan is offered for acceptance, since nothing has happened yet and the
+// steps applied are the ones shown rather than a second answer to the same
+// question.
+function attachPlan(message: HTMLElement, plan: AgentResponse["Plan"]) {
+    if (!plan || plan.length === 0) {
+        return;
+    }
+    const box = document.createElement("div");
+    box.className = "plan";
+
+    const list = document.createElement("ul");
+    list.className = "did";
+    for (const step of plan) {
+        const line = document.createElement("li");
+        line.textContent = step.Description;
+        list.append(line);
+    }
+
+    const apply = document.createElement("button");
+    apply.className = "send";
+    apply.type = "button";
+    apply.textContent = "Do it";
+    apply.addEventListener("click", async () => {
+        apply.disabled = true;
+        const response = await AgentService.ApplyPlan();
+        box.remove();
+        report(response);
+    });
+
+    box.append(list, apply);
+    message.append(box);
+    thread.scrollTop = thread.scrollHeight;
 }
 
 function format(value: unknown): string {
     if (typeof value === "boolean") {
         return value ? "on" : "off";
     }
+    if (typeof value === "number") {
+        return value.toFixed(2);
+    }
     return String(value);
 }
 
-form.addEventListener("submit", async (event) => {
-    event.preventDefault();
+// A few codes change what the user should do next; the rest carry a message
+// already written for them.
+function explain(code: string, message: string): string {
+    switch (code) {
+        case "llm_unreachable":
+            return `${message} Check the endpoint in Settings, and that a local model is running.`;
+        case "llm_unauthorized":
+            return `${message} Check the API key in Settings.`;
+        case "llm_timeout":
+            return `${message}`;
+        case "daw_command_failed":
+            return `${message} Check the DAW is running.`;
+        default:
+            return message;
+    }
+}
 
+function report(response: AgentResponse) {
+    if (response.Error) {
+        append("tonelab", explain(response.Error.Code, response.Error.Message), "problem");
+        return;
+    }
+    const message = append("tonelab", response.Message || "Done.");
+    attachChanges(message, response.Changed);
+    attachPlan(message, response.Plan);
+}
+
+/* Sending ----------------------------------------------------------- */
+
+let running = false;
+
+async function submit() {
     const text = input.value.trim();
-    if (text === "") {
+    if (text === "" || running) {
         return;
     }
 
-    // Disabled while working, since a second command sent mid-flight would
-    // reach a DAW whose state the first has already changed.
-    send.disabled = true;
-    show("Working…", "working");
+    append("you", text);
+    input.value = "";
+    resize();
+    setRunning(true);
+
+    const waiting = append("tonelab", "Working…", "working");
 
     try {
         const response = previewMode.checked
             ? await AgentService.PreviewCommand(text)
             : await AgentService.SendCommand(text);
-
-        // A plan is offered for acceptance rather than applied, and the button
-        // stays hidden when the turn proposed nothing to accept.
-        apply.hidden = !response.Plan || response.Plan.length === 0;
-
-        if (response.Error) {
-            show(explain(response.Error.Code, response.Error.Message), "problem");
-        } else {
-            // The model's summary, then what the DAW actually confirmed. The
-            // model is the one account of the turn that cannot check itself,
-            // so it is shown beside the DAW's rather than instead of it.
-            show(response.Message + describe(response.Changed) + proposed(response.Plan), "answer");
-            if (!previewMode.checked) {
-                input.value = "";
-            }
-        }
+        waiting.remove();
+        report(response);
     } catch (error) {
-        // Reaching here means the call itself broke rather than the command
-        // failing, which the backend reports inside the response instead.
-        // A rejected binding call can carry an empty message, and appending
-        // nothing reads as a truncated sentence.
+        waiting.remove();
+        // Reaching here means the call itself broke, rather than the command
+        // failing, which the backend reports inside the response.
         const reason = (error instanceof Error ? error.message : String(error)).trim();
-        show(reason
+        append("tonelab", reason
             ? `The backend could not be reached. ${reason}`
             : "The backend could not be reached. Restart the app if this persists.", "problem");
     } finally {
-        send.disabled = false;
+        setRunning(false);
         input.focus();
-        refreshHistory();
+        renderConversations();
+    }
+}
+
+// Stop replaces Send while a turn runs, so the button under the cursor is
+// always the one that applies.
+function setRunning(active: boolean) {
+    running = active;
+    send.hidden = active;
+    stop.hidden = !active;
+}
+
+composer.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submit();
+});
+
+// Enter sends, Shift+Enter makes a new line, which is what a text box in a
+// chat is expected to do.
+input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        submit();
     }
 });
 
-// Rendered as text rather than parsed into prose: a history that interprets
-// what happened is another account to be wrong, and the raw call is what
-// someone checking the agent actually wants.
-async function refreshHistory() {
-    // The binding types this as nullable, since a Go slice with no elements
-    // crosses as null rather than an empty array.
-    const entries = (await AgentService.History()) ?? [];
-    if (entries.length === 0) {
-        history.hidden = true;
+function resize() {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+}
+
+input.addEventListener("input", resize);
+
+stop.addEventListener("click", async () => {
+    await AgentService.Stop();
+});
+
+el("undo").addEventListener("click", async () => {
+    report(await AgentService.Undo());
+});
+
+el("clear").addEventListener("click", async () => {
+    // Starts a thread rather than destroying one: the old conversation stays
+    // in the list, which is what the words on the button mean.
+    await AgentService.StartConversation();
+    await renderConversations();
+    drawThread([]);
+    input.focus();
+});
+
+/* Conversations ------------------------------------------------------ */
+
+// The thread lives in the backend, because one that only exists in the page
+// cannot survive being switched away from.
+function drawThread(messages: ChatMessage[]) {
+    thread.querySelectorAll(".msg").forEach((node) => node.remove());
+    empty.hidden = messages.length > 0;
+    if (messages.length === 0) {
+        greet();
+    }
+
+    for (const message of messages) {
+        if (message.Error) {
+            append("tonelab", explain(message.Error.Code, message.Error.Message), "problem");
+            continue;
+        }
+        const node = append(message.From as "you" | "tonelab", message.Text || "Done.");
+        attachChanges(node, message.Changed);
+        // Plans are not redrawn: a plan is an offer made once, and one
+        // reopened hours later would invite accepting something stale.
+    }
+}
+
+async function renderConversations() {
+    const threads = (await AgentService.Conversations()) ?? [];
+    switcher.replaceChildren();
+
+    // Hidden with only one, since a switcher listing a single thing is noise.
+    switcher.hidden = threads.length < 2;
+    if (switcher.hidden) {
         return;
     }
-    history.hidden = false;
-    historyBody.textContent = entries.map((entry) => {
-        const head = `${entry.At}  ${entry.Preview ? "[preview] " : ""}${entry.Command}`;
-        const steps = (entry.Steps ?? []).map(
-            (step) => `    ${step.Failed ? "✗" : "→"} ${step.Tool} ${step.Arguments}\n      ${step.Outcome}`);
-        const outcome = entry.Error
-            ? `    ✗ ${entry.Error.Code}: ${entry.Error.Message}`
-            : `    ${entry.Answer}`;
-        return [head, ...steps, outcome].join("\n");
-    }).join("\n\n");
+    for (const summary of threads) {
+        const button = document.createElement("button");
+        button.className = "thread-chip";
+        button.type = "button";
+        button.textContent = summary.Title;
+        button.setAttribute("aria-pressed", String(summary.Active));
+        button.addEventListener("click", async () => {
+            const opened = await AgentService.OpenConversation(summary.ID);
+            drawThread(opened.Messages ?? []);
+            await renderConversations();
+        });
+        switcher.append(button);
+    }
 }
+
+/* History ----------------------------------------------------------- */
+
+async function renderHistory() {
+    // A Go slice with no elements crosses as null rather than an empty array.
+    const entries = (await AgentService.History()) ?? [];
+    historyView.replaceChildren();
+
+    if (entries.length === 0) {
+        const nothing = document.createElement("p");
+        nothing.className = "hint";
+        nothing.textContent = "Nothing yet.";
+        historyView.append(nothing);
+        return;
+    }
+    for (const entry of entries) {
+        historyView.append(renderTurn(entry));
+    }
+}
+
+// Read as sentences, with the raw call behind a disclosure: someone reading
+// their history wants to know what happened, and someone debugging wants the
+// call. Showing the second to everyone is what made this unreadable before.
+function renderTurn(entry: JournalEntry): HTMLElement {
+    const turn = document.createElement("article");
+    turn.className = "turn";
+
+    const head = document.createElement("div");
+    head.className = "turn-head";
+
+    const time = document.createElement("span");
+    time.className = "turn-time";
+    time.textContent = entry.At;
+
+    const command = document.createElement("span");
+    command.textContent = entry.Command;
+    head.append(time, command);
+
+    if (entry.Preview) {
+        const tag = document.createElement("span");
+        tag.className = "turn-tag";
+        tag.textContent = "proposed only";
+        head.append(tag);
+    }
+    turn.append(head);
+
+    const steps = entry.Steps ?? [];
+    if (steps.length > 0) {
+        const list = document.createElement("ul");
+        list.className = "turn-steps";
+        for (const step of steps) {
+            const line = document.createElement("li");
+            line.dataset.failed = String(step.Failed);
+            line.append(icon(step.Failed ? "alert" : iconFor(step.Tool)));
+
+            const said = document.createElement("span");
+            said.textContent = describeStep(step.Tool, step.Arguments, step.Outcome, step.Failed);
+            line.append(said);
+            list.append(line);
+        }
+        turn.append(list);
+
+        const raw = document.createElement("details");
+        raw.className = "raw";
+        const summary = document.createElement("summary");
+        summary.textContent = "Exact calls";
+        const pre = document.createElement("pre");
+        pre.textContent = steps
+            .map((step) => `${step.Tool} ${step.Arguments}\n  ${step.Outcome}`)
+            .join("\n\n");
+        raw.append(summary, pre);
+        turn.append(raw);
+    }
+
+    const outcome = document.createElement("div");
+    outcome.className = entry.Error ? "said" : "";
+    outcome.textContent = entry.Error
+        ? `${entry.Error.Code}: ${entry.Error.Message}`
+        : entry.Answer;
+    if (entry.Error) {
+        outcome.style.color = "var(--alarm)";
+    }
+    turn.append(outcome);
+    return turn;
+}
+
+// Referencing the sprite rather than building paths, so an icon is one line
+// here and its shape lives in one place.
+function icon(name: string): SVGSVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "icon");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", `#i-${name}`);
+    svg.append(use);
+    return svg;
+}
+
+// The kind of step, so a history can be scanned rather than read.
+function iconFor(tool: string): string {
+    switch (tool) {
+        case "list_tracks": return "list";
+        case "get_param": return "read";
+        case "set_param": return "set";
+        case "undo": return "undo";
+        default: return "settings";
+    }
+}
+
+// Translated rather than printed. The tool names and JSON are ours, not the
+// user's, and a history that reads like a log is one nobody reads.
+function describeStep(tool: string, args: string, outcome: string, failed: boolean): string {
+    const parsed = parse(args);
+    const track = parsed.track_id ?? "";
+    const name = parsed.param_name ?? "";
+
+    let said: string;
+    switch (tool) {
+        case "list_tracks":
+            said = `Looked up the tracks`;
+            break;
+        case "get_param":
+            said = `Read ${name} on track ${track}`;
+            break;
+        case "set_param":
+            said = `Set ${name} on track ${track} to ${format(parsed.value)}`;
+            break;
+        case "undo":
+            said = "Asked the DAW to undo";
+            break;
+        default:
+            said = tool;
+    }
+    if (failed) {
+        const reason = parse(outcome).error?.message;
+        return `${said} — refused${reason ? `: ${reason}` : ""}`;
+    }
+    return said;
+}
+
+function parse(text: string): any {
+    try {
+        return JSON.parse(text);
+    } catch {
+        return {};
+    }
+}
+
+/* Settings ---------------------------------------------------------- */
+
+// Whether anything on the settings screen has been changed since it was last
+// loaded or saved. Unsaved work belongs to the person who typed it.
+let settingsTouched = false;
+
+el("settings").addEventListener("input", () => {
+    settingsTouched = true;
+});
+
+async function loadSettings() {
+    const settings = await SettingsService.Get();
+
+    el<HTMLInputElement>("base-url").value = settings.BaseURL;
+    el<HTMLInputElement>("model").value = settings.Model;
+    el<HTMLInputElement>("api-key").value = "";
+    el("key-hint").textContent = settings.APIKeySet
+        ? "A key is saved. Leave this empty to keep it, or type a new one to replace it."
+        : "No key saved. A local model usually needs none.";
+
+    const backends = el<HTMLSelectElement>("daw-backend");
+    backends.replaceChildren();
+    for (const name of settings.DAWAvailable ?? []) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        backends.append(option);
+    }
+    backends.value = settings.DAWBackend;
+
+    el<HTMLInputElement>("daw-host").value = settings.DAWHost;
+    el<HTMLInputElement>("daw-port").value = String(settings.DAWPort);
+    el<HTMLInputElement>("daw-feedback").value = String(settings.DAWFeedback);
+    el<HTMLInputElement>("preview-default").checked = settings.PreviewByDefault;
+    previewMode.checked = settings.PreviewByDefault;
+    applyTheme(settings.Theme || "system");
+    applyAccent(settings.Accent || "colour");
+    el("settings-note").textContent = "";
+    settingsTouched = false;
+}
+
+el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const settings: Settings = {
+        BaseURL: el<HTMLInputElement>("base-url").value,
+        Model: el<HTMLInputElement>("model").value,
+        APIKeySet: false,
+        DAWBackend: el<HTMLSelectElement>("daw-backend").value,
+        DAWHost: el<HTMLInputElement>("daw-host").value,
+        DAWPort: Number(el<HTMLInputElement>("daw-port").value),
+        DAWFeedback: Number(el<HTMLInputElement>("daw-feedback").value),
+        DAWAvailable: [],
+        PreviewByDefault: el<HTMLInputElement>("preview-default").checked,
+        Theme: chosenTheme,
+        Accent: chosenAccent,
+    };
+
+    const result = await SettingsService.Save(settings, el<HTMLInputElement>("api-key").value);
+    const note = el("settings-note");
+    if (result.Error) {
+        note.textContent = result.Error.Message;
+        note.style.color = "var(--alarm)";
+        return;
+    }
+    note.style.color = "";
+    note.textContent = result.Message;
+    previewMode.checked = settings.PreviewByDefault;
+    el<HTMLInputElement>("api-key").value = "";
+    settingsTouched = false;
+});
+
+/* Status ------------------------------------------------------------ */
 
 async function refreshStatus() {
     try {
         const daw = await AgentService.GetDAWStatus();
         status.dataset.connected = String(daw.Connected);
-        statusText.textContent = daw.Connected ? "DAW connected" : daw.Detail;
+        statusText.textContent = daw.Connected ? "DAW connected" : "DAW not answering";
+        status.title = daw.Detail;
     } catch {
         status.dataset.connected = "false";
         statusText.textContent = "Backend not responding";
     }
 }
 
-apply.addEventListener("click", async () => {
-    apply.disabled = true;
-    try {
-        const response = await AgentService.ApplyPlan();
-        if (response.Error) {
-            show(explain(response.Error.Code, response.Error.Message), "problem");
-        } else {
-            show(response.Message + describe(response.Changed), "answer");
-            input.value = "";
-        }
-    } finally {
-        // One acceptance per plan: the button returns only with a new preview.
-        apply.disabled = false;
-        apply.hidden = true;
-        refreshHistory();
-    }
-});
-
-document.getElementById("undo")!.addEventListener("click", async () => {
-    const response = await AgentService.Undo();
-    if (response.Error) {
-        show(explain(response.Error.Code, response.Error.Message), "problem");
-    } else {
-        show(response.Message, "answer");
-    }
-    refreshHistory();
-});
-
-document.getElementById("transport-play")!.addEventListener("click", async () => {
-    show(await TransportService.Play(), "answer");
-});
-document.getElementById("transport-stop")!.addEventListener("click", async () => {
-    show(await TransportService.Stop(), "answer");
-});
-
 refreshStatus();
-refreshHistory();
 setInterval(refreshStatus, statusInterval);
+loadSettings();
+
+// The window draws what the backend already holds, so reopening it after a
+// reload shows the conversation rather than an empty room.
+AgentService.CurrentConversation().then((current) => {
+    drawThread(current.Messages ?? []);
+    renderConversations();
+});
+
 input.focus();

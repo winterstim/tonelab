@@ -72,13 +72,14 @@ func main() {
 		orchestratorBrain{orchestrator: orchestrator},
 		previewBrain{orchestrator: previews, live: orchestrator},
 		observer, dawClient)
+	settingsService := NewSettingsService(configPath, orchestrator, previews)
 
 	app := application.New(application.Options{
 		Name:        "Tonelab",
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
-			application.NewService(NewTransportService(dawClient)),
 			application.NewService(agentService),
+			application.NewService(settingsService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -93,6 +94,11 @@ func main() {
 		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
 		Width:  1000,
 		Height: 618,
+		// Below this the composer and the bar have nowhere left to go, and a
+		// window that can be dragged into uselessness is a window that will
+		// be.
+		MinWidth:  420,
+		MinHeight: 380,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,

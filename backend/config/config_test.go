@@ -120,3 +120,87 @@ func TestAnEmptyAPIKeyIsAllowed(t *testing.T) {
 		t.Fatalf("a local endpoint without a key must be valid: %v", err)
 	}
 }
+
+// A settings screen must not be able to leave the file in a state the next
+// startup refuses to read, so saving validates the same way loading does.
+func TestSaveRejectsSettingsLoadWouldRefuse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+
+	err := config.Save(path, config.Config{
+		LLM: config.LLM{BaseURL: "", Model: "m"},
+		DAW: config.DAW{Backend: "reaper", Host: "h", Port: 1, FeedbackPort: 2},
+	})
+
+	if err == nil {
+		t.Fatal("expected the empty base_url to be refused")
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Error("a refused save must not have written anything")
+	}
+}
+
+// What was saved is what loads, or a settings screen would be lying about
+// having saved.
+func TestSavedSettingsLoadBack(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	want := config.Config{
+		LLM: config.LLM{BaseURL: "https://api.example/v1", APIKey: "k", Model: "m"},
+		DAW: config.DAW{Backend: "reaper", Host: "127.0.0.1", Port: 8000, FeedbackPort: 9000},
+	}
+
+	if err := config.Save(path, want); err != nil {
+		t.Fatalf("Save returned an error: %v", err)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load returned an error: %v", err)
+	}
+	if loaded != want {
+		t.Fatalf("expected %+v, got %+v", want, loaded)
+	}
+}
+
+// The file holds an API key, so it must not be readable by other accounts.
+func TestSavedSettingsArePrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	settings := config.Config{
+		LLM: config.LLM{BaseURL: "u", Model: "m"},
+		DAW: config.DAW{Backend: "reaper", Host: "h", Port: 1, FeedbackPort: 2},
+	}
+
+	if err := config.Save(path, settings); err != nil {
+		t.Fatalf("Save returned an error: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("could not stat the file: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("expected 0600, got %o", mode)
+	}
+}
+
+// An interrupted save must leave the previous settings rather than half of
+// the new ones, which is why it is written beside and renamed.
+func TestSaveLeavesNoStrayFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	settings := config.Config{
+		LLM: config.LLM{BaseURL: "u", Model: "m"},
+		DAW: config.DAW{Backend: "reaper", Host: "h", Port: 1, FeedbackPort: 2},
+	}
+
+	if err := config.Save(path, settings); err != nil {
+		t.Fatalf("Save returned an error: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("could not read the directory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected only the config file, got %d entries", len(entries))
+	}
+}

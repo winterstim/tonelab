@@ -1,5 +1,8 @@
 {
   "compilerOptions": {
+    // Set explicitly because the default is ES3, which forbids iterating a
+    // NodeList and made the check pass only by never being run.
+    "target": "ES2022",
     "allowJs": true,
 
     "noEmit": true,

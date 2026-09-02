@@ -32,9 +32,27 @@ type DAW struct {
 	FeedbackPort int    `json:"feedback_port"`
 }
 
+// UI holds what the person prefers rather than what the machine requires.
+// Stored with the rest so a preference survives a restart, which is the whole
+// point of one.
+type UI struct {
+	// Theme is light, dark, or system. Empty means system, so a config
+	// written before this existed still loads.
+	Theme string `json:"theme,omitempty"`
+
+	// Accent is colour or mono. Empty means colour, for the same reason.
+	Accent string `json:"accent,omitempty"`
+
+	// PreviewByDefault decides whether commands are proposed before they run.
+	// A safety choice that belongs to the user: some want to see every change
+	// first, some want the tool to get on with it.
+	PreviewByDefault bool `json:"preview_by_default"`
+}
+
 type Config struct {
 	LLM LLM `json:"llm"`
 	DAW DAW `json:"daw"`
+	UI  UI  `json:"ui"`
 }
 
 // String masks the key. The likeliest way to leak a secret is a log line
@@ -99,6 +117,10 @@ func (c Config) validate() error {
 		return errors.New("daw.port is required, the port the DAW listens for OSC on")
 	case c.DAW.FeedbackPort == 0:
 		return errors.New("daw.feedback_port is required, the port the DAW sends feedback to")
+	case c.UI.Theme != "" && c.UI.Theme != "light" && c.UI.Theme != "dark" && c.UI.Theme != "system":
+		return fmt.Errorf("ui.theme %q is not one of: light, dark, system", c.UI.Theme)
+	case c.UI.Accent != "" && c.UI.Accent != "colour" && c.UI.Accent != "mono":
+		return fmt.Errorf("ui.accent %q is not one of: colour, mono", c.UI.Accent)
 	}
 
 	// Checked against the registry rather than a list here, so a new backend
@@ -111,6 +133,36 @@ func (c Config) validate() error {
 	return fmt.Errorf("daw.backend %q is not one of: %s", c.DAW.Backend, strings.Join(daw.Backends(), ", "))
 }
 
+// Save writes settings back, validating first so a settings screen cannot
+// leave the file in a state the next startup refuses to read.
+//
+// Written whole rather than merged: the file is small, and a partial write is
+// how a config ends up in a state nobody wrote on purpose.
+func Save(path string, settings Config) error {
+	if err := settings.validate(); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("config: could not create %s: %w", filepath.Dir(path), err)
+	}
+
+	body, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("config: could not encode settings: %w", err)
+	}
+
+	// Written beside the target and renamed, so an interrupted save leaves
+	// the previous settings rather than half of the new ones.
+	temporary := path + ".new"
+	if err := os.WriteFile(temporary, append(body, '\n'), 0o600); err != nil {
+		return fmt.Errorf("config: could not write %s: %w", temporary, err)
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		return fmt.Errorf("config: could not replace %s: %w", path, err)
+	}
+	return nil
+}
+
 // writeTemplate leaves a file the user can edit rather than one they must
 // invent, with the local-runtime case filled in since it needs no account.
 func writeTemplate(path string) error {
@@ -121,6 +173,7 @@ func writeTemplate(path string) error {
 	template := Config{
 		LLM: LLM{BaseURL: "http://localhost:11434/v1", APIKey: "", Model: "qwen2.5"},
 		DAW: DAW{Backend: "reaper", Host: "127.0.0.1", Port: 8000, FeedbackPort: 9000},
+		UI:  UI{Theme: "system", Accent: "colour"},
 	}
 	body, err := json.MarshalIndent(template, "", "  ")
 	if err != nil {

@@ -18,6 +18,30 @@ type stubBrain struct {
 	response  AgentResponse
 	block     chan struct{}
 	cancelled bool
+	forgotten bool
+	memory    []Exchange
+}
+
+func (s *stubBrain) Recall() []Exchange {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.memory
+}
+
+func (s *stubBrain) Restore(exchanges []Exchange) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.memory = exchanges
+}
+
+// Clears what it remembers, as the real orchestrator does. A stub that only
+// noted the call would let a new conversation inherit the last one's subject
+// while the test said otherwise.
+func (s *stubBrain) Forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgotten = true
+	s.memory = nil
 }
 
 func (s *stubBrain) seen() string {
@@ -355,5 +379,21 @@ func TestStopWithNothingRunning(t *testing.T) {
 	}
 	if response.Error == nil || response.Error.Code != "nothing_running" {
 		t.Fatalf("expected nothing_running, got %+v", response.Error)
+	}
+}
+
+// A user starting a new idea should not have to fight the last one.
+func TestForgettingClearsTheAgentsMemory(t *testing.T) {
+	brain := &stubBrain{}
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+
+	if _, err := service.Forget(); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+
+	brain.mu.Lock()
+	defer brain.mu.Unlock()
+	if !brain.forgotten {
+		t.Error("the agent was not told to forget")
 	}
 }

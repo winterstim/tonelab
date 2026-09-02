@@ -7,60 +7,164 @@
     <title>Tonelab</title>
 </head>
 <body>
+<!-- Icons live once and are referenced, so adding one costs a symbol rather
+     than another copy of its paths. Stroke-based at a single weight, which is
+     what keeps a set looking like a set. -->
+<svg class="sprite" aria-hidden="true">
+    <symbol id="i-chat" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></symbol>
+    <symbol id="i-history" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.75V8l2.25 1.5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 16 16"><path d="M2.5 4.5h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.6"/><circle cx="10.5" cy="11.5" r="1.6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 16 16"><path d="M8 13V3.5M3.75 7.5 8 3.25l4.25 4.25"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 16 16"><path d="M3 8a5 5 0 1 1 1.6 3.7"/><path d="M3 4.5V8h3.5"/></symbol>
+    <symbol id="i-new" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7"/></symbol>
+    <symbol id="i-list" viewBox="0 0 16 16"><path d="M6 4.5h7.5M6 8h7.5M6 11.5h7.5M2.75 4.5h.01M2.75 8h.01M2.75 11.5h.01"/></symbol>
+    <symbol id="i-read" viewBox="0 0 16 16"><path d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8Z"/><circle cx="8" cy="8" r="1.75"/></symbol>
+    <symbol id="i-set" viewBox="0 0 16 16"><path d="M2.5 8h4M9.5 8h4M2.5 12h7M12.5 12h1M2.5 4h1M6.5 4h7"/><circle cx="8" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/><circle cx="5" cy="4" r="1.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path d="M8 5v3.5M8 10.75h.01"/></symbol>
+</svg>
 <main class="app">
-    <header class="app-header">
-        <h1 class="app-title">Tonelab</h1>
-        <!-- Connection is inferred from DAW feedback, so this reflects what the
-             backend has actually heard rather than whether we sent anything. -->
-        <div class="daw-status" id="daw-status" data-connected="false">
-            <span class="daw-dot" aria-hidden="true"></span>
-            <span id="daw-status-text">Checking the DAW…</span>
-        </div>
+    <header class="bar">
+        <nav class="tabs" role="tablist">
+            <button class="tab" data-view="chat" role="tab" aria-selected="true">
+                <svg class="icon"><use href="#i-chat"/></svg>Chat
+            </button>
+            <button class="tab" data-view="history" role="tab" aria-selected="false">
+                <svg class="icon"><use href="#i-history"/></svg>History
+            </button>
+            <button class="tab" data-view="settings" role="tab" aria-selected="false">
+                <svg class="icon"><use href="#i-settings"/></svg>Settings
+            </button>
+        </nav>
+
+        <!-- Connection is probed rather than assumed, so this reflects an
+             answer from the DAW rather than the absence of one. -->
+        <span class="status" id="status" data-connected="false" title="">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="status-text">Checking</span>
+        </span>
     </header>
 
-    <!-- One field and one visible effect,. No message
-         history: MVP carries nothing between commands. -->
-    <form class="command" id="command-form">
-        <input
-            id="command-input"
-            class="command-input"
-            type="text"
-            autocomplete="off"
-            placeholder="Turn track 2 down a little"
-            aria-label="Command"/>
-        <button class="command-send" id="command-send" type="submit">Send</button>
-    </form>
+    <section class="view" id="view-chat">
+        <!-- Threads of this session. Hidden while there is only one, since a
+             switcher listing a single thing is noise. -->
+        <div class="switcher" id="switcher" hidden></div>
 
-    <!-- Preview runs the turn without touching the project, and Apply carries
-         out those exact steps rather than asking the model again. -->
-    <div class="preview-row">
-        <label class="preview-toggle">
-            <input type="checkbox" id="preview-mode"/>
-            Preview before applying
-        </label>
-        <button class="command-send preview-apply" id="apply" type="button" hidden>Apply this plan</button>
-    </div>
+        <div class="thread" id="thread">
+            <div class="empty" id="empty">
+                <p class="empty-line" id="greeting"></p>
+            </div>
+        </div>
 
-    <output class="answer" id="answer" role="status" aria-live="polite"></output>
+        <form class="composer" id="composer">
+            <textarea
+                id="input"
+                class="input"
+                rows="1"
+                placeholder="Ask for a change"
+                aria-label="Command"></textarea>
+            <div class="composer-side">
+                <button class="send" id="send" type="submit" aria-label="Send">
+                    <svg class="icon"><use href="#i-send"/></svg>
+                </button>
+                <button class="send stop" id="stop" type="button" hidden aria-label="Stop the agent">
+                    <svg class="icon"><use href="#i-stop"/></svg>
+                </button>
+            </div>
+        </form>
 
-    <!-- What the agent did, from the tools rather than from its own summary:
-         the summary is the one account of a turn that cannot be checked. -->
-    <details class="history" id="history">
-        <summary class="history-summary">What the agent did</summary>
-        <div class="history-body" id="history-body"></div>
-    </details>
+        <div class="composer-row">
+            <label class="switch">
+                <input type="checkbox" id="preview-mode"/>
+                <span class="track" aria-hidden="true"><span class="knob"></span></span>
+                Show me the plan first
+            </label>
+            <button class="quiet" id="undo" type="button">
+                <svg class="icon"><use href="#i-undo"/></svg>Undo last change
+            </button>
+            <button class="quiet" id="clear" type="button">
+                <svg class="icon"><use href="#i-new"/></svg>New conversation
+            </button>
+        </div>
+    </section>
 
-    <!-- Kept because they reach the DAW without the language model, which makes
-         them the fastest way to tell a DAW problem from a model problem. -->
-    <footer class="transport">
-        <!-- Beside the agent rather than behind it: after a command goes
-             wrong, asking the model to fix it means trusting what just
-             erred. -->
-        <button class="transport-btn transport-undo" id="undo" type="button">Undo last change</button>
-        <span class="transport-label">Transport</span>
-        <button class="transport-btn" id="transport-play" type="button">Play</button>
-        <button class="transport-btn" id="transport-stop" type="button">Stop</button>
-    </footer>
+    <section class="view" id="view-history" hidden>
+        <div class="history" id="history"></div>
+    </section>
+
+    <section class="view" id="view-settings" hidden>
+        <form class="settings" id="settings">
+            <h2 class="group">Language model</h2>
+            <label class="field">
+                <span class="label">Endpoint</span>
+                <input class="text" id="base-url" type="text" spellcheck="false" placeholder="http://localhost:11434/v1"/>
+                <span class="hint">Any OpenAI-compatible endpoint: a local runtime, or a hosted one.</span>
+            </label>
+            <label class="field">
+                <span class="label">Model</span>
+                <input class="text" id="model" type="text" spellcheck="false"/>
+            </label>
+            <label class="field">
+                <span class="label">API key</span>
+                <input class="text" id="api-key" type="password" spellcheck="false" placeholder=""/>
+                <span class="hint" id="key-hint"></span>
+            </label>
+
+            <h2 class="group">DAW</h2>
+            <label class="field">
+                <span class="label">Backend</span>
+                <select class="text" id="daw-backend"></select>
+            </label>
+            <div class="row">
+                <label class="field">
+                    <span class="label">Host</span>
+                    <input class="text" id="daw-host" type="text" spellcheck="false"/>
+                </label>
+                <label class="field">
+                    <span class="label">Sends to</span>
+                    <input class="text" id="daw-port" type="number"/>
+                </label>
+                <label class="field">
+                    <span class="label">Listens on</span>
+                    <input class="text" id="daw-feedback" type="number"/>
+                </label>
+            </div>
+            <p class="hint">The DAW must be set to send OSC feedback to the listening port, or nothing can be read back.</p>
+
+            <h2 class="group">Appearance</h2>
+            <div class="field">
+                <span class="label">Theme</span>
+                <div class="choices" id="theme" role="group" aria-label="Theme">
+                    <button class="choice" type="button" data-theme="light" aria-pressed="false">Light</button>
+                    <button class="choice" type="button" data-theme="dark" aria-pressed="false">Dark</button>
+                    <button class="choice" type="button" data-theme="system" aria-pressed="true">System</button>
+                </div>
+            </div>
+
+            <div class="field">
+                <span class="label">Colour</span>
+                <div class="choices" id="accent" role="group" aria-label="Colour">
+                    <button class="choice" type="button" data-accent="colour" aria-pressed="true">Water and fire</button>
+                    <button class="choice" type="button" data-accent="mono" aria-pressed="false">Monochrome</button>
+                </div>
+                <span class="hint">Monochrome keeps the greys. Failures are then told apart by weight and a mark rather than by colour.</span>
+            </div>
+
+            <h2 class="group">Safety</h2>
+            <label class="switch">
+                <input type="checkbox" id="preview-default"/>
+                <span class="track" aria-hidden="true"><span class="knob"></span></span>
+                Propose changes before making them, by default
+            </label>
+            <p class="hint">Every change can be undone either way. This decides whether you see it first.</p>
+
+            <div class="settings-actions">
+                <button class="send" type="submit">Save</button>
+                <span class="hint" id="settings-note"></span>
+            </div>
+        </form>
+    </section>
 </main>
 <script src="/src/main.ts" type="module"></script>
 </body>
