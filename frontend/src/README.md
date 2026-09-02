@@ -1,13 +1,28 @@
 # frontend/src
 
-One screen: a command field, its answer, and whether the DAW is connected.
-No message history.
+Three views: a chat, the agent's history, and settings. Switched by showing
+and hiding sections rather than by a router, which is enough for three and is
+the thing to revisit if there is ever a fourth.
 
 Everything worth deciding lives in Go. This layer calls the generated bindings
 directly, because an abstraction over a typed, generated client would only add
 a place for the two to drift.
 
+Monochrome on purpose. The only colour in the window is meaning, and there is
+exactly one thing worth colouring: that something failed.
+
 Notes on what it does that is not obvious:
+
+- **The history reads as sentences, with the raw calls behind a disclosure.**
+  Someone reading their history wants to know what happened; someone debugging
+  wants the call. Showing the second to everyone is what made the first
+  version unreadable.
+- **Stop replaces Send while a turn runs**, so the button under the cursor is
+  always the one that applies.
+- **Enter sends and Shift+Enter breaks a line**, which is what a text box in a
+  chat is expected to do.
+- **The API key is never received from the backend**, only replaced. A key
+  that never crosses cannot be read off a screen or out of a screenshot.
 
 - **Connection is polled, not pushed.** The backend judges what counts as
   connected (it infers it from DAW feedback); this only decides how stale the

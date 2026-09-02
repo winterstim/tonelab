@@ -8,59 +8,114 @@
 </head>
 <body>
 <main class="app">
-    <header class="app-header">
-        <h1 class="app-title">Tonelab</h1>
-        <!-- Connection is inferred from DAW feedback, so this reflects what the
-             backend has actually heard rather than whether we sent anything. -->
-        <div class="daw-status" id="daw-status" data-connected="false">
-            <span class="daw-dot" aria-hidden="true"></span>
-            <span id="daw-status-text">Checking the DAW…</span>
-        </div>
+    <header class="bar">
+        <span class="mark">Tonelab</span>
+
+        <nav class="tabs" role="tablist">
+            <button class="tab" data-view="chat" role="tab" aria-selected="true">Chat</button>
+            <button class="tab" data-view="history" role="tab" aria-selected="false">History</button>
+            <button class="tab" data-view="settings" role="tab" aria-selected="false">Settings</button>
+        </nav>
+
+        <!-- Connection is probed rather than assumed, so this reflects an
+             answer from the DAW rather than the absence of one. -->
+        <span class="status" id="status" data-connected="false">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="status-text">Checking</span>
+        </span>
     </header>
 
-    <!-- One field and one visible effect,. No message
-         history: MVP carries nothing between commands. -->
-    <form class="command" id="command-form">
-        <input
-            id="command-input"
-            class="command-input"
-            type="text"
-            autocomplete="off"
-            placeholder="Turn track 2 down a little"
-            aria-label="Command"/>
-        <button class="command-send" id="command-send" type="submit">Send</button>
-    </form>
+    <section class="view" id="view-chat">
+        <div class="thread" id="thread">
+            <div class="empty" id="empty">
+                <p class="empty-line">Tell the DAW what you want.</p>
+                <ul class="examples">
+                    <li>Turn the vocals down a little</li>
+                    <li>Mute track 3</li>
+                    <li>Pan the drums slightly left</li>
+                </ul>
+            </div>
+        </div>
 
-    <!-- Preview runs the turn without touching the project, and Apply carries
-         out those exact steps rather than asking the model again. -->
-    <div class="preview-row">
-        <label class="preview-toggle">
-            <input type="checkbox" id="preview-mode"/>
-            Preview before applying
-        </label>
-        <button class="command-send preview-apply" id="apply" type="button" hidden>Apply this plan</button>
-    </div>
+        <form class="composer" id="composer">
+            <textarea
+                id="input"
+                class="input"
+                rows="1"
+                placeholder="Ask for a change"
+                aria-label="Command"></textarea>
+            <div class="composer-side">
+                <button class="send" id="send" type="submit" aria-label="Send">Send</button>
+                <button class="send stop" id="stop" type="button" hidden aria-label="Stop">Stop</button>
+            </div>
+        </form>
 
-    <output class="answer" id="answer" role="status" aria-live="polite"></output>
+        <div class="composer-row">
+            <label class="check">
+                <input type="checkbox" id="preview-mode"/>
+                Show me the plan first
+            </label>
+            <button class="quiet" id="undo" type="button">Undo last change</button>
+            <button class="quiet" id="clear" type="button">New conversation</button>
+        </div>
+    </section>
 
-    <!-- What the agent did, from the tools rather than from its own summary:
-         the summary is the one account of a turn that cannot be checked. -->
-    <details class="history" id="history">
-        <summary class="history-summary">What the agent did</summary>
-        <div class="history-body" id="history-body"></div>
-    </details>
+    <section class="view" id="view-history" hidden>
+        <div class="history" id="history"></div>
+    </section>
 
-    <!-- Kept because they reach the DAW without the language model, which makes
-         them the fastest way to tell a DAW problem from a model problem. -->
-    <footer class="transport">
-        <!-- Beside the agent rather than behind it: after a command goes
-             wrong, asking the model to fix it means trusting what just
-             erred. -->
-        <button class="transport-btn transport-undo" id="undo" type="button">Undo last change</button>
-        <span class="transport-label">Transport</span>
-        <button class="transport-btn" id="transport-play" type="button">Play</button>
-        <button class="transport-btn" id="transport-stop" type="button">Stop</button>
-    </footer>
+    <section class="view" id="view-settings" hidden>
+        <form class="settings" id="settings">
+            <h2 class="group">Language model</h2>
+            <label class="field">
+                <span class="label">Endpoint</span>
+                <input class="text" id="base-url" type="text" spellcheck="false" placeholder="http://localhost:11434/v1"/>
+                <span class="hint">Any OpenAI-compatible endpoint: a local runtime, or a hosted one.</span>
+            </label>
+            <label class="field">
+                <span class="label">Model</span>
+                <input class="text" id="model" type="text" spellcheck="false"/>
+            </label>
+            <label class="field">
+                <span class="label">API key</span>
+                <input class="text" id="api-key" type="password" spellcheck="false" placeholder=""/>
+                <span class="hint" id="key-hint"></span>
+            </label>
+
+            <h2 class="group">DAW</h2>
+            <label class="field">
+                <span class="label">Backend</span>
+                <select class="text" id="daw-backend"></select>
+            </label>
+            <div class="row">
+                <label class="field">
+                    <span class="label">Host</span>
+                    <input class="text" id="daw-host" type="text" spellcheck="false"/>
+                </label>
+                <label class="field">
+                    <span class="label">Sends to</span>
+                    <input class="text" id="daw-port" type="number"/>
+                </label>
+                <label class="field">
+                    <span class="label">Listens on</span>
+                    <input class="text" id="daw-feedback" type="number"/>
+                </label>
+            </div>
+            <p class="hint">The DAW must be set to send OSC feedback to the listening port, or nothing can be read back.</p>
+
+            <h2 class="group">Safety</h2>
+            <label class="check">
+                <input type="checkbox" id="preview-default"/>
+                Propose changes before making them, by default
+            </label>
+            <p class="hint">Every change can be undone either way. This decides whether you see it first.</p>
+
+            <div class="settings-actions">
+                <button class="send" type="submit">Save</button>
+                <span class="hint" id="settings-note"></span>
+            </div>
+        </form>
+    </section>
 </main>
 <script src="/src/main.ts" type="module"></script>
 </body>

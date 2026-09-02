@@ -70,6 +70,7 @@ type DAWStatus struct {
 // this layer does not mean driving a language model.
 type brain interface {
 	SendContext(ctx context.Context, text string) AgentResponse
+	Forget()
 }
 
 // planner previews a command and carries out what it proposed. Separate from
@@ -232,6 +233,14 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 	return response, nil
 }
 
+// Forget drops the conversation. A user starting a new idea should not have
+// to fight the last one, and a turn that went wrong keeps being wrong while it
+// stays in context.
+func (a *AgentService) Forget() (AgentResponse, error) {
+	a.agent.Forget()
+	return AgentResponse{Message: "Started a new conversation."}, nil
+}
+
 // Stop ends the turn in flight. Commands already sent to the DAW stay sent,
 // which is what undo is for; what stops is the agent deciding to send more.
 func (a *AgentService) Stop() (AgentResponse, error) {
@@ -305,6 +314,10 @@ func (p previewBrain) Apply(plan []PlannedCall) AgentResponse {
 
 func (o orchestratorBrain) SendContext(ctx context.Context, text string) AgentResponse {
 	return convert(o.orchestrator.SendContext(ctx, text))
+}
+
+func (o orchestratorBrain) Forget() {
+	o.orchestrator.Forget()
 }
 
 // convert moves an agent response across the UI boundary, keeping the

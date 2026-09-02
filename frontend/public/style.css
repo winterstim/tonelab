@@ -1,18 +1,33 @@
-/* Tonelab. One screen: a command, its answer, and whether the DAW is there. */
+/* Tonelab. Monochrome on purpose: the only colour in the window should be
+   meaning, and there is exactly one thing here worth colouring, which is
+   whether something failed. */
 
 :root {
-    --bg: #06070f;
-    --surface: #101321;
-    --border: #232840;
-    --text: #e7e9f3;
-    --muted: #8b90a8;
-    --accent: #6c8cff;
-    --ok: #4ade80;
-    --problem: #ff8a8a;
+    --bg: #0a0a0a;
+    --raised: #141414;
+    --line: #262626;
+    --text: #f2f2f2;
+    --muted: #8a8a8a;
+    --faint: #5c5c5c;
+    --ink: #0a0a0a;
+    --alarm: #ff6b6b;
+
+    /* One spacing scale, so nothing is spaced by eye. */
+    --gap-1: 6px;
+    --gap-2: 10px;
+    --gap-3: 16px;
+    --gap-4: 24px;
+    --gap-5: 40px;
+
+    --radius: 8px;
 }
 
 * {
     box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
 }
 
 body {
@@ -20,208 +35,439 @@ body {
     background: var(--bg);
     color: var(--text);
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 15px;
-    line-height: 1.5;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
 }
 
 .app {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    /* Leaves room for the inset title bar on macOS. */
-    padding: 56px 32px 28px;
-    min-height: 100vh;
+    height: 100%;
 }
 
-.app-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
-}
+/* Bar ---------------------------------------------------------------- */
 
-.app-title {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-}
-
-.daw-status {
+.bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: var(--muted);
-    font-size: 13px;
+    gap: var(--gap-4);
+    /* Left padding clears the macOS traffic lights on an inset title bar. */
+    padding: 0 var(--gap-3) 0 84px;
+    height: 52px;
+    border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag;
 }
 
-.daw-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--muted);
-    flex: none;
+.mark {
+    font-weight: 600;
+    letter-spacing: -0.01em;
 }
 
-/* Driven by the backend's own judgement, not by whether a command was sent. */
-.daw-status[data-connected="true"] .daw-dot {
-    background: var(--ok);
-}
-
-.daw-status[data-connected="true"] {
-    color: var(--text);
-}
-
-.command {
+.tabs {
     display: flex;
-    gap: 10px;
+    gap: var(--gap-1);
+    -webkit-app-region: no-drag;
 }
 
-.command-input {
-    flex: 1;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
-    color: inherit;
-    font: inherit;
-}
-
-.command-input:focus {
-    outline: none;
-    border-color: var(--accent);
-}
-
-.command-input::placeholder {
-    color: var(--muted);
-}
-
-.command-send {
-    padding: 12px 20px;
+.tab {
+    padding: 5px 11px;
     border: none;
-    border-radius: 10px;
-    background: var(--accent);
-    color: #0b0d18;
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.command-send:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
-
-.preview-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: -8px;
-}
-
-.preview-toggle {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--muted);
-    font-size: 13px;
-    cursor: pointer;
-}
-
-.preview-apply {
-    padding: 7px 14px;
-    font-size: 13px;
-}
-
-.answer {
-    flex: 1;
-    display: block;
-    padding: 16px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
-    white-space: pre-wrap;
-    min-height: 96px;
-}
-
-/* Hidden rather than shown empty, so a blank panel never reads as an answer. */
-.answer:empty {
-    display: none;
-}
-
-.answer[data-tone="working"] {
-    color: var(--muted);
-}
-
-/* A failed command must not look like a completed one. */
-.answer[data-tone="problem"] {
-    color: var(--problem);
-    border-color: var(--problem);
-}
-
-.history {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
-}
-
-.history[hidden] {
-    display: none;
-}
-
-.history-summary {
-    padding: 10px 14px;
-    color: var(--muted);
-    font-size: 13px;
-    cursor: pointer;
-}
-
-.history-body {
-    padding: 0 14px 14px;
-    /* Monospace because these are the calls as made, not a retelling. */
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--muted);
-    white-space: pre-wrap;
-    max-height: 260px;
-    overflow-y: auto;
-}
-
-.transport {
-    /* Pinned to the bottom so the layout does not jump when an answer
-       appears, since the answer area is hidden while empty. */
-    margin-top: auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-}
-
-/* Sits apart from the transport buttons: it undoes project state, not
-   playback, and the two should not be reached for by accident. */
-.transport-undo {
-    margin-right: 20px;
-}
-
-.transport-label {
-    margin-right: auto;
-    color: var(--muted);
-    font-size: 13px;
-}
-
-.transport-btn {
-    padding: 7px 16px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 6px;
     background: transparent;
     color: var(--muted);
     font: inherit;
     cursor: pointer;
 }
 
-.transport-btn:hover {
+.tab:hover {
     color: var(--text);
-    border-color: var(--accent);
+}
+
+.tab[aria-selected="true"] {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-1);
+    margin-left: auto;
+    color: var(--faint);
+    font-size: 12px;
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--faint);
+}
+
+.status[data-connected="true"] .dot {
+    background: var(--text);
+}
+
+.status[data-connected="true"] {
+    color: var(--muted);
+}
+
+/* Views -------------------------------------------------------------- */
+
+.view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: var(--gap-4);
+    gap: var(--gap-3);
+}
+
+.view[hidden] {
+    display: none;
+}
+
+/* Thread ------------------------------------------------------------- */
+
+.thread {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-4);
+    padding-right: var(--gap-1);
+}
+
+.empty {
+    margin: auto 0;
+    color: var(--faint);
+}
+
+.empty-line {
+    margin: 0 0 var(--gap-2);
+    color: var(--muted);
+}
+
+.examples {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-1);
+}
+
+.examples li::before {
+    content: "\201C";
+}
+
+.examples li::after {
+    content: "\201D";
+}
+
+/* Messages carry their role in weight and colour rather than in bubbles,
+   which keeps a long thread readable at a glance. */
+.msg {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-1);
+    max-width: 62ch;
+}
+
+.msg[data-from="you"] {
+    align-self: flex-end;
+    align-items: flex-end;
+    text-align: right;
+}
+
+.who {
+    color: var(--faint);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.said {
+    white-space: pre-wrap;
+}
+
+.msg[data-from="you"] .said {
+    color: var(--muted);
+}
+
+.msg[data-tone="problem"] .said {
+    color: var(--alarm);
+}
+
+.msg[data-tone="working"] .said {
+    color: var(--faint);
+}
+
+/* What the DAW confirmed, shown apart from what the model said about it. */
+.did {
+    margin: 0;
+    padding: var(--gap-2) var(--gap-3);
+    border-left: 2px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.did li {
+    list-style: none;
+}
+
+.unconfirmed {
+    color: var(--faint);
+}
+
+.plan {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-2);
+    align-items: flex-start;
+}
+
+/* Composer ----------------------------------------------------------- */
+
+.composer {
+    display: flex;
+    gap: var(--gap-2);
+    align-items: flex-end;
+}
+
+.input {
+    flex: 1;
+    padding: 11px 13px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--raised);
+    color: inherit;
+    font: inherit;
+    resize: none;
+    max-height: 160px;
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--muted);
+}
+
+.input::placeholder {
+    color: var(--faint);
+}
+
+.composer-side {
+    display: flex;
+}
+
+.send {
+    padding: 11px 18px;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--text);
+    color: var(--ink);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.send:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.stop {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text);
+}
+
+.composer-row {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-3);
+}
+
+.check {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-1);
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.quiet {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.quiet:hover {
+    color: var(--text);
+}
+
+.quiet:last-of-type {
+    margin-left: auto;
+}
+
+/* History ------------------------------------------------------------ */
+
+.history {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-3);
+}
+
+.turn {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-1);
+    padding-bottom: var(--gap-3);
+    border-bottom: 1px solid var(--line);
+}
+
+.turn-head {
+    display: flex;
+    gap: var(--gap-2);
+    align-items: baseline;
+}
+
+.turn-time {
+    color: var(--faint);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.turn-tag {
+    color: var(--faint);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.turn-steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.turn-steps li {
+    padding-left: var(--gap-3);
+    text-indent: calc(-1 * var(--gap-3));
+}
+
+.turn-steps li[data-failed="true"] {
+    color: var(--alarm);
+}
+
+/* The raw call, for someone checking rather than reading. */
+.raw {
+    margin-top: var(--gap-1);
+    color: var(--faint);
+    font-size: 12px;
+}
+
+.raw pre {
+    margin: var(--gap-1) 0 0;
+    padding: var(--gap-2);
+    border-radius: 6px;
+    background: var(--raised);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-x: auto;
+}
+
+.raw summary {
+    cursor: pointer;
+}
+
+/* Settings ----------------------------------------------------------- */
+
+.settings {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-3);
+    max-width: 560px;
+}
+
+.group {
+    margin: var(--gap-3) 0 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+}
+
+.group:first-child {
+    margin-top: 0;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-1);
+}
+
+.row {
+    display: flex;
+    gap: var(--gap-2);
+}
+
+.row .field {
+    flex: 1;
+}
+
+.label {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.text {
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--raised);
+    color: inherit;
+    font: inherit;
+}
+
+.text:focus {
+    outline: none;
+    border-color: var(--muted);
+}
+
+.hint {
+    color: var(--faint);
+    font-size: 12px;
+}
+
+.settings-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--gap-3);
+    margin-top: var(--gap-3);
+}
+
+.settings-actions .send {
+    align-self: flex-start;
 }

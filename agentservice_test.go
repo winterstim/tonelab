@@ -18,6 +18,13 @@ type stubBrain struct {
 	response  AgentResponse
 	block     chan struct{}
 	cancelled bool
+	forgotten bool
+}
+
+func (s *stubBrain) Forget() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgotten = true
 }
 
 func (s *stubBrain) seen() string {
@@ -355,5 +362,21 @@ func TestStopWithNothingRunning(t *testing.T) {
 	}
 	if response.Error == nil || response.Error.Code != "nothing_running" {
 		t.Fatalf("expected nothing_running, got %+v", response.Error)
+	}
+}
+
+// A user starting a new idea should not have to fight the last one.
+func TestForgettingClearsTheAgentsMemory(t *testing.T) {
+	brain := &stubBrain{}
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
+
+	if _, err := service.Forget(); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+
+	brain.mu.Lock()
+	defer brain.mu.Unlock()
+	if !brain.forgotten {
+		t.Error("the agent was not told to forget")
 	}
 }

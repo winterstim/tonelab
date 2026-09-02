@@ -111,6 +111,36 @@ func (c Config) validate() error {
 	return fmt.Errorf("daw.backend %q is not one of: %s", c.DAW.Backend, strings.Join(daw.Backends(), ", "))
 }
 
+// Save writes settings back, validating first so a settings screen cannot
+// leave the file in a state the next startup refuses to read.
+//
+// Written whole rather than merged: the file is small, and a partial write is
+// how a config ends up in a state nobody wrote on purpose.
+func Save(path string, settings Config) error {
+	if err := settings.validate(); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("config: could not create %s: %w", filepath.Dir(path), err)
+	}
+
+	body, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("config: could not encode settings: %w", err)
+	}
+
+	// Written beside the target and renamed, so an interrupted save leaves
+	// the previous settings rather than half of the new ones.
+	temporary := path + ".new"
+	if err := os.WriteFile(temporary, append(body, '\n'), 0o600); err != nil {
+		return fmt.Errorf("config: could not write %s: %w", temporary, err)
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		return fmt.Errorf("config: could not replace %s: %w", path, err)
+	}
+	return nil
+}
+
 // writeTemplate leaves a file the user can edit rather than one they must
 // invent, with the local-runtime case filled in since it needs no account.
 func writeTemplate(path string) error {

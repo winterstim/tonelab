@@ -72,13 +72,14 @@ func main() {
 		orchestratorBrain{orchestrator: orchestrator},
 		previewBrain{orchestrator: previews, live: orchestrator},
 		observer, dawClient)
+	settingsService := NewSettingsService(configPath, orchestrator, previews)
 
 	app := application.New(application.Options{
 		Name:        "Tonelab",
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
-			application.NewService(NewTransportService(dawClient)),
 			application.NewService(agentService),
+			application.NewService(settingsService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
