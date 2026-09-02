@@ -327,7 +327,11 @@ function renderTurn(entry: JournalEntry): HTMLElement {
         for (const step of steps) {
             const line = document.createElement("li");
             line.dataset.failed = String(step.Failed);
-            line.textContent = describeStep(step.Tool, step.Arguments, step.Outcome, step.Failed);
+            line.append(icon(step.Failed ? "alert" : iconFor(step.Tool)));
+
+            const said = document.createElement("span");
+            said.textContent = describeStep(step.Tool, step.Arguments, step.Outcome, step.Failed);
+            line.append(said);
             list.append(line);
         }
         turn.append(list);
@@ -354,6 +358,28 @@ function renderTurn(entry: JournalEntry): HTMLElement {
     }
     turn.append(outcome);
     return turn;
+}
+
+// Referencing the sprite rather than building paths, so an icon is one line
+// here and its shape lives in one place.
+function icon(name: string): SVGSVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "icon");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", `#i-${name}`);
+    svg.append(use);
+    return svg;
+}
+
+// The kind of step, so a history can be scanned rather than read.
+function iconFor(tool: string): string {
+    switch (tool) {
+        case "list_tracks": return "list";
+        case "get_param": return "read";
+        case "set_param": return "set";
+        case "undo": return "undo";
+        default: return "settings";
+    }
 }
 
 // Translated rather than printed. The tool names and JSON are ours, not the

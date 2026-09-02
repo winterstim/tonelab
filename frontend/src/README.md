@@ -25,6 +25,12 @@ Notes on what it does that is not obvious:
   always the one that applies.
 - **Enter sends and Shift+Enter breaks a line**, which is what a text box in a
   chat is expected to do.
+- **Icons come from one inline sprite**, referenced rather than repeated, so
+  adding one costs a symbol and the set keeps a single stroke weight. Nothing
+  is fetched, which also keeps it working under a strict content policy.
+- **The two toggles are switches, not checkboxes.** Both are a mode the app is
+  in rather than an item being ticked, and a switch says which is on from
+  across a desk.
 - **The API key is never received from the backend**, only replaced. A key
   that never crosses cannot be read off a screen or out of a screenshot.
 

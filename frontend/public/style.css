@@ -58,6 +58,39 @@
     box-sizing: border-box;
 }
 
+/* Any display rule beats the hidden attribute's own, which is how a hidden
+   button ends up visible next to the one meant to replace it. Stated once
+   rather than remembered at each element. */
+[hidden] {
+    display: none !important;
+}
+
+/* Icons -------------------------------------------------------------- */
+
+/* The sprite itself is never drawn; only its symbols are referenced. */
+.sprite {
+    display: none;
+}
+
+.icon {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* Focus is visible for anyone driving this from the keyboard, which the
+   first version left to the browser and therefore to nothing. */
+:focus-visible {
+    outline: 2px solid var(--line-strong);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
 html, body {
     height: 100%;
 }
@@ -105,7 +138,10 @@ body {
 }
 
 .tab {
-    padding: 5px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
@@ -146,6 +182,30 @@ body {
 
 .status[data-connected="true"] .dot {
     background: #22a06b;
+}
+
+/* A live connection is worth one quiet sign of life; a dead one should not
+   pulse, since nothing is happening. */
+.status[data-connected="true"] .dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: inherit;
+    animation: breathe 2.4s ease-in-out infinite;
+}
+
+.dot {
+    position: relative;
+}
+
+@keyframes breathe {
+    0%, 100% { opacity: 0; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(2.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status[data-connected="true"] .dot::after { animation: none; }
 }
 
 /* Views -------------------------------------------------------------- */
@@ -313,7 +373,19 @@ body {
     display: flex;
 }
 
+/* Square because it holds an icon rather than a word: a wide button around a
+   glyph reads as a gap with something in it. */
+.composer .send {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+}
+
 .send {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     padding: 8px 16px;
     border: none;
     border-radius: var(--radius-sm);
@@ -348,20 +420,68 @@ body {
     padding: 0 var(--gap-1);
 }
 
-.check {
+/* A switch rather than a checkbox: both of these settings are a mode the app
+   is in, not an item being ticked off, and a switch says which is on at a
+   glance from across a desk. */
+.switch {
     display: flex;
     align-items: center;
-    gap: var(--gap-1);
+    gap: var(--gap-2);
     color: var(--muted);
     font-size: 13px;
     cursor: pointer;
 }
 
-.check input {
-    accent-color: var(--solid);
+.switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.track {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--line-strong);
+    transition: background var(--quick);
+}
+
+.knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    transition: transform var(--quick);
+}
+
+.switch input:checked + .track {
+    background: var(--solid);
+}
+
+.switch input:checked + .track .knob {
+    transform: translateX(14px);
+}
+
+.switch input:focus-visible + .track {
+    outline: 2px solid var(--line-strong);
+    outline-offset: 2px;
+}
+
+.switch:hover .track {
+    opacity: 0.85;
 }
 
 .quiet {
+    display: flex;
+    align-items: center;
+    gap: 5px;
     padding: 0;
     border: none;
     background: none;
@@ -431,7 +551,22 @@ body {
     font-size: 13.5px;
 }
 
-.turn-steps li[data-failed="true"] {
+.turn-steps li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+/* Aligned with the text rather than centred on the line, so a wrapped step
+   still reads as one item. */
+.turn-steps .icon {
+    position: relative;
+    top: 2px;
+    color: var(--faint);
+}
+
+.turn-steps li[data-failed="true"],
+.turn-steps li[data-failed="true"] .icon {
     color: var(--alarm);
 }
 
@@ -465,8 +600,9 @@ body {
 }
 
 .raw summary::before {
-    content: "\203A ";
+    content: "\203A";
     display: inline-block;
+    width: 12px;
     transition: transform var(--quick);
 }
 
