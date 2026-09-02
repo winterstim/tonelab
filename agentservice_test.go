@@ -18,13 +18,24 @@ func (s *stubBrain) Send(text string) AgentResponse {
 	return s.response
 }
 
-type stubLiveness struct{ lastSeen time.Time }
+// Mirrors the real backend: recent feedback proves the DAW is there, and
+// silence proves nothing, so the probe is what decides.
+type stubLiveness struct {
+	lastSeen time.Time
+	answers  bool
+	probes   int
+}
 
-func (s stubLiveness) LastSeen() time.Time { return s.lastSeen }
+func (s *stubLiveness) LastSeen() time.Time { return s.lastSeen }
+
+func (s *stubLiveness) Probe(timeout time.Duration) bool {
+	s.probes++
+	return s.answers
+}
 
 func TestSendCommandPassesTheTextThrough(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{Message: "done"}}
-	service := NewAgentService(brain, nil, stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
 
 	response, err := service.SendCommand("turn track 2 down")
 
@@ -45,7 +56,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{
 		Error: &AgentError{Code: "param_not_found", Message: "No such parameter."},
 	}}
-	service := NewAgentService(brain, nil, stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
 
 	response, err := service.SendCommand("add reverb")
 
@@ -60,7 +71,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 // Empty input is worth catching here rather than spending a model call on it.
 func TestEmptyCommandIsRejectedWithoutCallingTheAgent(t *testing.T) {
 	brain := &stubBrain{}
-	service := NewAgentService(brain, nil, stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
 
 	response, err := service.SendCommand("   ")
 
@@ -75,20 +86,26 @@ func TestEmptyCommandIsRejectedWithoutCallingTheAgent(t *testing.T) {
 	}
 }
 
-// Connection is inferred from silence, because a fire-and-forget transport
-// cannot tell a healthy DAW from a closed one any other way.
-func TestDAWStatusFollowsRecentFeedback(t *testing.T) {
+// An idle DAW sends nothing at all, measured as zero messages in ten seconds,
+// so silence means "nobody is touching the project" far more often than "the
+// DAW is gone". Reading quiet as absence would show a disconnected light for
+// as long as the musician was thinking.
+func TestDAWStatusAsksWhenItHasNotHeardRecently(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		lastSeen  time.Time
+		answers   bool
 		connected bool
 	}{
-		{"never heard from", time.Time{}, false},
-		{"heard from just now", time.Now(), true},
-		{"silent for a long time", time.Now().Add(-time.Hour), false},
+		{"heard from just now", time.Now(), false, true},
+		{"quiet but answers when asked", time.Now().Add(-time.Hour), true, true},
+		{"quiet and does not answer", time.Now().Add(-time.Hour), false, false},
+		{"never heard from, answers when asked", time.Time{}, true, true},
+		{"never heard from, silent when asked", time.Time{}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := NewAgentService(&stubBrain{}, nil, stubLiveness{lastSeen: tc.lastSeen}, nil)
+			observer := &stubLiveness{lastSeen: tc.lastSeen, answers: tc.answers}
+			service := NewAgentService(&stubBrain{}, nil, observer, nil)
 
 			status, err := service.GetDAWStatus()
 
@@ -96,7 +113,12 @@ func TestDAWStatusFollowsRecentFeedback(t *testing.T) {
 				t.Fatalf("unexpected Go error: %v", err)
 			}
 			if status.Connected != tc.connected {
-				t.Fatalf("expected connected=%v, got %v", tc.connected, status.Connected)
+				t.Fatalf("expected connected=%v, got %v (%s)", tc.connected, status.Connected, status.Detail)
+			}
+			// Recent feedback is proof enough and must not cost a poke.
+			recentlyHeard := !tc.lastSeen.IsZero() && time.Since(tc.lastSeen) < time.Second
+			if recentlyHeard && observer.probes != 0 {
+				t.Errorf("expected no probe when the DAW was just heard from, got %d", observer.probes)
 			}
 		})
 	}
@@ -128,7 +150,7 @@ func TestChangesReachTheUI(t *testing.T) {
 		Message: "Muted the vocals.",
 		Changed: []ParamChange{{Track: 2, Param: "mute", Requested: true, NewValue: true}},
 	}}
-	service := NewAgentService(brain, nil, stubLiveness{}, nil)
+	service := NewAgentService(brain, nil, &stubLiveness{}, nil)
 
 	response, err := service.SendCommand("mute the vocals")
 	if err != nil {
@@ -148,7 +170,7 @@ func TestChangesReachTheUI(t *testing.T) {
 func TestUndoDoesNotGoThroughTheAgent(t *testing.T) {
 	brain := &stubBrain{}
 	daw := &stubReverser{}
-	service := NewAgentService(brain, nil, stubLiveness{}, daw)
+	service := NewAgentService(brain, nil, &stubLiveness{}, daw)
 
 	response, err := service.Undo()
 
@@ -169,7 +191,7 @@ func TestUndoDoesNotGoThroughTheAgent(t *testing.T) {
 // A DAW that cannot undo says so rather than reporting a reversal that never
 // happened.
 func TestUndoOnABackendWithoutItIsReported(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil, stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil)
 
 	response, err := service.Undo()
 
@@ -205,7 +227,7 @@ func TestApplyRunsExactlyWhatWasPreviewed(t *testing.T) {
 	planner := &stubPlanner{plan: []PlannedCall{
 		{Tool: "set_param", Arguments: `{"track_id":2}`, Description: "set track 2 volume to 0.3"},
 	}}
-	service := NewAgentService(&stubBrain{}, planner, stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, planner, &stubLiveness{}, nil)
 
 	preview, err := service.PreviewCommand("turn track 2 down")
 	if err != nil {
@@ -226,7 +248,7 @@ func TestApplyRunsExactlyWhatWasPreviewed(t *testing.T) {
 // Applying twice must not repeat the command: the plan was accepted once.
 func TestAPlanIsAppliedOnlyOnce(t *testing.T) {
 	planner := &stubPlanner{plan: []PlannedCall{{Tool: "set_param", Arguments: `{}`}}}
-	service := NewAgentService(&stubBrain{}, planner, stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, planner, &stubLiveness{}, nil)
 
 	service.PreviewCommand("anything")
 	service.ApplyPlan()
@@ -240,7 +262,7 @@ func TestAPlanIsAppliedOnlyOnce(t *testing.T) {
 // Applying with nothing pending must refuse rather than fall back to asking
 // the model, since the user is accepting something specific.
 func TestApplyingNothingRefuses(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, &stubPlanner{}, stubLiveness{}, nil)
+	service := NewAgentService(&stubBrain{}, &stubPlanner{}, &stubLiveness{}, nil)
 
 	response, err := service.ApplyPlan()
 

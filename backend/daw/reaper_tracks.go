@@ -38,6 +38,10 @@ const maxTracks = 128
 // Only /device/* addresses are sent, so this cannot disturb the project or the
 // user's own selection.
 func (r *REAPER) Tracks(timeout time.Duration) ([]Track, error) {
+	// Serialized against the liveness probe, which also drives the surface.
+	r.surface.Lock()
+	defer r.surface.Unlock()
+
 	// Parked, then drained: the announcement parking produces would otherwise
 	// be read as the first track's name.
 	if _, _, err := r.selectAndRead(parkIndex, timeout); err != nil {

@@ -14,6 +14,10 @@ import (
 // and "gone".
 const dawSilenceLimit = 5 * time.Second
 
+// probeTimeout is how long to wait for a DAW to answer a poke. Local and
+// fast, so a DAW that has not replied by now is not there.
+const probeTimeout = 500 * time.Millisecond
+
 // AgentResponse and friends are the frontend's contract. They live in
 // package main because Wails generates the frontend's types from what a
 // service actually returns.
@@ -83,8 +87,13 @@ type reverser interface {
 
 // liveness is optional: a backend that cannot observe its DAW must be able to
 // say so rather than have a connection assumed for it.
+//
+// Probe exists because silence proves nothing: an idle DAW sends nothing at
+// all, so a status read from quiet alone would show disconnected for as long
+// as the musician was thinking.
 type liveness interface {
 	LastSeen() time.Time
+	Probe(timeout time.Duration) bool
 }
 
 // AgentService is the frontend's entire view of the backend. Every domain
@@ -220,14 +229,16 @@ func (a *AgentService) GetDAWStatus() (DAWStatus, error) {
 		return DAWStatus{Detail: "This DAW backend cannot report whether it is connected."}, nil
 	}
 
-	lastSeen := a.liveness.LastSeen()
-	if lastSeen.IsZero() {
-		return DAWStatus{Detail: "No feedback received yet. Check the DAW is running and configured to send OSC back."}, nil
+	// Recent feedback is proof enough, and costs nothing.
+	if lastSeen := a.liveness.LastSeen(); !lastSeen.IsZero() && time.Since(lastSeen) <= dawSilenceLimit {
+		return DAWStatus{Connected: true, Detail: "Receiving feedback from the DAW."}, nil
 	}
-	if time.Since(lastSeen) > dawSilenceLimit {
-		return DAWStatus{Detail: "The DAW has gone quiet."}, nil
+
+	// Otherwise ask, rather than reading quiet as absence.
+	if a.liveness.Probe(probeTimeout) {
+		return DAWStatus{Connected: true, Detail: "The DAW answered."}, nil
 	}
-	return DAWStatus{Connected: true, Detail: "Receiving feedback from the DAW."}, nil
+	return DAWStatus{Detail: "The DAW did not answer. Check it is running and configured to send OSC feedback."}, nil
 }
 
 // orchestratorBrain adapts the agent package to this boundary, keeping the
