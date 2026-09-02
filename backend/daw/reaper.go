@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 )
 
@@ -55,9 +56,12 @@ type REAPER struct {
 	state    *state
 	observed atomic.Uint64
 
-	// Unix nanoseconds of the last feedback of any kind. Silence is the only
-	// evidence a fire-and-forget transport offers that a DAW is gone.
+	// Unix nanoseconds of the last feedback of any kind.
 	lastSeen atomic.Int64
+
+	// Guards the control surface's view, which both the track walk and the
+	// liveness probe move. Concurrent users would read each other's answers.
+	surface sync.Mutex
 }
 
 var _ Client = (*REAPER)(nil)

@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -487,5 +488,104 @@ func TestPreviewStillReadsTheProject(t *testing.T) {
 	}
 	if !strings.Contains(body, "Vocals") {
 		t.Fatalf("expected the read to have run, got: %s", body)
+	}
+}
+
+// A chat interface invites follow-ups, and without memory they fail in a way
+// that reads as the agent being stupid rather than as the product having none.
+func TestFollowUpsCarryTheConversation(t *testing.T) {
+	backend := newFakeDAW()
+	orchestrator, server := newOrchestrator(t, backend,
+		llmtest.Turn{Content: "Track 2 is the vocals."},
+		llmtest.Turn{Content: "Turned them down."},
+	)
+
+	orchestrator.Send("which track is the vocals")
+	orchestrator.Send("turn them down a bit")
+
+	second := server.Requests()[1]
+	body := ""
+	for _, msg := range second.Messages {
+		body += string(msg)
+	}
+	if !strings.Contains(body, "which track is the vocals") {
+		t.Errorf("the earlier question did not reach the model: %s", body)
+	}
+	if !strings.Contains(body, "Track 2 is the vocals.") {
+		t.Errorf("the earlier answer did not reach the model: %s", body)
+	}
+}
+
+// Memory that grows without limit spends a fortune in tokens and buries the
+// current request under history.
+func TestMemoryIsBounded(t *testing.T) {
+	backend := newFakeDAW()
+	turns := make([]llmtest.Turn, 0, 20)
+	for i := 0; i < 20; i++ {
+		turns = append(turns, llmtest.Turn{Content: "answer " + strconv.Itoa(i)})
+	}
+	orchestrator, server := newOrchestrator(t, backend, turns...)
+
+	for i := 0; i < 19; i++ {
+		orchestrator.Send("question " + strconv.Itoa(i))
+	}
+
+	last := server.Requests()[18]
+	// A system message, the remembered exchanges, and the current question.
+	if len(last.Messages) > 2+agent.MaxRememberedForTest*2 {
+		t.Fatalf("expected the conversation to be trimmed, got %d messages", len(last.Messages))
+	}
+	body := ""
+	for _, msg := range last.Messages {
+		body += string(msg)
+	}
+	if strings.Contains(body, "question 0") {
+		t.Error("the oldest exchange should have been dropped")
+	}
+	if !strings.Contains(body, "question 17") {
+		t.Error("the most recent exchange should have been kept")
+	}
+}
+
+// A user starting a new idea should not have to fight the last one, and a
+// wrong turn left in context keeps being wrong.
+func TestForgettingClearsTheConversation(t *testing.T) {
+	backend := newFakeDAW()
+	orchestrator, server := newOrchestrator(t, backend,
+		llmtest.Turn{Content: "First answer."},
+		llmtest.Turn{Content: "Second answer."},
+	)
+
+	orchestrator.Send("first question")
+	orchestrator.Forget()
+	orchestrator.Send("second question")
+
+	body := ""
+	for _, msg := range server.Requests()[1].Messages {
+		body += string(msg)
+	}
+	if strings.Contains(body, "first question") {
+		t.Errorf("the forgotten turn came back: %s", body)
+	}
+}
+
+// A turn that failed leaves nothing to refer back to, so it must not be
+// remembered as if it had happened.
+func TestFailedTurnsAreNotRemembered(t *testing.T) {
+	backend := newFakeDAW()
+	orchestrator, server := newOrchestrator(t, backend,
+		llmtest.Turn{Status: 500, Body: `{"error":{"message":"boom"}}`},
+		llmtest.Turn{Content: "Fine now."},
+	)
+
+	orchestrator.Send("first question")
+	orchestrator.Send("second question")
+
+	body := ""
+	for _, msg := range server.Requests()[1].Messages {
+		body += string(msg)
+	}
+	if strings.Contains(body, "first question") {
+		t.Errorf("a failed turn was remembered: %s", body)
 	}
 }

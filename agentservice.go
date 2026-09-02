@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,10 @@ import (
 // fire-and-forget transport can offer, and this is the line between "quiet"
 // and "gone".
 const dawSilenceLimit = 5 * time.Second
+
+// probeTimeout is how long to wait for a DAW to answer a poke. Local and
+// fast, so a DAW that has not replied by now is not there.
+const probeTimeout = 500 * time.Millisecond
 
 // AgentResponse and friends are the frontend's contract. They live in
 // package main because Wails generates the frontend's types from what a
@@ -28,6 +33,8 @@ type PlannedCall struct {
 
 type AgentResponse struct {
 	Message string
+	// Steps is what the turn did, tool by tool, for the history view.
+	Steps []JournalStep
 	// Plan is what a preview would do. Empty on an ordinary command.
 	Plan []PlannedCall
 	// Changed is plural because one command can move several parameters, and
@@ -62,7 +69,7 @@ type DAWStatus struct {
 // brain is the agent seen from the UI boundary, narrow enough that testing
 // this layer does not mean driving a language model.
 type brain interface {
-	Send(text string) AgentResponse
+	SendContext(ctx context.Context, text string) AgentResponse
 }
 
 // planner previews a command and carries out what it proposed. Separate from
@@ -81,8 +88,13 @@ type reverser interface {
 
 // liveness is optional: a backend that cannot observe its DAW must be able to
 // say so rather than have a connection assumed for it.
+//
+// Probe exists because silence proves nothing: an idle DAW sends nothing at
+// all, so a status read from quiet alone would show disconnected for as long
+// as the musician was thinking.
 type liveness interface {
 	LastSeen() time.Time
+	Probe(timeout time.Duration) bool
 }
 
 // AgentService is the frontend's entire view of the backend. Every domain
@@ -93,6 +105,11 @@ type AgentService struct {
 	planner  planner
 	liveness liveness
 	daw      any
+
+	journal journal
+
+	// Cancels the turn in flight, if there is one.
+	stopTurn context.CancelFunc
 
 	// The last plan a preview produced. Held so applying it runs exactly what
 	// was shown; a plan the user did not see must never be what runs.
@@ -115,6 +132,13 @@ func (a *AgentService) PreviewCommand(text string) (AgentResponse, error) {
 	}
 
 	response := a.planner.Preview(text)
+	a.journal.record(JournalEntry{
+		Command: text,
+		Answer:  response.Message,
+		Steps:   response.Steps,
+		Error:   response.Error,
+		Preview: true,
+	})
 
 	a.mu.Lock()
 	a.pending = response.Plan
@@ -141,7 +165,14 @@ func (a *AgentService) ApplyPlan() (AgentResponse, error) {
 	if a.planner == nil {
 		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
 	}
-	return a.planner.Apply(plan), nil
+	response := a.planner.Apply(plan)
+	a.journal.record(JournalEntry{
+		Command: "(applied the previewed plan)",
+		Answer:  response.Message,
+		Steps:   response.Steps,
+		Error:   response.Error,
+	})
+	return response, nil
 }
 
 // Undo exists beside the agent rather than only through it. When a command
@@ -158,12 +189,14 @@ func (a *AgentService) Undo() (AgentResponse, error) {
 	}
 
 	if err := source.Undo(); err != nil {
-		return AgentResponse{Error: &AgentError{
-			Code:    "daw_command_failed",
-			Message: "The DAW did not accept the undo.",
-		}}, nil
+		failure := &AgentError{Code: "daw_command_failed", Message: "The DAW did not accept the undo."}
+		a.journal.record(JournalEntry{Command: "(undo button)", Error: failure})
+		return AgentResponse{Error: failure}, nil
 	}
-	return AgentResponse{Message: "Asked the DAW to undo its last change."}, nil
+
+	answer := "Asked the DAW to undo its last change."
+	a.journal.record(JournalEntry{Command: "(undo button)", Answer: answer})
+	return AgentResponse{Message: answer}, nil
 }
 
 // SendCommand runs one natural-language command. Blank input is refused here
@@ -175,7 +208,52 @@ func (a *AgentService) SendCommand(text string) (AgentResponse, error) {
 			Message: "Type a command first.",
 		}}, nil
 	}
-	return a.agent.Send(text), nil
+	// A turn can take most of a minute against a local model, and a user who
+	// changed their mind should not have to watch it finish.
+	ctx, stop := context.WithCancel(context.Background())
+	a.mu.Lock()
+	a.stopTurn = stop
+	a.mu.Unlock()
+
+	defer func() {
+		a.mu.Lock()
+		a.stopTurn = nil
+		a.mu.Unlock()
+		stop()
+	}()
+
+	response := a.agent.SendContext(ctx, text)
+	a.journal.record(JournalEntry{
+		Command: text,
+		Answer:  response.Message,
+		Steps:   response.Steps,
+		Error:   response.Error,
+	})
+	return response, nil
+}
+
+// Stop ends the turn in flight. Commands already sent to the DAW stay sent,
+// which is what undo is for; what stops is the agent deciding to send more.
+func (a *AgentService) Stop() (AgentResponse, error) {
+	a.mu.Lock()
+	stop := a.stopTurn
+	a.mu.Unlock()
+
+	if stop == nil {
+		return AgentResponse{Error: &AgentError{
+			Code:    "nothing_running",
+			Message: "Nothing is running.",
+		}}, nil
+	}
+	stop()
+	return AgentResponse{Message: "Stopping."}, nil
+}
+
+// History is what the agent has done, newest first. Read by the UI rather than
+// only written to a terminal, since the person who needs it is the one whose
+// project changed.
+func (a *AgentService) History() ([]JournalEntry, error) {
+	return a.journal.list(), nil
 }
 
 // GetDAWStatus infers connection from recent feedback. Nothing about sending
@@ -186,14 +264,16 @@ func (a *AgentService) GetDAWStatus() (DAWStatus, error) {
 		return DAWStatus{Detail: "This DAW backend cannot report whether it is connected."}, nil
 	}
 
-	lastSeen := a.liveness.LastSeen()
-	if lastSeen.IsZero() {
-		return DAWStatus{Detail: "No feedback received yet. Check the DAW is running and configured to send OSC back."}, nil
+	// Recent feedback is proof enough, and costs nothing.
+	if lastSeen := a.liveness.LastSeen(); !lastSeen.IsZero() && time.Since(lastSeen) <= dawSilenceLimit {
+		return DAWStatus{Connected: true, Detail: "Receiving feedback from the DAW."}, nil
 	}
-	if time.Since(lastSeen) > dawSilenceLimit {
-		return DAWStatus{Detail: "The DAW has gone quiet."}, nil
+
+	// Otherwise ask, rather than reading quiet as absence.
+	if a.liveness.Probe(probeTimeout) {
+		return DAWStatus{Connected: true, Detail: "The DAW answered."}, nil
 	}
-	return DAWStatus{Connected: true, Detail: "Receiving feedback from the DAW."}, nil
+	return DAWStatus{Detail: "The DAW did not answer. Check it is running and configured to send OSC feedback."}, nil
 }
 
 // orchestratorBrain adapts the agent package to this boundary, keeping the
@@ -223,8 +303,8 @@ func (p previewBrain) Apply(plan []PlannedCall) AgentResponse {
 	return convert(p.live.Apply(calls))
 }
 
-func (o orchestratorBrain) Send(text string) AgentResponse {
-	return convert(o.orchestrator.Send(text))
+func (o orchestratorBrain) SendContext(ctx context.Context, text string) AgentResponse {
+	return convert(o.orchestrator.SendContext(ctx, text))
 }
 
 // convert moves an agent response across the UI boundary, keeping the
@@ -245,6 +325,14 @@ func convert(response agent.Response) AgentResponse {
 			NewValue:  change.Confirmed,
 			Requested: change.Requested,
 			Note:      change.Note,
+		})
+	}
+	for _, step := range response.Steps {
+		converted.Steps = append(converted.Steps, JournalStep{
+			Tool:      step.Tool,
+			Arguments: step.Arguments,
+			Outcome:   step.Outcome,
+			Failed:    step.Failed,
 		})
 	}
 	for _, step := range response.Plan {

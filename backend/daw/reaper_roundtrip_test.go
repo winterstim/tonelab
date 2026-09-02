@@ -274,3 +274,25 @@ func TestREAPERTrackWalk(t *testing.T) {
 	}
 	t.Logf("REAPER reports %d tracks: %v", len(tracks), tracks)
 }
+
+// An idle REAPER sends nothing at all, measured as zero messages in ten
+// seconds, so a status read from silence would show disconnected for as long
+// as the musician was thinking. This is the check that it answers when asked.
+func TestREAPERAnswersAProbe(t *testing.T) {
+	listener, err := osc.Listen(reaperHost, reaperFeedbackPort)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	reaper := daw.NewREAPER(osc.NewTransport(reaperHost, reaperListenPort))
+	reaper.Observe(listener.Messages())
+
+	// Twice, because a probe that only worked once would be one that relies
+	// on the surface happening to be somewhere else.
+	for attempt := 1; attempt <= 2; attempt++ {
+		if !reaper.Probe(time.Second) {
+			t.Fatalf("attempt %d: REAPER did not answer", attempt)
+		}
+	}
+}

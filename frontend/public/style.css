@@ -159,6 +159,35 @@ body {
     border-color: var(--problem);
 }
 
+.history {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+.history[hidden] {
+    display: none;
+}
+
+.history-summary {
+    padding: 10px 14px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.history-body {
+    padding: 0 14px 14px;
+    /* Monospace because these are the calls as made, not a retelling. */
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+    white-space: pre-wrap;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
 .transport {
     /* Pinned to the bottom so the layout does not jump when an answer
        appears, since the answer area is hidden while empty. */

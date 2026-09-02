@@ -6,6 +6,8 @@ const input = document.getElementById("command-input") as HTMLInputElement;
 const send = document.getElementById("command-send") as HTMLButtonElement;
 const answer = document.getElementById("answer") as HTMLElement;
 const previewMode = document.getElementById("preview-mode") as HTMLInputElement;
+const history = document.getElementById("history") as HTMLDetailsElement;
+const historyBody = document.getElementById("history-body") as HTMLElement;
 const apply = document.getElementById("apply") as HTMLButtonElement;
 const status = document.getElementById("daw-status") as HTMLElement;
 const statusText = document.getElementById("daw-status-text") as HTMLElement;
@@ -112,8 +114,32 @@ form.addEventListener("submit", async (event) => {
     } finally {
         send.disabled = false;
         input.focus();
+        refreshHistory();
     }
 });
+
+// Rendered as text rather than parsed into prose: a history that interprets
+// what happened is another account to be wrong, and the raw call is what
+// someone checking the agent actually wants.
+async function refreshHistory() {
+    // The binding types this as nullable, since a Go slice with no elements
+    // crosses as null rather than an empty array.
+    const entries = (await AgentService.History()) ?? [];
+    if (entries.length === 0) {
+        history.hidden = true;
+        return;
+    }
+    history.hidden = false;
+    historyBody.textContent = entries.map((entry) => {
+        const head = `${entry.At}  ${entry.Preview ? "[preview] " : ""}${entry.Command}`;
+        const steps = (entry.Steps ?? []).map(
+            (step) => `    ${step.Failed ? "✗" : "→"} ${step.Tool} ${step.Arguments}\n      ${step.Outcome}`);
+        const outcome = entry.Error
+            ? `    ✗ ${entry.Error.Code}: ${entry.Error.Message}`
+            : `    ${entry.Answer}`;
+        return [head, ...steps, outcome].join("\n");
+    }).join("\n\n");
+}
 
 async function refreshStatus() {
     try {
@@ -140,6 +166,7 @@ apply.addEventListener("click", async () => {
         // One acceptance per plan: the button returns only with a new preview.
         apply.disabled = false;
         apply.hidden = true;
+        refreshHistory();
     }
 });
 
@@ -150,6 +177,7 @@ document.getElementById("undo")!.addEventListener("click", async () => {
     } else {
         show(response.Message, "answer");
     }
+    refreshHistory();
 });
 
 document.getElementById("transport-play")!.addEventListener("click", async () => {
@@ -160,5 +188,6 @@ document.getElementById("transport-stop")!.addEventListener("click", async () =>
 });
 
 refreshStatus();
+refreshHistory();
 setInterval(refreshStatus, statusInterval);
 input.focus();
