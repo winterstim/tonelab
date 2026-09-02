@@ -81,8 +81,12 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 
 for (const button of document.querySelectorAll<HTMLButtonElement>(".choice")) {
     // Applied at once rather than on save: a theme you cannot see until you
-    // commit to it is one you cannot choose.
-    button.addEventListener("click", () => applyTheme(button.dataset.theme!));
+    // commit to it is one you cannot choose. Marked as unsaved too, so
+    // leaving the screen and coming back does not undo the choice.
+    button.addEventListener("click", () => {
+        applyTheme(button.dataset.theme!);
+        settingsTouched = true;
+    });
 }
 
 /* Views ------------------------------------------------------------- */
@@ -100,7 +104,12 @@ function show(view: string) {
         renderHistory();
     }
     if (view === "settings") {
-        loadSettings();
+        // Reloaded only when nothing is half-typed. Reading the file on every
+        // visit threw away unsaved edits, which showed up first as the theme
+        // snapping back but applied to every field on the screen.
+        if (!settingsTouched) {
+            loadSettings();
+        }
     }
     if (view === "chat") {
         input.focus();
@@ -509,6 +518,14 @@ function parse(text: string): any {
 
 /* Settings ---------------------------------------------------------- */
 
+// Whether anything on the settings screen has been changed since it was last
+// loaded or saved. Unsaved work belongs to the person who typed it.
+let settingsTouched = false;
+
+el("settings").addEventListener("input", () => {
+    settingsTouched = true;
+});
+
 async function loadSettings() {
     const settings = await SettingsService.Get();
 
@@ -536,6 +553,7 @@ async function loadSettings() {
     previewMode.checked = settings.PreviewByDefault;
     applyTheme(settings.Theme || "system");
     el("settings-note").textContent = "";
+    settingsTouched = false;
 }
 
 el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
@@ -565,6 +583,7 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
     note.textContent = result.Message;
     previewMode.checked = settings.PreviewByDefault;
     el<HTMLInputElement>("api-key").value = "";
+    settingsTouched = false;
 });
 
 /* Status ------------------------------------------------------------ */

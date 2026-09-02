@@ -31,6 +31,9 @@ Notes on what it does that is not obvious:
 - **The two toggles are switches, not checkboxes.** Both are a mode the app is
   in rather than an item being ticked, and a switch says which is on from
   across a desk.
+- **Settings are not reloaded while something is half-typed.** Reading the
+  file on every visit threw away unsaved edits; it showed up first as the
+  theme snapping back, but applied to every field on the screen.
 - **The API key is never received from the backend**, only replaced. A key
   that never crosses cannot be read off a screen or out of a screenshot.
 

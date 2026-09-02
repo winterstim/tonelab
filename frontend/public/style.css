@@ -35,8 +35,18 @@
     --wash: linear-gradient(180deg, #ffffff 0%, #fbfbfd 100%);
     --accent-fill: linear-gradient(180deg, #6a6ae0 0%, #5250cc 100%);
 
-    --shadow: 0 1px 2px rgba(16, 16, 40, 0.06), 0 10px 30px rgba(16, 16, 40, 0.05);
-    --shadow-accent: 0 2px 8px rgba(82, 80, 204, 0.28);
+    /* Elevation as a scale. Each step is a tight contact shadow plus a wide
+       ambient one, which is what makes a surface look lifted rather than
+       outlined. */
+    --lift-1: 0 1px 2px rgba(16, 16, 40, 0.05), 0 2px 6px rgba(16, 16, 40, 0.04);
+    --lift-2: 0 1px 2px rgba(16, 16, 40, 0.06), 0 8px 22px rgba(16, 16, 40, 0.07);
+    --lift-3: 0 2px 4px rgba(16, 16, 40, 0.07), 0 18px 44px rgba(16, 16, 40, 0.10);
+    --shadow: var(--lift-2);
+    --shadow-accent: 0 1px 2px rgba(60, 58, 160, 0.30), 0 6px 16px rgba(82, 80, 204, 0.32);
+
+    /* A hairline of light along the top edge, which is most of what reads as
+       a physical surface under a light source. */
+    --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.75);
 
     /* One spacing scale, so nothing is spaced by eye. */
     --gap-1: 6px;
@@ -45,8 +55,8 @@
     --gap-4: 24px;
     --gap-5: 40px;
 
-    --radius: 16px;
-    --radius-sm: 11px;
+    --radius: 18px;
+    --radius-sm: 13px;
     --radius-pill: 999px;
 
     /* Short enough to feel immediate, long enough to be seen. */
@@ -76,8 +86,12 @@
     --wash: linear-gradient(180deg, #131318 0%, #0d0d10 100%);
     --accent-fill: linear-gradient(180deg, #9a9af5 0%, #8080ea 100%);
 
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-accent: 0 2px 10px rgba(128, 128, 234, 0.3);
+    --lift-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --lift-2: 0 2px 6px rgba(0, 0, 0, 0.5), 0 10px 28px rgba(0, 0, 0, 0.35);
+    --lift-3: 0 4px 10px rgba(0, 0, 0, 0.55), 0 22px 50px rgba(0, 0, 0, 0.45);
+    --shadow: var(--lift-2);
+    --shadow-accent: 0 2px 10px rgba(90, 88, 200, 0.45);
+    --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 * {
@@ -148,7 +162,15 @@ body {
     gap: var(--gap-4);
     /* Left padding clears the macOS traffic lights on an inset title bar. */
     padding: 0 var(--gap-3) 0 84px;
-    height: 54px;
+    height: 56px;
+    position: relative;
+    z-index: 2;
+    /* Translucent so the thread passing underneath is felt rather than
+       hidden, which is what gives the window a front and a back. */
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    box-shadow: 0 1px 0 var(--line);
     -webkit-app-region: drag;
 }
 
@@ -262,11 +284,11 @@ body {
 
 .thread-chip {
     max-width: 22ch;
-    padding: 5px 13px;
+    padding: 6px 14px;
     border: none;
     border-radius: var(--radius-pill);
-    background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--line);
+    background: var(--bg);
+    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line);
     color: var(--muted);
     font: inherit;
     font-size: 12.5px;
@@ -300,9 +322,21 @@ body {
 }
 
 .empty {
+    position: relative;
     margin: auto;
     max-width: 22ch;
     text-align: center;
+}
+
+/* Behind the greeting rather than around it: a wash that gives the empty
+   screen a light source without becoming a shape of its own. */
+.empty::before {
+    content: "";
+    position: absolute;
+    inset: -140px -180px;
+    z-index: -1;
+    background: radial-gradient(60% 55% at 50% 45%, var(--accent-soft) 0%, transparent 70%);
+    pointer-events: none;
 }
 
 .empty-line {
@@ -354,8 +388,8 @@ body {
 }
 
 .msg[data-from="you"] .said {
-    padding: 10px 16px;
-    border-radius: var(--radius) var(--radius) 5px var(--radius);
+    padding: 10px 17px;
+    border-radius: 20px 20px 7px 20px;
     background: var(--accent-fill);
     color: var(--accent-ink);
     box-shadow: var(--shadow-accent);
@@ -374,7 +408,7 @@ body {
 .did {
     margin: 0;
     padding: var(--gap-2) var(--gap-3);
-    border-radius: var(--radius-sm);
+    border-radius: 14px;
     background: var(--accent-soft);
     box-shadow: inset 0 0 0 1px var(--accent-line);
     color: var(--muted);
@@ -402,15 +436,18 @@ body {
     display: flex;
     gap: var(--gap-2);
     align-items: flex-end;
-    padding: var(--gap-2);
-    border-radius: var(--radius);
-    background: var(--raised);
-    box-shadow: var(--shadow);
+    padding: 7px 7px 7px var(--gap-3);
+    /* Fully round while it holds one line, easing into a rounded rectangle
+       as it grows, which a fixed radius cannot do. */
+    border-radius: 26px;
+    background: var(--bg);
+    box-shadow: var(--lift-3), var(--sheen), inset 0 0 0 1px var(--line);
     transition: box-shadow var(--quick);
 }
 
 .composer:focus-within {
-    box-shadow: var(--shadow), 0 0 0 2px var(--accent-line);
+    box-shadow: var(--lift-3), var(--sheen), inset 0 0 0 1px var(--accent-line),
+        0 0 0 4px var(--accent-soft);
 }
 
 .input {
@@ -439,9 +476,10 @@ body {
 /* Square because it holds an icon rather than a word: a wide button around a
    glyph reads as a gap with something in it. */
 .composer .send {
-    width: 36px;
-    height: 36px;
+    width: 38px;
+    height: 38px;
     padding: 0;
+    border-radius: 50%;
 }
 
 .send {
@@ -505,11 +543,12 @@ body {
 
 .track {
     position: relative;
-    width: 32px;
-    height: 18px;
+    width: 34px;
+    height: 20px;
     flex: none;
     border-radius: 999px;
     background: var(--line-strong);
+    box-shadow: inset 0 1px 2px rgba(16, 16, 40, 0.12);
     transition: background var(--quick);
 }
 
@@ -517,11 +556,11 @@ body {
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    background: var(--bg);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(16, 16, 40, 0.25), 0 2px 6px rgba(16, 16, 40, 0.15);
     transition: transform var(--quick);
 }
 
@@ -581,10 +620,10 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--gap-1);
-    padding: var(--gap-3);
+    padding: var(--gap-3) var(--gap-4);
     border-radius: var(--radius);
-    background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--line);
+    background: var(--bg);
+    box-shadow: var(--lift-1), var(--sheen), inset 0 0 0 1px var(--line);
 }
 
 .turn-head {
@@ -644,8 +683,8 @@ body {
 
 .raw pre {
     margin: var(--gap-1) 0 0;
-    padding: var(--gap-2);
-    border-radius: var(--radius-sm);
+    padding: var(--gap-3);
+    border-radius: 14px;
     background: var(--sunken);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 11.5px;
@@ -721,14 +760,14 @@ body {
 }
 
 .text {
-    padding: 10px 14px;
+    padding: 11px 16px;
     border: none;
-    border-radius: var(--radius-sm);
-    background: var(--raised);
+    border-radius: 14px;
+    background: var(--bg);
     color: inherit;
     font: inherit;
     font-size: 13.5px;
-    box-shadow: inset 0 0 0 1px var(--line);
+    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line);
     transition: box-shadow var(--quick);
 }
 
@@ -747,9 +786,10 @@ body {
 .choices {
     display: flex;
     gap: 3px;
-    padding: 3px;
+    padding: 4px;
     border-radius: var(--radius-pill);
     background: var(--raised);
+    box-shadow: inset 0 1px 2px rgba(16, 16, 40, 0.06);
     align-self: flex-start;
 }
 
@@ -766,9 +806,10 @@ body {
 }
 
 .choice[aria-pressed="true"] {
-    background: var(--accent-soft);
+    background: var(--bg);
     color: var(--accent);
     font-weight: 500;
+    box-shadow: var(--lift-1);
 }
 
 .settings-actions {
