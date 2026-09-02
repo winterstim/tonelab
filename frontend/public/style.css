@@ -159,61 +159,40 @@ body {
 
 /* Bar ---------------------------------------------------------------- */
 
+/* No bar, only what is in it. A band across the top is another rectangle to
+   look at, and the two things that belong up here say enough on their own. */
 .bar {
     display: flex;
     align-items: center;
-    gap: var(--gap-3);
-    /* Left padding clears the macOS traffic lights on an inset title bar. */
+    justify-content: center;
+    /* Left padding keeps the centred group clear of the macOS traffic
+       lights rather than balancing against a title that is no longer here. */
     padding: 0 var(--gap-3) 0 84px;
     height: 58px;
     position: relative;
     z-index: 2;
-    /* Translucent so the thread passing underneath is felt rather than
-       hidden, which is what gives the window a front and a back. */
-    background: color-mix(in srgb, var(--bg) 70%, transparent);
-    backdrop-filter: saturate(170%) blur(18px);
-    -webkit-backdrop-filter: saturate(170%) blur(18px);
     -webkit-app-region: drag;
-}
-
-/* No line until there is something to separate. A permanent rule under an
-   empty screen is a border drawn for its own sake, and it was the flattest
-   thing left in the window. */
-.bar::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 1px;
-    /* Fading at the ends rather than meeting the edges square, which is what
-       stops it reading as a drawn box. */
-    background: linear-gradient(90deg, transparent, var(--line) 12%, var(--line) 88%, transparent);
-    opacity: 0;
-    transition: opacity var(--quick);
-}
-
-.bar[data-scrolled="true"]::after {
-    opacity: 1;
-}
-
-.mark {
-    font-weight: 600;
-    font-size: 14px;
-    letter-spacing: -0.012em;
-    white-space: nowrap;
 }
 
 /* One control rather than three loose buttons: the choice is exclusive, and
    a segmented group says so before anything is read. */
+/* Centred on the window rather than on what is left beside the traffic
+   lights, which had it sitting visibly off to one side. */
 .tabs {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     gap: 2px;
     min-width: 0;
     padding: 3px;
     border-radius: var(--radius-pill);
-    background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--line);
+    /* Its own surface now that there is no band behind it, so it reads as
+       something resting on the window rather than cut out of it. */
+    background: color-mix(in srgb, var(--raised) 80%, transparent);
+    backdrop-filter: saturate(170%) blur(14px);
+    -webkit-backdrop-filter: saturate(170%) blur(14px);
+    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line);
     -webkit-app-region: no-drag;
 }
 
@@ -245,11 +224,14 @@ body {
     box-shadow: var(--lift-1), inset 0 0 0 1px var(--accent-line);
 }
 
+/* Taken out of the flow so the tabs sit centred on the window rather than on
+   whatever is left beside this. */
 .status {
+    position: absolute;
+    right: var(--gap-3);
     display: flex;
     align-items: center;
     gap: 7px;
-    margin-left: auto;
     padding: 5px 12px 5px 10px;
     border-radius: var(--radius-pill);
     background: var(--raised);
@@ -306,29 +288,6 @@ body {
     min-height: 0;
     padding: 0 var(--gap-4) var(--gap-4);
     gap: var(--gap-3);
-}
-
-/* The wash sits on the view rather than inside the scrolling list, which was
-   clipping it into a hard edge, and is sized in viewport units so it grows
-   with the window instead of shrinking into a blob. Shown only while the
-   thread is empty, because that is the one screen with room for atmosphere. */
-#view-chat:has(.empty:not([hidden]))::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 42%;
-    width: min(150vw, 1100px);
-    height: min(110vh, 800px);
-    transform: translate(-50%, -50%);
-    background: radial-gradient(closest-side, var(--accent-soft), transparent 72%);
-    pointer-events: none;
-    z-index: 0;
-}
-
-/* Everything in the view sits above the wash. */
-.view > * {
-    position: relative;
-    z-index: 1;
 }
 
 .view[hidden] {
@@ -663,6 +622,7 @@ body {
 
 .history {
     flex: 1;
+    min-width: 0;
     min-height: 0;
     overflow-y: auto;
     display: flex;
@@ -715,6 +675,12 @@ body {
     display: flex;
     align-items: baseline;
     gap: 8px;
+    min-width: 0;
+}
+
+.turn-steps li span {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 /* Aligned with the text rather than centred on the line, so a wrapped step
@@ -774,6 +740,7 @@ body {
 
 .settings {
     flex: 1;
+    min-width: 0;
     min-height: 0;
     overflow-y: auto;
     display: flex;
@@ -816,6 +783,7 @@ body {
 }
 
 .text {
+    min-width: 0;
     padding: 11px 16px;
     border: none;
     border-radius: 14px;
@@ -886,15 +854,21 @@ body {
         padding: 0 var(--gap-3) var(--gap-3);
     }
 
+    /* Three ports side by side stop being readable long before they stop
+       fitting, so they stack. */
+    .row {
+        flex-direction: column;
+    }
+
+    .settings-actions {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--gap-2);
+    }
+
     .bar {
         gap: var(--gap-3);
         padding-right: var(--gap-2);
-    }
-
-    /* The name goes before the navigation does: which view you are in
-       matters more than being told what the app is called. */
-    .mark {
-        display: none;
     }
 
     /* The dot alone still says whether the DAW answered, which is the part
@@ -909,6 +883,20 @@ body {
 }
 
 @media (max-width: 560px) {
+    /* A turn's padding is generous for reading and wasteful when there is no
+       width to spare. */
+    .turn {
+        padding: var(--gap-3);
+    }
+
+    .turn-head {
+        flex-wrap: wrap;
+    }
+
+    .turn-tag {
+        margin-left: 0;
+    }
+
     /* Words drop, icons stay. A toolbar that overflows is worse than one
        that abbreviates. */
     .tab {

@@ -35,9 +35,10 @@ Notes on what it does that is not obvious:
   the app name goes and the connection reads as a dot; below 560px the tabs
   keep their icons and drop their words. A toolbar that abbreviates beats one
   that overflows, and a desktop window that scrolls sideways reads as broken.
-- **The rule under the bar appears only once something has scrolled under
-  it.** A permanent line across an empty screen is a border drawn for its own
-  sake.
+- **There is no header band**, only what would have sat in it: the views as
+  one pill centred on the window, and the connection at the right. A strip
+  across the top is another rectangle to look at, and neither of those two
+  things needs one to be found.
 - **Settings are not reloaded while something is half-typed.** Reading the
   file on every visit threw away unsaved edits; it showed up first as the
   theme snapping back, but applied to every field on the screen.
