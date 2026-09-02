@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"time"
 
 	"tonelab/backend/agent"
@@ -16,8 +17,19 @@ const dawSilenceLimit = 5 * time.Second
 // AgentResponse and friends are the frontend's contract. They live in
 // package main because Wails generates the frontend's types from what a
 // service actually returns.
+// PlannedCall is one step a preview proposed, held in the form the model
+// produced so applying it runs what the user approved rather than whatever a
+// second question would produce.
+type PlannedCall struct {
+	Tool        string
+	Arguments   string
+	Description string
+}
+
 type AgentResponse struct {
 	Message string
+	// Plan is what a preview would do. Empty on an ordinary command.
+	Plan []PlannedCall
 	// Changed is plural because one command can move several parameters, and
 	// a UI showing only the first would be quietly wrong.
 	Changed []ParamChange
@@ -53,6 +65,20 @@ type brain interface {
 	Send(text string) AgentResponse
 }
 
+// planner previews a command and carries out what it proposed. Separate from
+// brain because previewing needs its own agent, one whose changing tools are
+// disarmed, rather than a flag on a shared one.
+type planner interface {
+	Preview(text string) AgentResponse
+	Apply(plan []PlannedCall) AgentResponse
+}
+
+// reverser is optional: not every DAW can be asked to take something back, and
+// a button that cannot work should not be offered.
+type reverser interface {
+	Undo() error
+}
+
 // liveness is optional: a backend that cannot observe its DAW must be able to
 // say so rather than have a connection assumed for it.
 type liveness interface {
@@ -64,11 +90,80 @@ type liveness interface {
 // RPC itself breaking.
 type AgentService struct {
 	agent    brain
+	planner  planner
 	liveness liveness
+	daw      any
+
+	// The last plan a preview produced. Held so applying it runs exactly what
+	// was shown; a plan the user did not see must never be what runs.
+	mu      sync.Mutex
+	pending []PlannedCall
 }
 
-func NewAgentService(agent brain, observer liveness) *AgentService {
-	return &AgentService{agent: agent, liveness: observer}
+func NewAgentService(agent brain, previews planner, observer liveness, client any) *AgentService {
+	return &AgentService{agent: agent, planner: previews, liveness: observer, daw: client}
+}
+
+// PreviewCommand says what a command would do without doing it, and holds the
+// steps so the user can accept exactly those.
+func (a *AgentService) PreviewCommand(text string) (AgentResponse, error) {
+	if strings.TrimSpace(text) == "" {
+		return AgentResponse{Error: &AgentError{Code: "empty_command", Message: "Type a command first."}}, nil
+	}
+	if a.planner == nil {
+		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
+	}
+
+	response := a.planner.Preview(text)
+
+	a.mu.Lock()
+	a.pending = response.Plan
+	a.mu.Unlock()
+
+	return response, nil
+}
+
+// ApplyPlan carries out the plan the last preview showed. It refuses when
+// there is nothing pending rather than falling back to asking the model, since
+// the user is accepting something specific.
+func (a *AgentService) ApplyPlan() (AgentResponse, error) {
+	a.mu.Lock()
+	plan := a.pending
+	a.pending = nil
+	a.mu.Unlock()
+
+	if len(plan) == 0 {
+		return AgentResponse{Error: &AgentError{
+			Code:    "nothing_to_apply",
+			Message: "There is no previewed plan to apply.",
+		}}, nil
+	}
+	if a.planner == nil {
+		return AgentResponse{Error: &AgentError{Code: "not_supported", Message: "Previewing is not available."}}, nil
+	}
+	return a.planner.Apply(plan), nil
+}
+
+// Undo exists beside the agent rather than only through it. When a command
+// went wrong, asking the model to fix it means trusting the thing that just
+// erred, and a user reaching for undo wants it to happen, not to be
+// interpreted.
+func (a *AgentService) Undo() (AgentResponse, error) {
+	source, ok := a.daw.(reverser)
+	if !ok {
+		return AgentResponse{Error: &AgentError{
+			Code:    "not_supported",
+			Message: "This DAW cannot undo.",
+		}}, nil
+	}
+
+	if err := source.Undo(); err != nil {
+		return AgentResponse{Error: &AgentError{
+			Code:    "daw_command_failed",
+			Message: "The DAW did not accept the undo.",
+		}}, nil
+	}
+	return AgentResponse{Message: "Asked the DAW to undo its last change."}, nil
 }
 
 // SendCommand runs one natural-language command. Blank input is refused here
@@ -107,8 +202,34 @@ type orchestratorBrain struct {
 	orchestrator *agent.Orchestrator
 }
 
+// previewBrain wraps the preview orchestrator, whose changing tools are
+// disarmed, so a preview cannot reach the project even by mistake.
+type previewBrain struct {
+	orchestrator *agent.Orchestrator
+	live         *agent.Orchestrator
+}
+
+func (p previewBrain) Preview(text string) AgentResponse {
+	return convert(p.orchestrator.Send(text))
+}
+
+func (p previewBrain) Apply(plan []PlannedCall) AgentResponse {
+	calls := make([]agent.PlannedCall, 0, len(plan))
+	for _, step := range plan {
+		calls = append(calls, agent.PlannedCall{Tool: step.Tool, Arguments: step.Arguments})
+	}
+	// Applied through the live agent's tools, since the preview's are
+	// deliberately incapable of changing anything.
+	return convert(p.live.Apply(calls))
+}
+
 func (o orchestratorBrain) Send(text string) AgentResponse {
-	response := o.orchestrator.Send(text)
+	return convert(o.orchestrator.Send(text))
+}
+
+// convert moves an agent response across the UI boundary, keeping the
+// contract's types out of the agent and the agent's out of the frontend.
+func convert(response agent.Response) AgentResponse {
 
 	converted := AgentResponse{Message: response.Message}
 	if response.Error != nil {
@@ -124,6 +245,13 @@ func (o orchestratorBrain) Send(text string) AgentResponse {
 			NewValue:  change.Confirmed,
 			Requested: change.Requested,
 			Note:      change.Note,
+		})
+	}
+	for _, step := range response.Plan {
+		converted.Plan = append(converted.Plan, PlannedCall{
+			Tool:        step.Tool,
+			Arguments:   step.Arguments,
+			Description: step.Description,
 		})
 	}
 	return converted

@@ -26,6 +26,7 @@ type fakeDAW struct {
 	refreshed []int
 	readDelay time.Duration
 	tracks    []daw.Track
+	undos     int
 }
 
 type setCall struct {
@@ -50,6 +51,11 @@ func newFakeDAW() *fakeDAW {
 }
 
 func (f *fakeDAW) Parameters() []daw.Parameter { return f.params }
+
+func (f *fakeDAW) Undo() error {
+	f.undos++
+	return f.errs["undo"]
+}
 
 // Validates exactly as a real backend does, which dawtest.AssertClientContract
 // holds it to. A fake that accepts what a DAW would refuse reports success
@@ -118,6 +124,13 @@ func (f *fakeDAW) GetParam(track int, name string) (any, error) {
 	return value, nil
 }
 
+// ConfirmParam is the strict read: only an answer from after the call counts.
+// The fake keeps them distinct because the real backend does, and collapsing
+// them here would hide the difference the product depends on.
+func (f *fakeDAW) ConfirmParam(track int, name string, timeout time.Duration) (any, error) {
+	return f.ReadParam(track, name, timeout)
+}
+
 // Mirrors the real backend's asynchrony rather than answering instantly, so
 // this fake cannot hide the timing the DAW actually imposes.
 func (f *fakeDAW) ReadParam(track int, name string, timeout time.Duration) (any, error) {
@@ -138,8 +151,8 @@ func call(t *testing.T, tools *agent.Tools, name, args string) agent.Result {
 }
 
 // Parameter access is two generic tools and stays two however many parameters
-// exist. list_tracks is not a third of those: it describes the
-// project rather than a control, so it grows with nothing.
+// exist. The others are not more of those: they describe or reverse
+// the project rather than address a control, so none grows with anything.
 func TestParameterAccessIsTwoGenericTools(t *testing.T) {
 	tools := agent.NewTools(newFakeDAW())
 
@@ -152,13 +165,13 @@ func TestParameterAccessIsTwoGenericTools(t *testing.T) {
 			t.Errorf("%s has no input schema", def.Name)
 		}
 	}
-	for _, want := range []string{"get_param", "set_param", "list_tracks"} {
+	for _, want := range []string{"get_param", "set_param", "list_tracks", "undo"} {
 		if !names[want] {
 			t.Errorf("expected a %s tool, got %v", want, names)
 		}
 	}
-	if len(defs) != 3 {
-		t.Fatalf("expected exactly those 3 tools, got %d: %v", len(defs), names)
+	if len(defs) != 4 {
+		t.Fatalf("expected exactly those 4 tools, got %d: %v", len(defs), names)
 	}
 }
 
@@ -171,8 +184,8 @@ func TestDescriptionsListTheBackendsOwnParameters(t *testing.T) {
 	tools := agent.NewTools(backend)
 
 	for _, def := range tools.Definitions() {
-		if def.Name == "list_tracks" {
-			continue // describes the project, not a parameter
+		if def.Name == "list_tracks" || def.Name == "undo" {
+			continue // describes or reverses the project, not a parameter
 		}
 		if !strings.Contains(def.Description, "wobble") {
 			t.Errorf("%s description does not mention the backend's own parameter: %q", def.Name, def.Description)
@@ -724,3 +737,40 @@ func TestUnreadableParameterIsNotWaitedOn(t *testing.T) {
 		t.Errorf("expected the caveat, got %+v", applied)
 	}
 }
+
+// Undo is the guardrail that matters for an agent driving someone's project:
+// asking permission before each change would make the product unusable, while
+// being able to take it back costs nothing until it is needed.
+func TestUndoAsksTheDAWToReverse(t *testing.T) {
+	backend := newFakeDAW()
+	tools := agent.NewTools(backend)
+
+	result := call(t, tools, "undo", `{}`)
+
+	if result.Error != nil {
+		t.Fatalf("expected success, got %+v", result.Error)
+	}
+	if backend.undos != 1 {
+		t.Fatalf("expected one undo, got %d", backend.undos)
+	}
+	// The claim has to stay within what we can know.
+	reverted := result.Value.(agent.Reverted)
+	if !strings.Contains(reverted.Note, "may not be the one just made") {
+		t.Errorf("expected the caveat about whose change was undone, got %q", reverted.Note)
+	}
+}
+
+// Offered only where it works, since a tool that always fails wastes a turn
+// and teaches the model nothing.
+func TestUndoIsOfferedOnlyWhenSupported(t *testing.T) {
+	if !offers(agent.NewTools(newFakeDAW()).Definitions(), "undo") {
+		t.Error("a backend that can undo should offer the tool")
+	}
+	if offers(agent.NewTools(&noUndoDAW{fakeDAW: newFakeDAW()}).Definitions(), "undo") {
+		t.Error("a backend that cannot undo must not offer the tool")
+	}
+}
+
+type noUndoDAW struct{ *fakeDAW }
+
+func (noUndoDAW) Undo() {}

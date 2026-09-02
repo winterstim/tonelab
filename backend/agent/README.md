@@ -107,6 +107,21 @@ Three more things help every model rather than any one of them:
   word. Where a parameter cannot be read back the result says so plainly, which
   is neither a failure nor a confirmation.
 
+## Preview
+
+`NewPreviewTools` builds the same tools with the changing ones disarmed, so a
+turn can be run for its plan without touching the project. Reads still run: a
+plan made without looking at the project would be a guess.
+
+The plan is kept **executable**, not described. Showing a user what the model
+proposed and then asking the model to do it again invites a different answer,
+and the user would have approved the first while getting the second. `Apply`
+replays the calls the model already produced, without consulting it.
+
+Preview is a separate orchestrator rather than a flag, because a flag on a
+shared object is a race with someone else's command, and the object in question
+can change a musician's project.
+
 ## How a model may write a value
 
 `TestValueRepresentationPolicy` is the policy, as a table: every accepted and

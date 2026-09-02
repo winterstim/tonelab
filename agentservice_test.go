@@ -24,7 +24,7 @@ func (s stubLiveness) LastSeen() time.Time { return s.lastSeen }
 
 func TestSendCommandPassesTheTextThrough(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{Message: "done"}}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, nil, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("turn track 2 down")
 
@@ -45,7 +45,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 	brain := &stubBrain{response: AgentResponse{
 		Error: &AgentError{Code: "param_not_found", Message: "No such parameter."},
 	}}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, nil, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("add reverb")
 
@@ -60,7 +60,7 @@ func TestAgentFailuresAreNotGoErrors(t *testing.T) {
 // Empty input is worth catching here rather than spending a model call on it.
 func TestEmptyCommandIsRejectedWithoutCallingTheAgent(t *testing.T) {
 	brain := &stubBrain{}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, nil, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("   ")
 
@@ -88,7 +88,7 @@ func TestDAWStatusFollowsRecentFeedback(t *testing.T) {
 		{"silent for a long time", time.Now().Add(-time.Hour), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			service := NewAgentService(&stubBrain{}, stubLiveness{lastSeen: tc.lastSeen})
+			service := NewAgentService(&stubBrain{}, nil, stubLiveness{lastSeen: tc.lastSeen}, nil)
 
 			status, err := service.GetDAWStatus()
 
@@ -105,7 +105,7 @@ func TestDAWStatusFollowsRecentFeedback(t *testing.T) {
 // A backend that cannot report liveness must say "unknown" rather than claim a
 // connection it cannot see.
 func TestDAWStatusIsFalseWithoutALivenessSource(t *testing.T) {
-	service := NewAgentService(&stubBrain{}, nil)
+	service := NewAgentService(&stubBrain{}, nil, nil, nil)
 
 	status, err := service.GetDAWStatus()
 
@@ -128,7 +128,7 @@ func TestChangesReachTheUI(t *testing.T) {
 		Message: "Muted the vocals.",
 		Changed: []ParamChange{{Track: 2, Param: "mute", Requested: true, NewValue: true}},
 	}}
-	service := NewAgentService(brain, stubLiveness{})
+	service := NewAgentService(brain, nil, stubLiveness{}, nil)
 
 	response, err := service.SendCommand("mute the vocals")
 	if err != nil {
@@ -140,5 +140,114 @@ func TestChangesReachTheUI(t *testing.T) {
 	}
 	if response.Changed[0].Track != 2 || response.Changed[0].NewValue != true {
 		t.Fatalf("unexpected change %+v", response.Changed[0])
+	}
+}
+
+// Undo sits beside the agent, not behind it: when a command went wrong, asking
+// the model to fix it means trusting the thing that just erred.
+func TestUndoDoesNotGoThroughTheAgent(t *testing.T) {
+	brain := &stubBrain{}
+	daw := &stubReverser{}
+	service := NewAgentService(brain, nil, stubLiveness{}, daw)
+
+	response, err := service.Undo()
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if response.Error != nil {
+		t.Fatalf("expected success, got %+v", response.Error)
+	}
+	if daw.undos != 1 {
+		t.Errorf("expected the DAW to be asked once, got %d", daw.undos)
+	}
+	if brain.lastText != "" {
+		t.Error("undo must not be routed through the language model")
+	}
+}
+
+// A DAW that cannot undo says so rather than reporting a reversal that never
+// happened.
+func TestUndoOnABackendWithoutItIsReported(t *testing.T) {
+	service := NewAgentService(&stubBrain{}, nil, stubLiveness{}, nil)
+
+	response, err := service.Undo()
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "not_supported" {
+		t.Fatalf("expected not_supported, got %+v", response.Error)
+	}
+}
+
+type stubReverser struct{ undos int }
+
+func (s *stubReverser) Undo() error { s.undos++; return nil }
+
+// A plan the user did not see must never be what runs, so applying uses the
+// steps the preview showed rather than asking again.
+type stubPlanner struct {
+	plan    []PlannedCall
+	applied []PlannedCall
+}
+
+func (s *stubPlanner) Preview(string) AgentResponse {
+	return AgentResponse{Message: "I would turn track 2 down.", Plan: s.plan}
+}
+
+func (s *stubPlanner) Apply(plan []PlannedCall) AgentResponse {
+	s.applied = plan
+	return AgentResponse{Message: "Applied."}
+}
+
+func TestApplyRunsExactlyWhatWasPreviewed(t *testing.T) {
+	planner := &stubPlanner{plan: []PlannedCall{
+		{Tool: "set_param", Arguments: `{"track_id":2}`, Description: "set track 2 volume to 0.3"},
+	}}
+	service := NewAgentService(&stubBrain{}, planner, stubLiveness{}, nil)
+
+	preview, err := service.PreviewCommand("turn track 2 down")
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if len(preview.Plan) != 1 {
+		t.Fatalf("expected the plan to reach the UI, got %v", preview.Plan)
+	}
+
+	if _, err := service.ApplyPlan(); err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if len(planner.applied) != 1 || planner.applied[0].Arguments != `{"track_id":2}` {
+		t.Fatalf("expected the previewed step to be applied, got %v", planner.applied)
+	}
+}
+
+// Applying twice must not repeat the command: the plan was accepted once.
+func TestAPlanIsAppliedOnlyOnce(t *testing.T) {
+	planner := &stubPlanner{plan: []PlannedCall{{Tool: "set_param", Arguments: `{}`}}}
+	service := NewAgentService(&stubBrain{}, planner, stubLiveness{}, nil)
+
+	service.PreviewCommand("anything")
+	service.ApplyPlan()
+	second, _ := service.ApplyPlan()
+
+	if second.Error == nil || second.Error.Code != "nothing_to_apply" {
+		t.Fatalf("expected the second apply to refuse, got %+v", second.Error)
+	}
+}
+
+// Applying with nothing pending must refuse rather than fall back to asking
+// the model, since the user is accepting something specific.
+func TestApplyingNothingRefuses(t *testing.T) {
+	service := NewAgentService(&stubBrain{}, &stubPlanner{}, stubLiveness{}, nil)
+
+	response, err := service.ApplyPlan()
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "nothing_to_apply" {
+		t.Fatalf("expected nothing_to_apply, got %+v", response.Error)
 	}
 }

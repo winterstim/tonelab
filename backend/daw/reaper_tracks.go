@@ -71,7 +71,7 @@ func (r *REAPER) selectAndRead(number int, timeout time.Duration) (string, bool,
 	changed := r.state.changed()
 	_, seenBefore := r.state.currentTrackName()
 
-	if err := r.osc.Send("/device/track/select", int32(number)); err != nil {
+	if err := r.send("/device/track/select", int32(number)); err != nil {
 		return "", false, err
 	}
 

@@ -21,6 +21,11 @@ type state struct {
 	mu     sync.RWMutex
 	values map[string]float64
 
+	// How many readings have been recorded, so a caller can tell a value the
+	// DAW just reported from one it reported before a question was asked.
+	// Presence alone cannot: the stale reading looks identical.
+	readings uint64
+
 	// The name of the track the control surface is looking at, with a count
 	// of how many times it has been announced. Two tracks may share a name,
 	// so a waiter has to watch the count rather than the value.
@@ -48,6 +53,7 @@ func (s *state) set(track int, param string, value float64) {
 	defer s.mu.Unlock()
 
 	s.values[key(track, param)] = value
+	s.readings++
 
 	close(s.updated)
 	s.updated = make(chan struct{})
@@ -85,6 +91,14 @@ func (s *state) get(track int, param string) (float64, bool) {
 	defer s.mu.RUnlock()
 	value, ok := s.values[key(track, param)]
 	return value, ok
+}
+
+// readingsSeen is the count a caller records before asking, to recognise an
+// answer that arrived afterwards.
+func (s *state) readingsSeen() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.readings
 }
 
 // Observe makes reading a lookup rather than a query, which is a requirement
@@ -175,40 +189,62 @@ func (r *REAPER) Refresh(track int) error {
 	// Bounce off a different track so the second message is a change; REAPER
 	// says nothing when asked to select what is already selected.
 	other := track + 1
-	if err := r.osc.Send("/device/track/select", int32(other)); err != nil {
+	if err := r.send("/device/track/select", int32(other)); err != nil {
 		return err
 	}
-	return r.osc.Send("/device/track/select", int32(track))
+	return r.send("/device/track/select", int32(track))
 }
 
-// ReadParam is what a caller wanting a current value should use. GetParam
-// alone races the DAW: a refresh travels over UDP and the answer arrives
-// asynchronously, so reading immediately after asking finds an empty cache.
-// Waiting is therefore part of reading, and the timeout belongs to the caller
-// because how long to wait for a DAW is a product decision, not a fact.
+// ReadParam answers what the value is, for a caller who asked a question.
+// It prefers a fresh reading and falls back to the last one heard, because a
+// DAW that reports only changes stays silent about a value that has not moved,
+// and answering "I do not know" about something we were told five seconds ago
+// would be unhelpful and untrue.
 func (r *REAPER) ReadParam(track int, name string, timeout time.Duration) (any, error) {
+	value, err := r.ConfirmParam(track, name, timeout)
+	if err == nil {
+		return value, nil
+	}
+	if !errors.Is(err, ErrValueUnknown) {
+		return nil, err
+	}
+	// Silence means unchanged far more often than unknown, so the last
+	// reading is the better answer where there is one.
+	return r.GetParam(track, name)
+}
+
+// ConfirmParam answers whether the value is what it should be now, for a
+// caller checking its own work. Only a reading that arrives after the call
+// counts: right after a change the cache still holds the old value, and
+// answering from it reports a number that is confidently wrong, which is worse
+// than reporting nothing.
+func (r *REAPER) ConfirmParam(track int, name string, timeout time.Duration) (any, error) {
+	// Recorded before asking, so an answer already in flight still counts as
+	// an answer to this question rather than to the last one.
+	seen := r.state.readingsSeen()
+	changed := r.state.changed()
+
 	if err := r.Refresh(track); err != nil {
 		return nil, err
 	}
 
 	deadline := time.After(timeout)
 	for {
-		// Take the change signal before reading, so an update arriving in
-		// between is not missed.
-		changed := r.state.changed()
-
-		value, err := r.GetParam(track, name)
-		if err == nil {
-			return value, nil
-		}
-		if !errors.Is(err, ErrValueUnknown) {
-			return nil, err // a name or track problem; waiting cannot fix it
+		if r.state.readingsSeen() > seen {
+			value, err := r.GetParam(track, name)
+			if err == nil {
+				return value, nil
+			}
+			if !errors.Is(err, ErrValueUnknown) {
+				return nil, err // a name or track problem; waiting cannot fix it
+			}
 		}
 
 		select {
 		case <-changed:
+			changed = r.state.changed()
 		case <-deadline:
-			return nil, err
+			return nil, fmt.Errorf("%w: track %d %s", ErrValueUnknown, track, name)
 		}
 	}
 }

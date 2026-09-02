@@ -56,14 +56,22 @@ func main() {
 		observer.Observe(listener.Messages())
 	}
 
-	orchestrator := agent.NewOrchestrator(agent.Config{
+	llm := agent.Config{
 		BaseURL: settings.LLM.BaseURL,
 		APIKey:  settings.LLM.APIKey,
 		Model:   settings.LLM.Model,
-	}, agent.NewTools(dawClient))
+	}
+	orchestrator := agent.NewOrchestrator(llm, agent.NewTools(dawClient))
+
+	// A separate agent whose changing tools are disarmed, so a preview cannot
+	// reach the project even if something above it goes wrong.
+	previews := agent.NewOrchestrator(llm, agent.NewPreviewTools(dawClient))
 
 	observer, _ := dawClient.(liveness)
-	agentService := NewAgentService(orchestratorBrain{orchestrator: orchestrator}, observer)
+	agentService := NewAgentService(
+		orchestratorBrain{orchestrator: orchestrator},
+		previewBrain{orchestrator: previews, live: orchestrator},
+		observer, dawClient)
 
 	app := application.New(application.Options{
 		Name:        "Tonelab",

@@ -102,3 +102,116 @@ func TestNamedTrackCommandChangesREAPER(t *testing.T) {
 
 	_ = reaper.SetTrackMute(2, false)
 }
+
+// The guardrail, end to end. An agent driving someone's project is safe to the
+// degree its work can be taken back, so this asserts the value actually
+// returns rather than that the tool was called.
+func TestUndoReturnsTheValue(t *testing.T) {
+	llm := liveConfig(t)
+
+	listener, err := osc.Listen("127.0.0.1", 9000)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", 8000))
+	reaper.Observe(listener.Messages())
+
+	// A known starting point, set directly so the test is about undo rather
+	// than about the model.
+	if err := reaper.SetTrackVolume(1, 0.5); err != nil {
+		t.Fatalf("could not set the starting value: %v", err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	before, err := reaper.ReadParam(1, "volume", 5*time.Second)
+	if err != nil {
+		t.Fatalf("could not read the starting value: %v", err)
+	}
+
+	orchestrator := agent.NewOrchestrator(
+		agent.Config{BaseURL: llm.BaseURL, APIKey: llm.APIKey, Model: llm.Model},
+		agent.NewTools(reaper),
+	)
+
+	if response := orchestrator.Send("Set track 1 volume to 0.9."); response.Error != nil {
+		t.Fatalf("the command failed: %+v", response.Error)
+	}
+	changed, err := reaper.ReadParam(1, "volume", 5*time.Second)
+	if err != nil || changed == before {
+		t.Fatalf("expected the value to have moved from %v, got %v (%v)", before, changed, err)
+	}
+
+	response := orchestrator.Send("Undo that.")
+	if response.Error != nil {
+		t.Fatalf("the undo failed: %+v", response.Error)
+	}
+	t.Logf("model said: %s", response.Message)
+
+	time.Sleep(500 * time.Millisecond)
+	restored, err := reaper.ReadParam(1, "volume", 5*time.Second)
+	if err != nil {
+		t.Fatalf("could not read the value back: %v", err)
+	}
+	if restored != before {
+		t.Fatalf("expected the value to return to %v, got %v", before, restored)
+	}
+	t.Logf("volume went %v -> %v -> %v", before, changed, restored)
+}
+
+// The preview guardrail, against the real thing: the agent says
+// what it would do, the project does not move, and accepting runs those exact
+// steps rather than a second answer to the same question.
+func TestPreviewThenApply(t *testing.T) {
+	llm := liveConfig(t)
+
+	listener, err := osc.Listen("127.0.0.1", 9000)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+
+	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", 8000))
+	reaper.Observe(listener.Messages())
+
+	if err := reaper.SetTrackVolume(3, 0.5); err != nil {
+		t.Fatalf("could not set the starting value: %v", err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	before, err := reaper.ReadParam(3, "volume", 5*time.Second)
+	if err != nil {
+		t.Fatalf("could not read the starting value: %v", err)
+	}
+
+	config := agent.Config{BaseURL: llm.BaseURL, APIKey: llm.APIKey, Model: llm.Model}
+	previews := agent.NewOrchestrator(config, agent.NewPreviewTools(reaper))
+	live := agent.NewOrchestrator(config, agent.NewTools(reaper))
+
+	plan := previews.Send("Set track 3 volume to 0.8.")
+	if plan.Error != nil {
+		t.Fatalf("the preview failed: %+v", plan.Error)
+	}
+	if len(plan.Plan) == 0 {
+		t.Fatalf("expected a plan, got none: %q", plan.Message)
+	}
+	t.Logf("would: %s", plan.Plan[0].Description)
+
+	// Nothing may have moved yet, which is the whole point.
+	time.Sleep(400 * time.Millisecond)
+	unchanged, err := reaper.ReadParam(3, "volume", 3*time.Second)
+	if err == nil && unchanged != before {
+		t.Fatalf("the preview changed the project: %v became %v", before, unchanged)
+	}
+
+	if applied := live.Apply(plan.Plan); applied.Error != nil {
+		t.Fatalf("applying failed: %+v", applied.Error)
+	}
+	after, err := reaper.ReadParam(3, "volume", 5*time.Second)
+	if err != nil {
+		t.Fatalf("could not read the value back: %v", err)
+	}
+	if after == before {
+		t.Fatalf("applying did not change anything: still %v", after)
+	}
+	t.Logf("volume %v -> preview (unchanged) -> applied %v", before, after)
+}

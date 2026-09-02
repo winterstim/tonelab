@@ -7,6 +7,8 @@ import (
 
 	goosc "github.com/hypebeast/go-osc/osc"
 	"tonelab/backend/daw"
+	"tonelab/backend/osc"
+	"tonelab/backend/osc/osctest"
 )
 
 // Waits for intake because the backend consumes asynchronously, and asserting
@@ -170,5 +172,73 @@ func TestLastSeenTracksAnyFeedback(t *testing.T) {
 
 	if reaper.LastSeen().Before(before) {
 		t.Fatalf("expected the arrival to be recorded, got %v", reaper.LastSeen())
+	}
+}
+
+// Answering from what was last heard reports a number that is confidently
+// wrong right after a change, which is worse than reporting nothing. Observed
+// live: a confirmed set came back with the value from before the set.
+func TestReadParamWaitsForAnAnswerToThisQuestion(t *testing.T) {
+	receiver := osctest.NewReceiver(t)
+	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", receiver.Port))
+
+	feed := make(chan *goosc.Message, 8)
+	reaper.Observe(feed)
+
+	// A stale reading, as an earlier command would have left behind.
+	feed <- goosc.NewMessage("/track/1/volume", float32(0.5))
+	deadline := time.Now().Add(time.Second)
+	for reaper.Observed() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the backend never took in the first reading")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// The DAW answers the refresh with the value it actually holds now.
+	go func() {
+		receiver.Expect(time.Second) // the refresh's first select
+		receiver.Expect(time.Second) // and its second
+		feed <- goosc.NewMessage("/track/1/volume", float32(0.9))
+	}()
+
+	value, err := reaper.ReadParam(1, "volume", 2*time.Second)
+	if err != nil {
+		t.Fatalf("ReadParam returned an error: %v", err)
+	}
+	if value != float64(float32(0.9)) {
+		t.Fatalf("expected the DAW's fresh answer 0.9, got %v", value)
+	}
+}
+
+// Confirming is not asking. A DAW that says nothing has confirmed nothing, and
+// reporting the reading from before the change as proof of it would be a claim
+// the DAW never made. Asking the same thing through ReadParam is allowed to
+// answer from what was last heard, since silence usually means unchanged.
+func TestConfirmParamReportsSilenceRatherThanStaleness(t *testing.T) {
+	receiver := osctest.NewReceiver(t)
+	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", receiver.Port))
+
+	feed := make(chan *goosc.Message, 8)
+	reaper.Observe(feed)
+	feed <- goosc.NewMessage("/track/1/volume", float32(0.5))
+	deadline := time.Now().Add(time.Second)
+	for reaper.Observed() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("the backend never took in the reading")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if _, err := reaper.ConfirmParam(1, "volume", 200*time.Millisecond); !errors.Is(err, daw.ErrValueUnknown) {
+		t.Fatalf("confirming must not accept a reading from before the change, got %v", err)
+	}
+
+	value, err := reaper.ReadParam(1, "volume", 200*time.Millisecond)
+	if err != nil {
+		t.Fatalf("asking should still answer from what was last heard: %v", err)
+	}
+	if value != float64(float32(0.5)) {
+		t.Fatalf("expected the last known 0.5, got %v", value)
 	}
 }

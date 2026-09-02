@@ -128,11 +128,11 @@ func numeric(value any) (float64, bool) {
 }
 
 func (r *REAPER) Play() error {
-	return r.osc.Send("/play")
+	return r.send("/play")
 }
 
 func (r *REAPER) Stop() error {
-	return r.osc.Send("/stop")
+	return r.send("/stop")
 }
 
 // SetTrackVolume passes the value through because REAPER's OSC is normalized
@@ -165,7 +165,7 @@ func (r *REAPER) SetTrackSendVolume(track, send int, value float64) error {
 	if err := validateNormalized(value); err != nil {
 		return err
 	}
-	return r.osc.Send(fmt.Sprintf("/track/%d/send/%d/volume", track, send), float32(value))
+	return r.send(fmt.Sprintf("/track/%d/send/%d/volume", track, send), float32(value))
 }
 
 func (r *REAPER) setTrackValue(track int, param string, value float64) error {
@@ -175,7 +175,7 @@ func (r *REAPER) setTrackValue(track int, param string, value float64) error {
 	if err := validateNormalized(value); err != nil {
 		return err
 	}
-	return r.osc.Send(fmt.Sprintf("/track/%d/%s", track, param), float32(value))
+	return r.send(fmt.Sprintf("/track/%d/%s", track, param), float32(value))
 }
 
 // setTrackToggle sends 1.0/0.0 floats rather than OSC booleans, matching what
@@ -189,7 +189,7 @@ func (r *REAPER) setTrackToggle(track int, param string, on bool) error {
 	if on {
 		value = 1
 	}
-	return r.osc.Send(fmt.Sprintf("/track/%d/%s", track, param), value)
+	return r.send(fmt.Sprintf("/track/%d/%s", track, param), value)
 }
 
 func validateTrack(track int) error {

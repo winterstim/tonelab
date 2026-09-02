@@ -56,6 +56,14 @@ deliberate:
 
 - `Refresh(track)` makes the DAW volunteer a track's state.
 - `GetParam(track, name)` returns what it last said.
+- `ReadParam(track, name, timeout)` asks, and falls back to what was last
+  heard: a DAW reporting only changes stays silent about a value that has not
+  moved, so silence means unchanged far more often than unknown.
+- `ConfirmParam(track, name, timeout)` checks, and accepts only a reading from
+  after the call. Right after a change the cached value is exactly the one
+  being disproved, and answering from it reports a number that is confidently
+  wrong. That bug shipped briefly and was caught by a live run reporting
+  `requested: 0.9, confirmed: 0.5`.
 
 Folding them together would hide a network round-trip inside what looks like
 a map lookup, with no way for a caller to control the waiting.
@@ -73,6 +81,16 @@ Two consequences worth knowing before they surprise someone:
 `GetParam` reports what the DAW said, never what Tonelab sent. Those differ
 whenever a command was lost on the way out or a user moved a control by hand,
 and the DAW's account is the true one.
+
+## What may be sent
+
+The backend has one exit, and it refuses anything not on a list.
+REAPER's `/action <id>` reaches every menu command it has, including quitting
+and closing without saving, which are outside its undo history: an agent
+reaching those could destroy work nothing here could take back.
+
+Undo is the only action permitted. Adding another means editing the list, on
+purpose, beside the reason it is safe.
 
 ## Scope
 

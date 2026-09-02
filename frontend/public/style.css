@@ -112,6 +112,27 @@ body {
     cursor: default;
 }
 
+.preview-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: -8px;
+}
+
+.preview-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.preview-apply {
+    padding: 7px 14px;
+    font-size: 13px;
+}
+
 .answer {
     flex: 1;
     display: block;
@@ -147,6 +168,12 @@ body {
     gap: 10px;
     padding-top: 8px;
     border-top: 1px solid var(--border);
+}
+
+/* Sits apart from the transport buttons: it undoes project state, not
+   playback, and the two should not be reached for by accident. */
+.transport-undo {
+    margin-right: 20px;
 }
 
 .transport-label {
