@@ -10,10 +10,9 @@ import (
 // long-running app is a leak with extra steps.
 const journalLimit = 50
 
-// JournalEntry is one turn as it happened, for a user asking what the agent
-// did. An agent that changes someone's
-// project has to be answerable, and its own summary is the one account that
-// cannot be checked.
+// JournalEntry is one turn as it happened. An agent that changes someone's
+// project has to be answerable, and the model's own summary is the one
+// account that cannot be checked.
 type JournalEntry struct {
 	At      string
 	Command string

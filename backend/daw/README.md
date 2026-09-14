@@ -98,7 +98,7 @@ Track-level parameters only — volume, pan, mute, solo, send volume. That is
 the whole of MVP scope; FX parameters need a name-to-index bridge that does
 not exist yet.
 
-Values crossing this API are always normalized 0.0–1.0, never dB or
+Values crossing this API are always normalized 0.0-1.0, never dB or
 Hz. REAPER's OSC is normalized already, so `REAPER` passes them straight
 through; a backend whose DAW speaks real units would convert here, which is
 the point of putting the boundary at this layer.

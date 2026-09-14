@@ -34,7 +34,7 @@ Decisions worth knowing:
 - **HTTP failures are their own codes** (`llm_unauthorized`, `llm_rate_limited`,
   `llm_unavailable`, `llm_unreachable`, `llm_unreadable`), because a user can
   act on each differently and none of them mean the DAW is at fault.
-- **Stateless.** MVP carries no memory between commands.
+- **Memory is per conversation**, bounded, and failed turns are not remembered.
 
 ## Testing
 
@@ -146,8 +146,3 @@ perfectly and formatted the type wrong, and strict decoding would have failed
 a correct answer. Unambiguous numeric strings are now accepted; `"loud"` and
 `"-6dB"` are still refused.
 
-## Not built
-
-Guardrails: dry-run and confirmation on destructive commands. Worth
-designing alongside the tools rather than bolting on, since a live project is
-one bad call away from real damage.

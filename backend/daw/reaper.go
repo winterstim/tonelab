@@ -81,7 +81,7 @@ var parameters = []Parameter{
 	// Send volume is addressed by two indices rather than one, so it is not
 	// reachable through SetParam's (track, name) shape and is marked
 	// unreadable because no feedback for it has been observed. Reaching it
-	// needs a richer target than a track number (see README).
+	// needs a richer target than a track number.
 	{Name: "send", Kind: Numeric, Readable: false},
 }
 

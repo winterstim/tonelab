@@ -224,8 +224,6 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 	}
 }
 
-// track_id is decoded loosely because models quote numbers. Rejecting a
-// correct answer over its quotes fails the user for the model's formatting.
 // Planned is what a changing tool returns in preview: what it would do, said
 // plainly enough for a user to accept or reject before anything happens.
 type Planned struct {
@@ -521,11 +519,9 @@ func (t *Tools) setParam(args json.RawMessage) Result {
 	return Result{Value: t.confirm(track, *decoded.ParamName, value)}
 }
 
-// domainFailure maps the DAW layer's sentinels onto codes. Each is a different
-// recovery for the agent: rename, pick another track, clamp, resend, or wait.
-// domainFailureFor is domainFailure with the context to be useful about a
-// name that does not exist. A refusal that lists what does exist turns a lost
-// turn into a corrected one, and the list is already at hand.
+// domainFailureFor maps the DAW layer's sentinels onto codes, each a different
+// recovery for the agent. An unknown name gets the list of names that exist:
+// a refusal that names the alternatives turns a lost turn into a corrected one.
 func (t *Tools) domainFailureFor(name string, err error) Result {
 	if errors.Is(err, daw.ErrUnknownParam) {
 		return failure("param_not_found", fmt.Sprintf(

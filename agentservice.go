@@ -9,22 +9,19 @@ import (
 	"tonelab/backend/agent"
 )
 
-// dawSilenceLimit is how long without feedback counts as disconnected. A DAW
-// streams position and state continuously, so silence is the only evidence a
-// fire-and-forget transport can offer, and this is the line between "quiet"
-// and "gone".
+// dawSilenceLimit is how recent feedback must be to count as proof of life
+// without probing. Older silence is not evidence of absence; it triggers a probe.
 const dawSilenceLimit = 5 * time.Second
 
 // probeTimeout is how long to wait for a DAW to answer a poke. Local and
 // fast, so a DAW that has not replied by now is not there.
 const probeTimeout = 500 * time.Millisecond
 
-// AgentResponse and friends are the frontend's contract. They live in
-// package main because Wails generates the frontend's types from what a
-// service actually returns.
-// PlannedCall is one step a preview proposed, held in the form the model
-// produced so applying it runs what the user approved rather than whatever a
-// second question would produce.
+// The types below are the frontend's contract. They live in package main
+// because Wails generates the frontend's types from what a service returns.
+
+// PlannedCall is held in the form the model produced, so applying it runs
+// what the user approved rather than whatever a second question would produce.
 type PlannedCall struct {
 	Tool        string
 	Arguments   string

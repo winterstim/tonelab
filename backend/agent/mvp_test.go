@@ -159,7 +159,7 @@ func TestUndoReturnsTheValue(t *testing.T) {
 	t.Logf("volume went %v -> %v -> %v", before, changed, restored)
 }
 
-// The preview guardrail, against the real thing: the agent says
+// The preview guardrail against the real thing: the agent says
 // what it would do, the project does not move, and accepting runs those exact
 // steps rather than a second answer to the same question.
 func TestPreviewThenApply(t *testing.T) {

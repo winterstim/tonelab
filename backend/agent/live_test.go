@@ -36,9 +36,9 @@ func liveConfig(t *testing.T) config.LLM {
 // The question no fake can answer: given our schemas and descriptions, does a
 // real model call the right tool with the right arguments?
 //
-// Run against more than one endpoint, this is also the check the endpoint choice rests
-// on: that a hosted key and a local runtime are genuinely one code path rather
-// than one that happens to work with whatever was developed against.
+// Run against more than one endpoint, this is also the check that a hosted
+// key and a local runtime are genuinely one code path rather than one that
+// happens to work with whatever was developed against.
 //
 //	TONELAB_CONFIG="$HOME/Library/Application Support/tonelab/config.groq.json" \
 //	  go test -tags llm -count=1 ./backend/agent/...

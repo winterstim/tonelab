@@ -2,17 +2,11 @@ package daw
 
 import "time"
 
-// Probe asks the DAW to say something, and reports whether it did.
-//
-// Liveness cannot be inferred from silence here: an idle REAPER sends nothing
-// at all, measured as zero messages in ten seconds, so silence means "nobody
-// is touching the project" far more often than "the DAW is gone". Reading
-// silence as absence would show a musician a disconnected light for as long as
-// they were thinking.
-//
-// It provokes an answer the only way this DAW allows, by moving the control
-// surface's own view, which is a transition it announces. Only /device/* is
-// sent, so the project is untouched.
+// Probe asks the DAW to say something, and reports whether it did. Silence
+// proves nothing: an idle REAPER sends zero messages in ten seconds, so a
+// status read from quiet alone shows disconnected whenever the musician is
+// thinking. The answer is provoked by moving the control surface's own view,
+// which is a transition it announces; only /device/* is sent.
 func (r *REAPER) Probe(timeout time.Duration) bool {
 	// Serialized against the track walk, which also drives the surface: two
 	// of them at once would each see the other's answers.

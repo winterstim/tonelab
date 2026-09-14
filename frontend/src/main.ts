@@ -431,6 +431,7 @@ el("clear").addEventListener("click", async () => {
 
 // The thread lives in the backend, because one that only exists in the page
 // cannot survive being switched away from.
+
 // Faded out before it is rebuilt and back in after, so switching or starting
 // a conversation reads as one movement rather than a screen blinking into a
 // different one.
@@ -655,7 +656,7 @@ function describeStep(tool: string, args: string, outcome: string, failed: boole
     }
     if (failed) {
         const reason = parse(outcome).error?.message;
-        return `${said} — refused${reason ? `: ${reason}` : ""}`;
+        return `${said}, refused${reason ? `: ${reason}` : ""}`;
     }
     return said;
 }

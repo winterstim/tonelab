@@ -111,8 +111,8 @@ func TestBrokenConfigsSayWhatIsWrong(t *testing.T) {
 	}
 }
 
-// A local runtime needs no key, and demanding one would block the path
-// this exists to keep open.
+// A local runtime needs no key, and demanding one would close the local
+// path off.
 func TestAnEmptyAPIKeyIsAllowed(t *testing.T) {
 	path := write(t, `{"llm":{"base_url":"http://localhost:11434/v1","api_key":"","model":"qwen2.5"},"daw":{"backend":"reaper","host":"127.0.0.1","port":8000,"feedback_port":9000}}`)
 

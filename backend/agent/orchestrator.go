@@ -223,15 +223,9 @@ func (o *Orchestrator) SendContext(ctx context.Context, text string) Response {
 
 		reply, failure := o.complete(ctx, conversation)
 		if failure != nil {
-			// A tool call the endpoint itself refused is the same situation
-			// as one our tools refused: the model can fix it if told. Some
-			// endpoints validate against our schema and reject before the
-			// call ever reaches us, so without this the model never learns
-			// what was wrong and a correctable turn is lost.
 			// A quota that refills in seconds is a pause, not a failure, and
 			// endpoints differ in whether they impose one at all. Waiting
-			// here is what keeps a hosted endpoint behaving like a local
-			// runtime from the user's side.
+			// once keeps a hosted endpoint behaving like a local runtime.
 			if failure.Code == "llm_rate_limited" && !waited {
 				if pause, ok := retryAfter(failure.Message); ok {
 					waited = true
@@ -239,6 +233,9 @@ func (o *Orchestrator) SendContext(ctx context.Context, text string) Response {
 					continue
 				}
 			}
+			// Some endpoints validate against our schema and reject before the
+			// call reaches us. Fed back like any tool failure, so the model
+			// learns what was wrong instead of the turn being lost.
 			if failure.Code == "llm_tool_call_invalid" && rejections < maxSchemaRetries {
 				rejections++
 				conversation = append(conversation, message{Role: "user", Content: correctionFor(failure.Message)})

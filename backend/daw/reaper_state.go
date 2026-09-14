@@ -132,8 +132,8 @@ func (r *REAPER) Observed() uint64 {
 	return r.observed.Load()
 }
 
-// absorb keeps only the normalized form this layer's contract speaks in
-//, discarding the position, meter and string readouts a DAW
+// absorb keeps only the normalized form this layer speaks in,
+// discarding the position, meter and string readouts a DAW
 // streams alongside it.
 func (r *REAPER) absorb(msg *goosc.Message) {
 	// The name of the surface's current track, which the track walk waits on.
@@ -179,8 +179,8 @@ func parseTrackAddress(address string) (track int, param string, ok bool) {
 // pointing the control surface elsewhere and back.
 //
 // It sends only /device/* addresses, which move the surface's own view rather
-// than the project, so reading cannot disturb a project someone is working in
-//. Enforced by test, not by care.
+// than the project, so reading cannot disturb a project someone is working
+// in. Enforced by test, not by care.
 func (r *REAPER) Refresh(track int) error {
 	if err := validateTrack(track); err != nil {
 		return err

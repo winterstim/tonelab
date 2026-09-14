@@ -22,21 +22,12 @@ const parkIndex = 0
 // enumerating it one message at a time would cost more than it returns.
 const maxTracks = 128
 
-// Tracks enumerates the project's tracks by name.
-//
-// It is a walk rather than a query because REAPER answers no questions: it
-// announces the track the control surface is looking at, so reading N names
-// means looking at N tracks. Two of its behaviours make this work at all, and
-// both were found by experiment rather than documentation:
-//
-//   - It announces only transitions, so selecting a track it is already
-//     looking at is silent. Silence has to mean one thing before it can end
-//     the walk, which is what parking on master accomplishes.
-//   - It clamps a selection past the last track, so walking off the end is
-//     silent rather than an error.
-//
-// Only /device/* addresses are sent, so this cannot disturb the project or the
-// user's own selection.
+// Tracks enumerates the project's tracks by name. It is a walk rather than a
+// query because REAPER answers no questions, only announces the track the
+// surface looks at. Measured, not documented: it announces only transitions,
+// so the walk parks on master first to make silence unambiguous, and it clamps
+// a selection past the end, so walking off it is silent rather than an error.
+// Only /device/* is sent, so the user's own selection is untouched.
 func (r *REAPER) Tracks(timeout time.Duration) ([]Track, error) {
 	// Serialized against the liveness probe, which also drives the surface.
 	r.surface.Lock()

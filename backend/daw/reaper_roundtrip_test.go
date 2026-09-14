@@ -1,8 +1,8 @@
 //go:build reaper
 
 // Round-trip tests against a real running REAPER, behind a build tag because
-// they need one. See backend/osc/README.md for the configuration; REAPER's
-// feedback leg is off by default.
+// they need one. REAPER's feedback leg is off by default and must be
+// pointed at the listener port in reaper.ini.
 //
 //	go test -tags reaper -count=1 ./backend/daw/...
 package daw_test
@@ -76,8 +76,8 @@ func TestREAPERAcceptsCommands(t *testing.T) {
 		if err := reaper.SetTrackVolume(track, 0.25); err != nil {
 			t.Fatalf("SetTrackVolume: %v", err)
 		}
-		// Pinning the dB figure tests the normalized-value contract
-		//, not just message delivery.
+		// Pinning the dB figure tests the normalized-value contract,
+		// not just message delivery.
 		feedback.AwaitValue(address(track, "volume/db"), -30, 0.1, await)
 	})
 
