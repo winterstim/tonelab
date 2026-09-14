@@ -9,6 +9,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func build(t *testing.T) *AgentService {
 	return NewAgentService(
 		orchestratorBrain{orchestrator: live},
 		previewBrain{orchestrator: previews, live: live},
-		reaper, client)
+		reaper, client, filepath.Join(t.TempDir(), "conversations.json"))
 }
 
 func configPath(t *testing.T) string {
