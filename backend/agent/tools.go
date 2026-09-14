@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"tonelab/backend/daw"
 )
@@ -274,7 +275,33 @@ func (t *Tools) listTracks() Result {
 	if err != nil {
 		return failure("daw_command_failed", "Could not read the project's tracks from the DAW.")
 	}
+	for i := range tracks {
+		tracks[i].Name = asName(tracks[i].Name)
+	}
 	return Result{Value: tracks}
+}
+
+// maxNameLength bounds text that comes from the project rather than from the
+// user or from us. A track name is long enough at this; anything longer is
+// either an accident or an attempt to fit a message where a name goes.
+const maxNameLength = 80
+
+// asName makes project text safe to hand a model as data. Line breaks and
+// control characters are what let a name be laid out as an instruction, and
+// the allowlist and undo already bound what a fooled model could do; this
+// removes the easy way of fooling it.
+func asName(raw string) string {
+	var out strings.Builder
+	for _, r := range raw {
+		if unicode.IsControl(r) {
+			r = ' '
+		}
+		out.WriteRune(r)
+		if out.Len() >= maxNameLength {
+			break
+		}
+	}
+	return strings.TrimSpace(out.String())
 }
 
 // coerce turns what the model sent into what the parameter takes, or explains
