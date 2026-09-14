@@ -60,6 +60,9 @@ type conversations struct {
 	// want and what a machine with no writable config directory gets.
 	path string
 
+	// Counted rather than timed: the clock can hand two threads the same
+	// nanosecond, and a deleted thread then came back under its own id.
+	created uint64
 }
 
 // stored is the shape on disk, named separately so the file format is a
@@ -189,8 +192,9 @@ func (c *conversations) start() *Conversation {
 }
 
 func (c *conversations) startLocked() *Conversation {
+	c.created++
 	thread := &Conversation{
-		ID:      fmt.Sprintf("c%d", time.Now().UnixNano()),
+		ID:      fmt.Sprintf("c%d-%d", time.Now().UnixNano(), c.created),
 		Title:   "New conversation",
 		Started: time.Now().Format("15:04"),
 	}
