@@ -1,80 +1,18 @@
 # frontend/src
 
-Three views: a chat, the agent's history, and settings. Switched by showing
-and hiding sections rather than by a router, which is enough for three and is
-the thing to revisit if there is ever a fourth.
+Three views (chat, history, settings), shown and hidden rather than routed.
+Plain TypeScript calling the generated bindings directly; everything worth
+deciding lives in Go.
 
-Everything worth deciding lives in Go. This layer calls the generated bindings
-directly, because an abstraction over a typed, generated client would only add
-a place for the two to drift.
+Monochrome, light by default, dark and system offered and stored with the
+settings. Failure is weight and a heavier edge, not a colour.
 
-Light by default, because the app sits beside a DAW that is already dark and
-dense, and a bright panel reads as a different kind of surface rather than more
-of the same. Dark and system are offered and the choice is stored with the
-other settings, since a preference that does not survive a restart is not one.
+- A turn belongs to the conversation that asked it; the reply is drawn only
+  if that thread is still on screen.
+- Stop replaces Send while a turn runs. Enter sends, Shift+Enter breaks.
+- Settings are not reloaded over half-typed edits.
+- The API key never comes from the backend, only goes to it.
+- Undo goes straight to the DAW, not through the model.
 
-No hue anywhere. Emphasis is carried by contrast, and failure by weight and a
-heavier edge, which is what colour was carrying before it was taken out. A
-palette with nothing to spend cannot spend it wrongly, and a refusal still has
-to look like one, which is why removing the colour meant replacing the signal
-rather than dropping it.
-
-Notes on what it does that is not obvious:
-
-- **The history reads as sentences, with the raw calls behind a disclosure.**
-  Someone reading their history wants to know what happened; someone debugging
-  wants the call. Showing the second to everyone is what made the first
-  version unreadable.
-- **Stop replaces Send while a turn runs**, so the button under the cursor is
-  always the one that applies.
-- **Enter sends and Shift+Enter breaks a line**, which is what a text box in a
-  chat is expected to do.
-- **History holds two panes: what was said, and what was done.** They answer
-  each other, and a conversation is only interesting beside what it changed.
-  Renaming and deleting live there, in place on the row, because correcting a
-  guessed title should not need a dialogue about correcting titles.
-- **A turn belongs to the conversation that asked it.** It can take most of a
-  minute, and by the time it finishes the window may be showing another
-  thread; the answer is kept in the one that asked and drawn only if that is
-  still the one on screen. Switching *views* is harmless by comparison, since
-  a turn runs in the backend and knows nothing about tabs.
-- **The chat keeps only switching**, as a menu on the bottom row rather than a
-  strip above the thread. Switching is frequent enough that leaving the chat
-  for it would be a tax, and rare enough that a permanent row would take
-  height from the thread it points at.
-- **The thread fades out before it is rebuilt and back in after**, so
-  switching or starting a conversation reads as one movement rather than a
-  screen blinking into a different one.
-- **Icons come from one inline sprite**, referenced rather than repeated, so
-  adding one costs a symbol and the set keeps a single stroke weight. Nothing
-  is fetched, which also keeps it working under a strict content policy.
-- **The two toggles are switches, not checkboxes.** Both are a mode the app is
-  in rather than an item being ticked, and a switch says which is on from
-  across a desk.
-- **The window can be dragged, so the layout has to survive it.** Below 720px
-  the app name goes and the connection reads as a dot; below 560px the tabs
-  keep their icons and drop their words. A toolbar that abbreviates beats one
-  that overflows, and a desktop window that scrolls sideways reads as broken.
-- **There is no header band**, only what would have sat in it: the views as
-  one pill centred on the window, and the connection at the right. A strip
-  across the top is another rectangle to look at, and neither of those two
-  things needs one to be found.
-- **Settings are not reloaded while something is half-typed.** Reading the
-  file on every visit threw away unsaved edits; it showed up first as the
-  theme snapping back, but applied to every field on the screen.
-- **The API key is never received from the backend**, only replaced. A key
-  that never crosses cannot be read off a screen or out of a screenshot.
-
-- **Connection is polled, not pushed.** The backend judges what counts as
-  connected (it infers it from DAW feedback); this only decides how stale the
-  display may be.
-- **Send is disabled while a command runs.** A second command sent mid-flight
-  would reach a DAW whose state the first has already changed.
-- **A failed command must not look like a completed one**, hence the separate
-  tone on the answer panel rather than plain text.
-- **`catch` means the call itself broke.** Domain failures arrive inside the
-  response, so reaching `catch` is a different problem and says so.
-
-`npm run typecheck` is part of `npm run build`. The template shipped with
-TypeScript 4.9 pinned against a tsconfig needing 5.x, so nothing was ever
-type-checked until that was corrected.
+`npm run typecheck` is part of `npm run build`; `wails3 build` regenerates
+the bindings with `-clean`, so run it for itself.

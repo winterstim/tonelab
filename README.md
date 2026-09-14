@@ -1,33 +1,50 @@
 # Tonelab
 
-Natural-language control for your DAW. Type what you want — "turn down the vocal track", "pan the guitar left" — and Tonelab's agent resolves it to a real parameter change and sends it straight to REAPER over OSC. No menus, no hunting for the right knob.
+Natural-language control for your DAW. Type "turn the vocals down a bit" and
+the agent resolves it to a real parameter change, sends it to the DAW, and
+reports back what the DAW says the value is now.
 
-## How it works
+Desktop app: Go, Wails v3, plain TypeScript. REAPER over OSC is the first
+backend. Any OpenAI-compatible endpoint works for the model, hosted or local.
 
-- **UI** — a single Go + Wails v3 desktop app (native webview, no Electron), plain TypeScript frontend
-- **Agent** — natural-language input resolved to tool calls via an LLM; bring your own API key or point it at a local model
-- **OSC** — tool calls become real-time OSC commands sent to a running REAPER instance
+## Running
 
-## Status
-
-Early development. Core round-trip (UI → Go → OSC → REAPER) is being wired up.
-
-## Running locally
-
-Requires Go 1.24+, Node, and the [Wails v3 CLI](https://v3.wails.io/getting-started/installation/) (`wails3`).
+Requires Go 1.24+, Node, and the Wails v3 CLI (`wails3`).
 
 ```
 wails3 dev
+wails3 build
 ```
 
-## Repo layout
+First start writes `config.json` to the user config directory (on macOS,
+`~/Library/Application Support/tonelab/`) with the DAW ports and the model
+endpoint to fill in. The DAW must send OSC feedback to the listener port;
+REAPER defaults that to off.
+
+## Tests
 
 ```
-backend/
-  agent/   — orchestrator, tool-calling, JSON schemas
-  osc/     — OSC transport (go-osc), connection management
-  daw/     — typed Go API over DAW OSC addresses (REAPER first)
-  app/     — Wails services, the boundary the frontend calls into
-frontend/
-  src/     — TypeScript UI
+go test ./...                          # no DAW or model needed
+go test -tags reaper -count=1 -p 1 ./...   # against a running REAPER
+go test -tags llm ./backend/agent/...      # against the configured model
+go test -tags "llm reaper" -p 1 .          # the whole thing, as the window uses it
 ```
+
+`TONELAB_CONFIG` points the tagged suites at another config file.
+
+## Layout
+
+```
+backend/osc      OSC transport and listener, DAW-neutral
+backend/daw      DAW command layer: Client interface, REAPER backend, allowlist
+backend/agent    tools an LLM can call, and the loop that calls them
+backend/config   the user's settings file
+*.go (root)      Wails services the window calls
+frontend/src     the window
+```
+
+## Planned
+
+- FX and plugin parameters, discovered from the DAW at runtime rather than
+  listed in code, with a search tool so the model never sees the whole set.
+- Further DAW backends behind the same `Client` interface.

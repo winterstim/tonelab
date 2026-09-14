@@ -1,3 +1,4 @@
-# /app — Wails services
+# app
 
-The public API surface the frontend calls into (auto-generated typed TS bindings). This is the seam the rest of the app depends on; a signature change here reaches the frontend.
+Reserved for the Wails services, which currently live in package main at the
+repo root. A signature change there reaches the generated frontend bindings.
