@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"encoding/json"
@@ -59,6 +59,7 @@ type conversations struct {
 	// Where they are written. Empty disables saving, which is what tests
 	// want and what a machine with no writable config directory gets.
 	path string
+
 }
 
 // stored is the shape on disk, named separately so the file format is a

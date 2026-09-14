@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tonelab/backend/agent"
+	"tonelab/backend/daw"
 )
 
 // dawSilenceLimit is how recent feedback must be to count as proof of life
@@ -17,8 +18,8 @@ const dawSilenceLimit = 5 * time.Second
 // fast, so a DAW that has not replied by now is not there.
 const probeTimeout = 500 * time.Millisecond
 
-// The types below are the frontend's contract. They live in package main
-// because Wails generates the frontend's types from what a service returns.
+// The types below are the frontend's contract: Wails generates the
+// frontend's types from what a service returns.
 
 // PlannedCall is held in the form the model produced, so applying it runs
 // what the user approved rather than whatever a second question would produce.
@@ -143,6 +144,17 @@ func NewAgentService(agent brain, previews planner, observer liveness, client an
 		daw:      client,
 		threads:  newConversations(threadsPath),
 	}
+}
+
+// BuildAgentService is the wiring the application uses: two orchestrators,
+// one live and one whose changing tools are disarmed, over one DAW client.
+// Liveness is taken from the client only if it can report it.
+func BuildAgentService(live, previews *agent.Orchestrator, client daw.Client, threadsPath string) *AgentService {
+	observer, _ := client.(liveness)
+	return NewAgentService(
+		orchestratorBrain{orchestrator: live},
+		previewBrain{orchestrator: previews, live: live},
+		observer, client, threadsPath)
 }
 
 // RenameConversation replaces a title. The generated one is a guess from the

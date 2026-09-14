@@ -10,6 +10,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"tonelab/backend/agent"
+	"tonelab/backend/app"
 	"tonelab/backend/config"
 	"tonelab/backend/daw"
 	"tonelab/backend/osc"
@@ -68,14 +69,11 @@ func main() {
 	// reach the project even if something above it goes wrong.
 	previews := agent.NewOrchestrator(llm, agent.NewPreviewTools(dawClient))
 
-	observer, _ := dawClient.(liveness)
-	agentService := NewAgentService(
-		orchestratorBrain{orchestrator: orchestrator},
-		previewBrain{orchestrator: previews, live: orchestrator},
-		observer, dawClient, filepath.Join(filepath.Dir(configPath), "conversations.json"))
-	settingsService := NewSettingsService(configPath, orchestrator, previews)
+	agentService := app.BuildAgentService(orchestrator, previews, dawClient,
+		filepath.Join(filepath.Dir(configPath), "conversations.json"))
+	settingsService := app.NewSettingsService(configPath, orchestrator, previews)
 
-	app := application.New(application.Options{
+	desktop := application.New(application.Options{
 		Name:        "Tonelab",
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
@@ -90,7 +88,7 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	desktop.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title: "Tonelab",
 		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
 		Width:  1000,
@@ -109,7 +107,7 @@ func main() {
 		URL:              "/",
 	})
 
-	if err = app.Run(); err != nil {
+	if err = desktop.Run(); err != nil {
 		log.Fatal(err)
 	}
 }

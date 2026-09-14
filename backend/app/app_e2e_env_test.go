@@ -1,6 +1,6 @@
 //go:build llm && reaper
 
-package main
+package app
 
 import "os"
 

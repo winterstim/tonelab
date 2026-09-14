@@ -1,11 +1,11 @@
-import { AgentService, SettingsService } from "../bindings/tonelab";
+import { AgentService, SettingsService } from "../bindings/tonelab/backend/app";
 import type {
     AgentResponse,
     ChatMessage,
     ConversationSummary,
     JournalEntry,
     Settings,
-} from "../bindings/tonelab/models";
+} from "../bindings/tonelab/backend/app/models";
 
 type Tone = "answer" | "problem" | "working";
 

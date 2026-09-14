@@ -27,7 +27,7 @@ REAPER defaults that to off.
 go test ./...                          # no DAW or model needed
 go test -tags reaper -count=1 -p 1 ./...   # against a running REAPER
 go test -tags llm ./backend/agent/...      # against the configured model
-go test -tags "llm reaper" -p 1 .          # the whole thing, as the window uses it
+go test -tags "llm reaper" -p 1 ./backend/app   # the whole thing, as the window uses it
 ```
 
 `TONELAB_CONFIG` points the tagged suites at another config file.
@@ -39,7 +39,7 @@ backend/osc      OSC transport and listener, DAW-neutral
 backend/daw      DAW command layer: Client interface, REAPER backend, allowlist
 backend/agent    tools an LLM can call, and the loop that calls them
 backend/config   the user's settings file
-*.go (root)      Wails services the window calls
+backend/app      Wails services the window calls
 frontend/src     the window
 ```
 

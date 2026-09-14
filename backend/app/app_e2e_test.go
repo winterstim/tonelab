@@ -1,12 +1,12 @@
 //go:build llm && reaper
 
 // The application as the window uses it: the same service methods the frontend
-// calls, over the same wiring main.go builds, against a real DAW and a real
+// calls, over the same wiring the application builds, against a real DAW and a real
 // model. Everything below has been tested in pieces; this is the only place
 // the pieces are assembled the way they ship.
 //
-//	go test -tags "llm reaper" -count=1 -p 1 -run TestApp .
-package main
+//	go test -tags "llm reaper" -count=1 -p 1 -run TestApp ./backend/app/backend/app
+package app
 
 import (
 	"path/filepath"
@@ -49,10 +49,7 @@ func build(t *testing.T) *AgentService {
 	live := agent.NewOrchestrator(llm, agent.NewTools(client))
 	previews := agent.NewOrchestrator(llm, agent.NewPreviewTools(client))
 
-	return NewAgentService(
-		orchestratorBrain{orchestrator: live},
-		previewBrain{orchestrator: previews, live: live},
-		reaper, client, filepath.Join(t.TempDir(), "conversations.json"))
+	return BuildAgentService(live, previews, client, filepath.Join(t.TempDir(), "conversations.json"))
 }
 
 func configPath(t *testing.T) string {
