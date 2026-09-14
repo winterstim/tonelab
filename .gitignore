@@ -14,8 +14,7 @@ frontend/bindings/
 /backend/**/*.test
 /backend/**/vendor/
 
-# wails build output (only generated subpaths — build/<platform>/ itself holds
-# real packaging config: Taskfile.yml, Info.plist, icons — that gets committed)
+# wails build output; build/<platform>/ itself holds packaging config and is committed
 .task
 bin
 frontend/dist
