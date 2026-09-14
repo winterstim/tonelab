@@ -272,15 +272,37 @@ func TestRateLimitedRequestWaitsAndRetries(t *testing.T) {
 // A limit that does not refill on the scale it claims must reach the user
 // rather than keep them waiting on a turn that will not complete.
 func TestRepeatedRateLimitsAreReported(t *testing.T) {
-	orchestrator, _ := newOrchestrator(t, newFakeDAW(),
-		llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 0.1s."}}`},
-		llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 0.1s."}}`},
+	limited := llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 0.01s."}}`}
+	orchestrator, server := newOrchestrator(t, newFakeDAW(),
+		limited, limited, limited, limited, limited, limited, limited,
 	)
 
 	response := orchestrator.Send("anything")
 
 	if response.Error == nil || response.Error.Code != "llm_rate_limited" {
 		t.Fatalf("expected llm_rate_limited, got %+v", response.Error)
+	}
+	if got := len(server.Requests()); got != 6 {
+		t.Fatalf("expected five waits then a report, got %d calls", got)
+	}
+}
+
+// A refill stated in milliseconds is the common case on a busy free tier,
+// and a wait that only understood seconds was not waiting at all.
+func TestMillisecondRateLimitsAreWaitedOut(t *testing.T) {
+	orchestrator, server := newOrchestrator(t, newFakeDAW(),
+		llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 240ms."}}`},
+		llmtest.Turn{Status: 429, Body: `{"error":{"message":"Rate limit reached. Please try again in 240ms."}}`},
+		llmtest.Turn{Content: "Done."},
+	)
+
+	response := orchestrator.Send("anything")
+
+	if response.Error != nil {
+		t.Fatalf("expected the waits to recover the turn, got %+v", response.Error)
+	}
+	if got := len(server.Requests()); got != 3 {
+		t.Fatalf("expected two retries, got %d calls", got)
 	}
 }
 

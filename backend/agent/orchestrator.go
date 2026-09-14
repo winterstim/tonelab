@@ -24,6 +24,11 @@ import (
 // format will not learn to, and the user is owed the real reason.
 const maxSchemaRetries = 4
 
+// maxRateLimitWaits bounds how many short waits one turn sits through. A
+// free tier refills in fractions of a second and refuses several times in a
+// row while it does, so one wait was losing turns that a few more recovered.
+const maxRateLimitWaits = 5
+
 // maxWaitForRateLimit caps how long a turn will sit waiting for a quota to
 // refill. Free tiers refill in seconds, so a longer wait means the limit is
 // not the kind waiting fixes, and the user should hear about it instead.
@@ -207,9 +212,7 @@ func (o *Orchestrator) SendContext(ctx context.Context, text string) Response {
 	conversation := append([]message{{Role: "system", Content: systemPrompt}}, o.remembered()...)
 	conversation = append(conversation, message{Role: "user", Content: text})
 
-	// Once only: a second wait means the quota is not refilling on the scale
-	// the endpoint claimed, and the user is better told than kept waiting.
-	waited := false
+	waits := 0
 
 	rejections := 0
 	var changed []Change
@@ -224,11 +227,12 @@ func (o *Orchestrator) SendContext(ctx context.Context, text string) Response {
 		reply, failure := o.complete(ctx, conversation)
 		if failure != nil {
 			// A quota that refills in seconds is a pause, not a failure, and
-			// endpoints differ in whether they impose one at all. Waiting
-			// once keeps a hosted endpoint behaving like a local runtime.
-			if failure.Code == "llm_rate_limited" && !waited {
+			// endpoints differ in whether they impose one at all. Bounded,
+			// since a quota that keeps refusing is not refilling on the scale
+			// the endpoint claims, and the user is better told than kept waiting.
+			if failure.Code == "llm_rate_limited" && waits < maxRateLimitWaits {
 				if pause, ok := retryAfter(failure.Message); ok {
-					waited = true
+					waits++
 					time.Sleep(pause)
 					continue
 				}
@@ -541,19 +545,23 @@ func retryAfter(detail string) (time.Duration, bool) {
 	if match == nil {
 		return 0, false
 	}
-	seconds, err := strconv.ParseFloat(match[1], 64)
+	amount, err := strconv.ParseFloat(match[1], 64)
 	if err != nil {
 		return 0, false
 	}
+	unit := time.Second
+	if match[2] == "ms" {
+		unit = time.Millisecond
+	}
 
-	pause := time.Duration(seconds*float64(time.Second)) + 250*time.Millisecond
+	pause := time.Duration(amount*float64(unit)) + 250*time.Millisecond
 	if pause > maxWaitForRateLimit {
 		return 0, false
 	}
 	return pause, true
 }
 
-var retryPattern = regexp.MustCompile(`try again in ([0-9.]+)\s*s`)
+var retryPattern = regexp.MustCompile(`try again in ([0-9.]+)\s*(ms|s)`)
 
 func withDetail(message, detail string) string {
 	if detail == "" {
