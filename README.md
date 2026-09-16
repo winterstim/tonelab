@@ -13,8 +13,14 @@ Requires Go 1.24+, Node, and the Wails v3 CLI (`wails3`).
 
 ```
 wails3 dev
-wails3 build
+wails3 build                 # this machine
+wails3 task build:windows    # cross-compiled from any host, no cgo on Windows
+wails3 task build:linux      # in Docker, needs GTK3 and WebKit2GTK 4.1 headers
 ```
+
+Windows needs the WebView2 runtime, present on Windows 11 and on any
+updated Windows 10; the app offers Microsoft's bootstrapper when it is
+missing. Linux links against libwebkit2gtk-4.1.
 
 First start writes `config.json` to the user config directory (on macOS,
 `~/Library/Application Support/tonelab/`) with the DAW ports and the model
