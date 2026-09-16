@@ -18,6 +18,13 @@ wails3 task build:windows    # cross-compiled from any host, no cgo on Windows
 wails3 task build:linux      # in Docker, needs GTK3 and WebKit2GTK 4.1 headers
 ```
 
+`wails3 task darwin:package:universal` then `darwin:package:dmg` produce a
+universal `.app` and a `.dmg`. The app is not signed with a Developer ID,
+so a downloaded copy is refused by Gatekeeper on first launch: Control-click
+the app and choose Open, or on macOS 15 and later open System Settings,
+Privacy & Security, and choose Open Anyway after the first refusal. This
+is asked once. Alternatively, `xattr -d com.apple.quarantine Tonelab.app`.
+
 Windows needs the WebView2 runtime, present on Windows 11 and on any
 updated Windows 10; the app offers Microsoft's bootstrapper when it is
 missing. Linux links against libwebkit2gtk-4.1.
