@@ -256,3 +256,41 @@ func TestAbletonRefusesWhatIsNotListed(t *testing.T) {
 		t.Fatal("name is not a parameter here")
 	}
 }
+
+// A reply to an earlier, timed-out question must not answer a later one to
+// the same address: the ids have to match, not only the address.
+func TestAbletonIgnoresRepliesToOtherQuestions(t *testing.T) {
+	receiver := osctest.NewReceiver(t)
+	live := daw.NewAbleton(osc.NewTransport("127.0.0.1", receiver.Port))
+	feed := make(chan *goosc.Message, 8)
+	live.Observe(feed)
+
+	// Answers every volume query with track 0's value, which is what a
+	// stale reply looks like to a caller asking about track 2.
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			msg, ok := receiver.Poll(200 * time.Millisecond)
+			if !ok {
+				continue // a quiet spell, not the end
+			}
+			if msg.Address == "/live/track/get/volume" {
+				feed <- goosc.NewMessage(msg.Address, int32(0), float32(0.85))
+			}
+		}
+	}()
+
+	if _, err := live.ReadParam(2, "volume", 300*time.Millisecond); !errors.Is(err, daw.ErrValueUnknown) {
+		t.Fatalf("expected the wrong track's reply to be ignored, got %v", err)
+	}
+	value, err := live.ReadParam(1, "volume", time.Second)
+	if v, _ := value.(float64); err != nil || v < 0.84 || v > 0.86 {
+		t.Fatalf("expected track 1 answered, got %v, %v", value, err)
+	}
+}

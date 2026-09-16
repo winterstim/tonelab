@@ -101,7 +101,7 @@ func (a *Ableton) ask(timeout time.Duration, address string, ids ...any) ([]any,
 	a.asking.Lock()
 	defer a.asking.Unlock()
 
-	reply := make(chan *goosc.Message, 1)
+	reply := make(chan *goosc.Message, 8)
 	a.mu.Lock()
 	a.waiter, a.want = reply, address
 	a.mu.Unlock()
@@ -114,15 +114,35 @@ func (a *Ableton) ask(timeout time.Duration, address string, ids ...any) ([]any,
 	if err := a.send(address, ids...); err != nil {
 		return nil, err
 	}
-	select {
-	case msg := <-reply:
-		if len(msg.Arguments) < len(ids) {
-			return nil, fmt.Errorf("daw: short reply to %s", address)
+	deadline := time.After(timeout)
+	for {
+		select {
+		case msg := <-reply:
+			// The ids must match as well as the address: a reply to an
+			// earlier question that timed out can arrive now, and it would
+			// answer the wrong track or parameter.
+			if !echoes(msg.Arguments, ids) {
+				continue
+			}
+			return msg.Arguments[len(ids):], nil
+		case <-deadline:
+			return nil, fmt.Errorf("%w: no reply to %s", ErrValueUnknown, address)
 		}
-		return msg.Arguments[len(ids):], nil
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("%w: no reply to %s", ErrValueUnknown, address)
 	}
+}
+
+func echoes(args []any, ids []any) bool {
+	if len(args) < len(ids) {
+		return false
+	}
+	for i, id := range ids {
+		want, _ := numeric(id)
+		got, ok := numeric(args[i])
+		if !ok || got != want {
+			return false
+		}
+	}
+	return true
 }
 
 // Parameters is the same five as REAPER's, which is the point: the names a
