@@ -123,6 +123,10 @@ backend/app      the services the window calls
 frontend/src     the window
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 [Apache 2.0](LICENSE)
