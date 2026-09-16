@@ -44,7 +44,25 @@ tasks:
       # so the packages cannot run in parallel the way the normal suite does.
       - go test -tags reaper -count=1 -p 1 ./...
 
-  dev:
-    summary: Runs the application in development mode
+  test:ableton:
+    summary: Runs the round-trip tests against a running Ableton Live with AbletonOSC
     cmds:
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - go test -tags ableton -count=1 ./backend/daw
+
+  build:windows:
+    summary: Cross-compiles the Windows binaries from any host (no cgo on Windows)
+    deps: [common:build:frontend]
+    cmds:
+      - GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui" -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.exe .
+      - GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui" -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-arm64.exe .
+
+  build:linux:
+    summary: Builds the Linux binaries in Docker, since they need GTK and WebKitGTK headers
+    deps: [common:build:frontend]
+    cmds:
+      - for: ["amd64", "arm64"]
+        cmd: >-
+          docker run --rm --platform linux/{{.ITEM}} -v "$PWD":/src -w /src -e GOFLAGS=-buildvcs=false -e HOME=/tmp golang:1.25-bookworm bash -c
+          'apt-get update -qq >/dev/null && apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev >/dev/null 2>&1
+          && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -tags "production gtk3" -trimpath -ldflags="-w -s"
+          -o {{.BIN_DIR}}/{{.APP_NAME}}-linux-{{.ITEM}} .'

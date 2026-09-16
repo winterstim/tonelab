@@ -1,13 +1,13 @@
 [Desktop Entry]
 Version=1.0
-Name=My Product
-Comment=A scaffold-tmp application
+Name=Tonelab
+Comment=DAW companion with a natural-language, tool-calling agent layer
 # The Exec line includes %u to pass the URL to the application
-Exec=/usr/local/bin/scaffold-tmp %u
+Exec=/usr/local/bin/tonelab %u
 Terminal=false
 Type=Application
-Icon=scaffold-tmp
+Icon=tonelab
 Categories=Utility;
-StartupWMClass=scaffold-tmp
+StartupWMClass=tonelab
 
  

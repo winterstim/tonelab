@@ -1,14 +1,14 @@
 {
 	"fixed": {
-		"file_version": "0.1.0"
+		"file_version": "0.0.1"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "0.1.0",
-			"CompanyName": "My Company",
-			"FileDescription": "A scaffold-tmp application",
-			"LegalCopyright": "© 2026, My Company",
-			"ProductName": "My Product",
+			"ProductVersion": "0.0.1",
+			"CompanyName": "Tonelab",
+			"FileDescription": "DAW companion with a natural-language, tool-calling agent layer",
+			"LegalCopyright": "(c) 2026, Tonelab",
+			"ProductName": "Tonelab",
 			"Comments": "This is a comment"
 		}
 	}
