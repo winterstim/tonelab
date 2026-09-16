@@ -705,6 +705,16 @@ el("settings").addEventListener("input", () => {
     settingsTouched = true;
 });
 
+// Which of key and address a provider needs is the backend's to know; the
+// window only hides both while search is off.
+function showSearchFields() {
+    const off = el<HTMLSelectElement>("search-provider").value === "";
+    el("search-key-field").hidden = off;
+    el("search-url-field").hidden = off;
+}
+
+el("search-provider").addEventListener("change", showSearchFields);
+
 async function loadSettings() {
     const settings = await SettingsService.Get();
 
@@ -728,6 +738,22 @@ async function loadSettings() {
     el<HTMLInputElement>("daw-host").value = settings.DAWHost;
     el<HTMLInputElement>("daw-port").value = String(settings.DAWPort);
     el<HTMLInputElement>("daw-feedback").value = String(settings.DAWFeedback);
+
+    const providers = el<HTMLSelectElement>("search-provider");
+    providers.replaceChildren();
+    for (const name of ["", ...(settings.SearchAvailable ?? [])]) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name === "" ? "Off" : name;
+        providers.append(option);
+    }
+    providers.value = settings.SearchProvider ?? "";
+    el<HTMLInputElement>("search-key").value = "";
+    el<HTMLInputElement>("search-url").value = settings.SearchURL ?? "";
+    el("search-key-hint").textContent = settings.SearchKeySet
+        ? "A key is saved. Leave this empty to keep it, or type a new one to replace it."
+        : "No key saved.";
+    showSearchFields();
     el<HTMLInputElement>("preview-default").checked = settings.PreviewByDefault;
     previewMode.checked = settings.PreviewByDefault;
     applyTheme(settings.Theme || "system");
@@ -750,9 +776,13 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
         PreviewByDefault: el<HTMLInputElement>("preview-default").checked,
         Theme: chosenTheme,
         Accent: "mono",
+        SearchProvider: el<HTMLSelectElement>("search-provider").value,
+        SearchURL: el<HTMLInputElement>("search-url").value,
+        SearchKeySet: false,
+        SearchAvailable: [],
     };
 
-    const result = await SettingsService.Save(settings, el<HTMLInputElement>("api-key").value);
+    const result = await SettingsService.Save(settings, el<HTMLInputElement>("api-key").value, el<HTMLInputElement>("search-key").value);
     const note = el("settings-note");
     if (result.Error) {
         note.textContent = result.Error.Message;

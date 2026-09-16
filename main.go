@@ -14,6 +14,7 @@ import (
 	"tonelab/backend/config"
 	"tonelab/backend/daw"
 	"tonelab/backend/osc"
+	"tonelab/backend/search"
 )
 
 // Embedded so the app ships as one binary with no external asset path.
@@ -63,15 +64,29 @@ func main() {
 		APIKey:  settings.LLM.APIKey,
 		Model:   settings.LLM.Model,
 	}
-	orchestrator := agent.NewOrchestrator(llm, agent.NewTools(dawClient))
+	tools := agent.NewTools(dawClient)
+	orchestrator := agent.NewOrchestrator(llm, tools)
 
 	// A separate agent whose changing tools are disarmed, so a preview cannot
 	// reach the project even if something above it goes wrong.
-	previews := agent.NewOrchestrator(llm, agent.NewPreviewTools(dawClient))
+	previewTools := agent.NewPreviewTools(dawClient)
+	previews := agent.NewOrchestrator(llm, previewTools)
+
+	// Web search is optional and reads only, so both agents share it. A bad
+	// search setting is logged, not fatal: the DAW still works without it.
+	applySearch := func(provider search.Provider) {
+		tools.EnableSearch(provider)
+		previewTools.EnableSearch(provider)
+	}
+	if provider, err := search.New(search.Config{Provider: settings.Search.Provider, APIKey: settings.Search.APIKey, BaseURL: settings.Search.BaseURL}); err != nil {
+		log.Printf("[tonelab] search disabled: %v", err)
+	} else {
+		applySearch(provider)
+	}
 
 	agentService := app.BuildAgentService(orchestrator, previews, dawClient,
 		filepath.Join(filepath.Dir(configPath), "conversations.json"))
-	settingsService := app.NewSettingsService(configPath, orchestrator, previews)
+	settingsService := app.NewSettingsService(configPath, orchestrator, previews, applySearch)
 
 	desktop := application.New(application.Options{
 		Name:        "Tonelab",

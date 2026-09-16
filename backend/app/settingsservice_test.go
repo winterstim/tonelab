@@ -9,6 +9,7 @@ import (
 
 	"tonelab/backend/agent"
 	"tonelab/backend/config"
+	"tonelab/backend/search"
 )
 
 func settingsService(t *testing.T) (*SettingsService, string) {
@@ -25,7 +26,7 @@ func settingsService(t *testing.T) (*SettingsService, string) {
 
 	live := agent.NewOrchestrator(agent.Config{}, nil)
 	previews := agent.NewOrchestrator(agent.Config{}, nil)
-	return NewSettingsService(path, live, previews), path
+	return NewSettingsService(path, live, previews, nil), path
 }
 
 // A key that never leaves the backend cannot be read off a screen, copied out
@@ -54,7 +55,7 @@ func TestSavingWithoutAKeyKeepsTheOne(t *testing.T) {
 
 	current, _ := service.Get()
 	current.Model = "another-model"
-	if _, err := service.Save(current, ""); err != nil {
+	if _, err := service.Save(current, "", ""); err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 
@@ -74,7 +75,7 @@ func TestSavingAKeyReplacesIt(t *testing.T) {
 	service, path := settingsService(t)
 
 	current, _ := service.Get()
-	if _, err := service.Save(current, "  new-key  "); err != nil {
+	if _, err := service.Save(current, "  new-key  ", ""); err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 
@@ -91,7 +92,7 @@ func TestInvalidSettingsAreRefused(t *testing.T) {
 
 	current, _ := service.Get()
 	current.BaseURL = ""
-	result, err := service.Save(current, "")
+	result, err := service.Save(current, "", "")
 
 	if err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
@@ -112,7 +113,7 @@ func TestChangingTheDAWReportsARestart(t *testing.T) {
 
 	current, _ := service.Get()
 	current.DAWPort = 9999
-	result, _ := service.Save(current, "")
+	result, _ := service.Save(current, "", "")
 
 	if !result.RestartNeeded {
 		t.Error("expected the restart to be reported")
@@ -123,7 +124,7 @@ func TestChangingTheDAWReportsARestart(t *testing.T) {
 
 	current, _ = service.Get()
 	current.Model = "changed"
-	result, _ = service.Save(current, "")
+	result, _ = service.Save(current, "", "")
 	if result.RestartNeeded {
 		t.Error("an endpoint change needs no restart")
 	}
@@ -136,12 +137,12 @@ func TestSettingsCanBeSavedOverABrokenFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{ not json"), 0o600); err != nil {
 		t.Fatalf("could not write the broken file: %v", err)
 	}
-	service := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil))
+	service := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil), nil)
 
 	result, err := service.Save(Settings{
 		BaseURL: "http://localhost:11434/v1", Model: "m",
 		DAWBackend: "reaper", DAWHost: "127.0.0.1", DAWPort: 8000, DAWFeedback: 9000,
-	}, "key")
+	}, "key", "")
 
 	if err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
@@ -159,12 +160,12 @@ func TestPreferencesSurviveAReload(t *testing.T) {
 	current, _ := service.Get()
 	current.PreviewByDefault = true
 	current.Theme = "light"
-	if _, err := service.Save(current, ""); err != nil {
+	if _, err := service.Save(current, "", ""); err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 
 	// A fresh service, as a restart would build.
-	reloaded := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil))
+	reloaded := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil), nil)
 	settings, _ := reloaded.Get()
 
 	if !settings.PreviewByDefault {
@@ -186,7 +187,7 @@ func TestAnUnsetThemeMeansSystem(t *testing.T) {
 	}
 
 	current.Theme = "nonsense"
-	if _, err := service.Save(current, ""); err != nil {
+	if _, err := service.Save(current, "", ""); err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 	settings, _ := service.Get()
@@ -202,11 +203,11 @@ func TestTheColourChoiceIsKept(t *testing.T) {
 
 	current, _ := service.Get()
 	current.Accent = "mono"
-	if _, err := service.Save(current, ""); err != nil {
+	if _, err := service.Save(current, "", ""); err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 
-	reloaded := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil))
+	reloaded := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil), nil)
 	settings, _ := reloaded.Get()
 	if settings.Accent != "mono" {
 		t.Fatalf("expected mono, got %q", settings.Accent)
@@ -224,11 +225,50 @@ func TestAnUnsetColourMeansColour(t *testing.T) {
 	}
 
 	current.Accent = "nonsense"
-	if _, err := service.Save(current, ""); err != nil {
+	if _, err := service.Save(current, "", ""); err != nil {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 	settings, _ := service.Get()
 	if settings.Accent != "colour" {
 		t.Fatalf("expected the unknown value to fall back, got %q", settings.Accent)
+	}
+}
+
+// The search key follows the model key's rules: never sent out, kept when
+// the save leaves it blank, and applied at once through the hook.
+func TestSearchSettingsKeepTheKeyAndApply(t *testing.T) {
+	service, _ := settingsService(t)
+	var applied []search.Provider
+	service.applySearch = func(p search.Provider) { applied = append(applied, p) }
+
+	current, _ := service.Get()
+	current.SearchProvider = "brave"
+	if result, _ := service.Save(current, "", "brave-key"); !result.Saved {
+		t.Fatalf("expected the save to succeed, got %+v", result)
+	}
+	shown, _ := service.Get()
+	if !shown.SearchKeySet || shown.SearchProvider != "brave" {
+		t.Fatalf("expected the provider and a set key, got %+v", shown)
+	}
+	if len(applied) != 1 || applied[0] == nil {
+		t.Fatalf("expected a provider applied once, got %v", applied)
+	}
+
+	// Saving again with a blank key keeps the old one.
+	if result, _ := service.Save(shown, "", ""); !result.Saved {
+		t.Fatalf("expected the save to succeed, got %+v", result)
+	}
+	if again, _ := service.Get(); !again.SearchKeySet {
+		t.Fatal("a blank key on save must keep the existing one")
+	}
+
+	// Turning the provider off drops everything, and applies nil.
+	shown.SearchProvider = ""
+	service.Save(shown, "", "")
+	if off, _ := service.Get(); off.SearchKeySet || off.SearchProvider != "" {
+		t.Fatalf("expected search off, got %+v", off)
+	}
+	if applied[len(applied)-1] != nil {
+		t.Fatal("turning search off should apply no provider")
 	}
 }

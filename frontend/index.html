@@ -154,6 +154,22 @@
             </div>
             <p class="hint">The DAW must be set to send OSC feedback to the listening port, or nothing can be read back.</p>
 
+            <h2 class="group">Web search</h2>
+            <label class="field">
+                <span class="label">Provider</span>
+                <select class="text" id="search-provider"></select>
+            </label>
+            <label class="field" id="search-key-field">
+                <span class="label">API key</span>
+                <input class="text" id="search-key" type="password" spellcheck="false"/>
+                <span class="hint" id="search-key-hint"></span>
+            </label>
+            <label class="field" id="search-url-field">
+                <span class="label">Instance URL</span>
+                <input class="text" id="search-url" type="text" spellcheck="false" placeholder="Only for a local instance"/>
+            </label>
+            <p class="hint">Off means the agent knows only the project. A hosted provider needs a key; a local one needs an address.</p>
+
             <h2 class="group">Appearance</h2>
             <div class="field">
                 <span class="label">Theme</span>

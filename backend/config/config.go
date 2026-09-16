@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"tonelab/backend/daw"
+	"tonelab/backend/search"
 )
 
 // LLM points at any OpenAI-compatible endpoint, which is what lets a cloud key
@@ -49,10 +50,19 @@ type UI struct {
 	PreviewByDefault bool `json:"preview_by_default"`
 }
 
+// Search is optional. Empty provider means the agent has no web access,
+// which is a valid state rather than a misconfiguration.
+type Search struct {
+	Provider string `json:"provider,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+	BaseURL  string `json:"base_url,omitempty"`
+}
+
 type Config struct {
-	LLM LLM `json:"llm"`
-	DAW DAW `json:"daw"`
-	UI  UI  `json:"ui"`
+	LLM    LLM    `json:"llm"`
+	DAW    DAW    `json:"daw"`
+	UI     UI     `json:"ui"`
+	Search Search `json:"search"`
 }
 
 // String masks the key. The likeliest way to leak a secret is a log line
@@ -62,9 +72,14 @@ func (c Config) String() string {
 	if c.LLM.APIKey != "" {
 		key = "set"
 	}
-	return fmt.Sprintf("llm{base_url:%s model:%s api_key:%s} daw{backend:%s %s:%d feedback:%d}",
+	searchKey := "not set"
+	if c.Search.APIKey != "" {
+		searchKey = "set"
+	}
+	return fmt.Sprintf("llm{base_url:%s model:%s api_key:%s} daw{backend:%s %s:%d feedback:%d} search{provider:%q api_key:%s}",
 		c.LLM.BaseURL, c.LLM.Model, key,
-		c.DAW.Backend, c.DAW.Host, c.DAW.Port, c.DAW.FeedbackPort)
+		c.DAW.Backend, c.DAW.Host, c.DAW.Port, c.DAW.FeedbackPort,
+		c.Search.Provider, searchKey)
 }
 
 // Path is where the file lives when the user has not said otherwise.
@@ -121,6 +136,11 @@ func (c Config) validate() error {
 		return fmt.Errorf("ui.theme %q is not one of: light, dark, system", c.UI.Theme)
 	case c.UI.Accent != "" && c.UI.Accent != "colour" && c.UI.Accent != "mono":
 		return fmt.Errorf("ui.accent %q is not one of: colour, mono", c.UI.Accent)
+	}
+	if c.Search.Provider != "" {
+		if _, err := search.New(search.Config{Provider: c.Search.Provider, APIKey: c.Search.APIKey, BaseURL: c.Search.BaseURL}); err != nil {
+			return err
+		}
 	}
 
 	// Checked against the registry rather than a list here, so a new backend
