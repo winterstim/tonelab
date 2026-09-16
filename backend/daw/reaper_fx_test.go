@@ -141,6 +141,13 @@ func (f *fakeFXSurface) announceBank(feed chan<- *goosc.Message) {
 			name = fx.params[index]
 		}
 		feed <- goosc.NewMessage(fmt.Sprintf("/fxparam/%d/name", k), name)
+		if name != "" {
+			value, ok := f.values[fmt.Sprintf("%d/%d/%d", f.selected, f.fx, index+1)]
+			if !ok {
+				value = 0.5
+			}
+			feed <- goosc.NewMessage(fmt.Sprintf("/fxparam/%d/value", k), value)
+		}
 	}
 }
 
@@ -296,6 +303,29 @@ func TestFXParamRefusesWhatTheDAWWouldClamp(t *testing.T) {
 	} {
 		if err := reaper.SetFXParam(tc.track, tc.fx, tc.prm, tc.value); err == nil {
 			t.Errorf("%s: expected a refusal", tc.name)
+		}
+	}
+}
+
+// Only the first bank of each effect comes with the track dump; a parameter
+// beyond it is read by pointing the surface at that effect and bank, and
+// the surface is left on bank 1 so the next such read is a transition too.
+func TestFXParamReadBeyondTheFirstBank(t *testing.T) {
+	reaper, fake := newFXReaper(t, map[int][]fakeFX{1: {{name: "Amp", params: knobs(40)}}})
+	fake.values = map[string]float32{"1/1/37": 0.125}
+
+	for round := 0; round < 2; round++ {
+		value, err := reaper.ReadFXParam(1, 1, 37, time.Second)
+		if err != nil {
+			t.Fatalf("round %d: ReadFXParam: %v", round, err)
+		}
+		if value != 0.125 {
+			t.Fatalf("round %d: expected 0.125 from bank 3, got %v", round, value)
+		}
+	}
+	for _, address := range fake.sent() {
+		if !strings.HasPrefix(address, "/device/") {
+			t.Errorf("reading sent %s", address)
 		}
 	}
 }

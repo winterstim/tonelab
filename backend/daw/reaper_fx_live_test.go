@@ -89,3 +89,45 @@ func TestREAPERFXParamRoundTrip(t *testing.T) {
 		t.Fatalf("expected the last value near 0.3 on read, got %v", read)
 	}
 }
+
+// A parameter past the first bank is read by pointing the surface at its
+// effect and bank. Runs only when the open project's plugin has that many.
+func TestREAPERFXParamBeyondTheFirstBank(t *testing.T) {
+	listener, err := osc.Listen(reaperHost, reaperFeedbackPort)
+	if err != nil {
+		t.Fatalf("could not listen for REAPER's feedback: %v", err)
+	}
+	defer listener.Close()
+	reaper := daw.NewREAPER(osc.NewTransport(reaperHost, reaperListenPort))
+	reaper.Observe(listener.Messages())
+
+	chain, err := reaper.FXChain(1, 3*time.Second)
+	if err != nil || len(chain) == 0 || len(chain[0].Params) <= 2*16 {
+		t.Skip("track 1 needs a plugin with more than two banks of parameters")
+	}
+	param := 2*16 + 5
+	name := chain[0].Params[param-1].Name
+
+	// Nothing has echoed this parameter yet, so the value can only come
+	// from pointing the surface at bank 3.
+	first, err := reaper.ReadFXParam(1, 1, param, 3*time.Second)
+	if err != nil {
+		t.Fatalf("ReadFXParam %q from the surface: %v", name, err)
+	}
+	t.Logf("%q (param %d) reads %v from bank 3", name, param, first)
+
+	for _, want := range []float64{0.6, 0.2} {
+		if err := reaper.SetFXParam(1, 1, param, want); err != nil {
+			t.Fatalf("SetFXParam: %v", err)
+		}
+		got, err := reaper.ConfirmFXParam(1, 1, param, 3*time.Second)
+		if err != nil {
+			t.Fatalf("ConfirmFXParam %q: %v", name, err)
+		}
+		if got < want-0.05 || got > want+0.05 {
+			t.Fatalf("%q: set %v, read %v", name, want, got)
+		}
+		t.Logf("%q: set %v, DAW reports %v", name, want, got)
+	}
+	_ = reaper.SetFXParam(1, 1, param, first)
+}

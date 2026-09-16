@@ -48,9 +48,16 @@ func (r *REAPER) send(address string, args ...any) error {
 	if err := permitted(address, args); err != nil {
 		return err
 	}
-	if address == "/device/track/select" && len(args) == 1 {
+	if len(args) == 1 {
 		if target, ok := args[0].(int32); ok {
-			r.surfaceTrack.Store(int64(target))
+			switch address {
+			case "/device/track/select":
+				r.surfaceTrack.Store(int64(target))
+			case "/device/fx/select":
+				r.surfaceFX.Store(int64(target))
+			case "/device/fxparam/bank/select":
+				r.surfaceBank.Store(int64(target))
+			}
 		}
 	}
 	return r.osc.Send(address, args...)

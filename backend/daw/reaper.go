@@ -73,6 +73,11 @@ type REAPER struct {
 	// Where the surface was last pointed, since its feedback names no
 	// track. Zero until this backend has pointed it somewhere.
 	surfaceTrack atomic.Int64
+	// Likewise which effect and parameter bank, since bank feedback names
+	// neither. Both are left at 1 between operations, so selecting a
+	// higher one is always a transition the DAW announces.
+	surfaceFX   atomic.Int64
+	surfaceBank atomic.Int64
 }
 
 var _ Client = (*REAPER)(nil)

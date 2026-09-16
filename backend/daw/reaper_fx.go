@@ -160,10 +160,12 @@ func (c *fxCollector) reset() {
 	c.last = time.Now()
 }
 
+// absorb counts only what it understands towards the burst: a playing DAW
+// streams its position many times a second, and quiet measured against
+// that never arrives.
 func (c *fxCollector) absorb(msg *goosc.Message) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.last = time.Now()
 
 	if m := chainName.FindStringSubmatch(msg.Address); m != nil {
 		if name, ok := stringArg(msg); ok && name != "" {
@@ -189,8 +191,11 @@ func (c *fxCollector) absorb(msg *goosc.Message) {
 		if text, ok := stringArg(msg); ok {
 			c.bankSeen = atoi(text)
 		}
+	} else {
+		return
 	}
 
+	c.last = time.Now()
 	close(c.changed)
 	c.changed = make(chan struct{})
 }
@@ -295,6 +300,7 @@ var ErrInvalidFX = errors.New("daw: effect and parameter indices start at 1")
 var (
 	absoluteFXValue = regexp.MustCompile(`^/track/([0-9]+)/fx/([0-9]+)/fxparam/([0-9]+)/value$`)
 	surfaceFXValue  = regexp.MustCompile(`^/fx/([0-9]+)/fxparam/([0-9]+)/value$`)
+	bankFXValue     = regexp.MustCompile(`^/fxparam/([0-9]+)/value$`)
 )
 
 func fxKey(fx, param int) string {
@@ -344,19 +350,26 @@ func (r *REAPER) ConfirmFXParam(track, fx, param int, timeout time.Duration) (fl
 	if err := validateFX(track, fx, param); err != nil {
 		return 0, err
 	}
+	r.surface.Lock()
+	defer r.surface.Unlock()
+	if param > bankSize {
+		defer r.leaveSurface()
+	}
+
 	seen := r.state.readingsSeen()
 	changed := r.state.changed()
 
-	if err := r.Refresh(track); err != nil {
+	if err := r.refreshFX(track, fx, param); err != nil {
 		return 0, err
 	}
 
 	deadline := time.After(timeout)
 	for {
-		if r.state.readingsSeen() > seen {
-			if value, err := r.GetFXParam(track, fx, param); err == nil {
-				return value, nil
-			}
+		// This parameter's own reading, made after the question: any other
+		// reading arriving is not an answer, and the cache holds the value
+		// being disproved.
+		if value, ok := r.state.getSince(track, fxKey(fx, param), seen); ok {
+			return value, nil
 		}
 		select {
 		case <-changed:
@@ -399,5 +412,70 @@ func (r *REAPER) absorbFX(msg *goosc.Message) bool {
 		}
 		return true
 	}
+	// Bank-relative: names neither track, effect nor bank, all of which are
+	// where this backend last pointed the surface.
+	if m := bankFXValue.FindStringSubmatch(msg.Address); m != nil {
+		track, fx, bank := int(r.surfaceTrack.Load()), int(r.surfaceFX.Load()), int(r.surfaceBank.Load())
+		if fx < 1 {
+			fx = 1
+		}
+		if bank < 1 {
+			bank = 1
+		}
+		if value, ok := numeric(msg.Arguments[0]); ok && track > 0 {
+			r.state.set(track, fxKey(fx, (bank-1)*bankSize+atoi(m[1])), value)
+		}
+		return true
+	}
 	return false
+}
+
+// refreshFX makes the DAW announce one parameter's value. The first bank
+// of every effect comes with the track dump; anything beyond it means
+// pointing the surface at that effect and bank, which is why the surface
+// is locked here and left on bank 1 afterwards.
+// Each step waits for the DAW's burst to end before the next, because the
+// backend files bank feedback under where it last pointed the surface, and
+// a burst still arriving when the pointer moves would be filed wrongly.
+func (r *REAPER) refreshFX(track, fx, param int) error {
+	if err := r.send("/device/track/select", int32(parkIndex)); err != nil {
+		return err
+	}
+	r.awaitQuiet(time.Second)
+	if err := r.send("/device/track/select", int32(track)); err != nil {
+		return err
+	}
+	bank := (param-1)/bankSize + 1
+	if bank == 1 {
+		return nil
+	}
+	r.awaitQuiet(time.Second)
+	if err := r.send("/device/fx/select", int32(fx)); err != nil {
+		return err
+	}
+	r.awaitQuiet(time.Second)
+	return r.send("/device/fxparam/bank/select", int32(bank))
+}
+
+// leaveSurface waits for the bank's burst to end before pointing the
+// surface back: a value arriving after the bank was reset would be filed
+// under the wrong parameter, since the message itself names no bank.
+func (r *REAPER) leaveSurface() {
+	r.awaitQuiet(2 * time.Second)
+	_ = r.send("/device/fxparam/bank/select", int32(1))
+	_ = r.send("/device/fx/select", int32(1))
+}
+
+func (r *REAPER) awaitQuiet(timeout time.Duration) {
+	deadline := time.After(timeout)
+	for {
+		changed := r.state.changed()
+		select {
+		case <-changed:
+		case <-time.After(quiet):
+			return
+		case <-deadline:
+			return
+		}
+	}
 }
