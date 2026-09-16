@@ -625,6 +625,10 @@ function iconFor(tool: string): string {
         case "list_tracks": return "list";
         case "get_param": return "read";
         case "set_param": return "set";
+        case "set_fx_param": return "set";
+        case "get_fx_param": return "read";
+        case "list_fx": return "list";
+        case "find_params": return "list";
         case "undo": return "undo";
         default: return "settings";
     }
@@ -651,6 +655,18 @@ function describeStep(tool: string, args: string, outcome: string, failed: boole
         case "undo":
             said = "Asked the DAW to undo";
             break;
+        case "list_fx":
+            said = `Looked up the effects on track ${track}`;
+            break;
+        case "find_params":
+            said = `Searched track ${track} for "${parsed.query ?? ""}"`;
+            break;
+        case "get_fx_param":
+            said = `Read ${fxTarget(outcome, parsed)} on track ${track}`;
+            break;
+        case "set_fx_param":
+            said = `Set ${fxTarget(outcome, parsed)} on track ${track} to ${format(parsed.value)}`;
+            break;
         default:
             said = tool;
     }
@@ -659,6 +675,16 @@ function describeStep(tool: string, args: string, outcome: string, failed: boole
         return `${said}, refused${reason ? `: ${reason}` : ""}`;
     }
     return said;
+}
+
+// The call carries positions and the outcome carries names; a person wants
+// the names, so they are taken from the outcome when the call succeeded.
+function fxTarget(outcome: string, parsed: any): string {
+    const value = parse(outcome).value ?? {};
+    if (value.fx_name && value.name) {
+        return `${value.name} on ${value.fx_name}`;
+    }
+    return `effect ${parsed.fx_id ?? "?"} parameter ${parsed.param_id ?? "?"}`;
 }
 
 function parse(text: string): any {

@@ -117,6 +117,23 @@ type Change struct {
 	Note      string
 }
 
+// changeOf reads what a changing tool reported, if it changed anything. An
+// effect parameter is named by its effect as well, since "Mix" alone says
+// nothing to someone with three plugins on the track.
+func changeOf(value any) *Change {
+	switch applied := value.(type) {
+	case Applied:
+		return &Change{Track: applied.Track, Param: applied.Param, Requested: applied.Requested, Confirmed: applied.Confirmed, Note: applied.Note}
+	case AppliedFX:
+		change := &Change{Track: applied.Track, Param: applied.FXName + " / " + applied.Name, Requested: applied.Requested, Note: applied.Note}
+		if applied.Confirmed != nil {
+			change.Confirmed = *applied.Confirmed
+		}
+		return change
+	}
+	return nil
+}
+
 // Orchestrator runs the tool-calling loop: send the conversation, execute what
 // the model asks for, feed the result back, repeat until it answers in prose.
 type Orchestrator struct {
@@ -300,16 +317,7 @@ func (o *Orchestrator) execute(call toolCall) (message, *Change, *PlannedCall) {
 	// A change is reported to the UI from what the tool confirmed, not from
 	// the model's summary, so a display cannot show something the DAW never
 	// did.
-	var changed *Change
-	if applied, ok := result.Value.(Applied); ok {
-		changed = &Change{
-			Track:     applied.Track,
-			Param:     applied.Param,
-			Requested: applied.Requested,
-			Confirmed: applied.Confirmed,
-			Note:      applied.Note,
-		}
-	}
+	changed := changeOf(result.Value)
 
 	var planned *PlannedCall
 	if proposal, ok := result.Value.(Planned); ok {
@@ -652,14 +660,8 @@ func (o *Orchestrator) Apply(plan []PlannedCall) Response {
 				Error:   &Error{Code: result.Error.Code, Message: result.Error.Message},
 			}
 		}
-		if applied, ok := result.Value.(Applied); ok {
-			changed = append(changed, Change{
-				Track:     applied.Track,
-				Param:     applied.Param,
-				Requested: applied.Requested,
-				Confirmed: applied.Confirmed,
-				Note:      applied.Note,
-			})
+		if change := changeOf(result.Value); change != nil {
+			changed = append(changed, *change)
 		}
 	}
 	return Response{Message: "Applied.", Changed: changed, Steps: steps}
