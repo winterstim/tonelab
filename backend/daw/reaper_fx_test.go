@@ -100,6 +100,7 @@ func (f *fakeFXSurface) run(receiver *osctest.Receiver, feed chan<- *goosc.Messa
 							break
 						}
 						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/name", i+1, k+1), name)
+						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/value/str", i+1, k+1), readoutFor(name))
 						value, ok := f.values[fmt.Sprintf("%d/%d/%d", target, i+1, k+1)]
 						if !ok {
 							value = 0.5
@@ -142,6 +143,7 @@ func (f *fakeFXSurface) announceBank(feed chan<- *goosc.Message) {
 		}
 		feed <- goosc.NewMessage(fmt.Sprintf("/fxparam/%d/name", k), name)
 		if name != "" {
+			feed <- goosc.NewMessage(fmt.Sprintf("/fxparam/%d/value/str", k), readoutFor(name))
 			value, ok := f.values[fmt.Sprintf("%d/%d/%d", f.selected, f.fx, index+1)]
 			if !ok {
 				value = 0.5
@@ -149,6 +151,18 @@ func (f *fakeFXSurface) announceBank(feed chan<- *goosc.Message) {
 			feed <- goosc.NewMessage(fmt.Sprintf("/fxparam/%d/value", k), value)
 		}
 	}
+}
+
+// readoutFor mimics what a plugin shows for a value: a number for a knob,
+// a word for a switch, a name for a list position.
+func readoutFor(name string) string {
+	switch {
+	case strings.HasSuffix(name, "Switch"):
+		return "Off"
+	case strings.HasSuffix(name, "Mode"):
+		return "Stereo"
+	}
+	return "0.50"
 }
 
 func knobs(n int) []string {
@@ -327,5 +341,27 @@ func TestFXParamReadBeyondTheFirstBank(t *testing.T) {
 		if !strings.HasPrefix(address, "/device/") {
 			t.Errorf("reading sent %s", address)
 		}
+	}
+}
+
+// The DAW gives no flag for stepped parameters, only a readout: a number
+// means a control, a word means a position, and a few words mean on/off.
+func TestFXChainInfersKindsFromReadouts(t *testing.T) {
+	reaper, _ := newFXReaper(t, map[int][]fakeFX{
+		1: {{name: "Amp", params: append(knobs(20), "Cab Switch", "Mic Mode")}},
+	})
+	chain, err := reaper.FXChain(1, time.Second)
+	if err != nil {
+		t.Fatalf("FXChain: %v", err)
+	}
+	params := chain[0].Params
+	if params[0].Kind != "" {
+		t.Errorf("a knob should have no kind, got %q", params[0].Kind)
+	}
+	if params[20].Name != "Cab Switch" || params[20].Kind != "switch" {
+		t.Errorf("expected Cab Switch (past the first bank) to be a switch, got %+v", params[20])
+	}
+	if params[21].Kind != "discrete" {
+		t.Errorf("expected Mic Mode to be discrete, got %+v", params[21])
 	}
 }

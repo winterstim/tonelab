@@ -46,6 +46,11 @@ type ParamMatch struct {
 	FXName string `json:"fx_name"`
 	Param  int    `json:"param_id"`
 	Name   string `json:"name"`
+	// Kind tells the model what a value means here: absent for a
+	// continuous control, "switch" for on/off, "list" with Steps for a
+	// choice, "discrete" for stepped with the count unknown.
+	Kind  string `json:"kind,omitempty"`
+	Steps int    `json:"steps,omitempty"`
 }
 
 type AppliedFX struct {
@@ -120,7 +125,9 @@ func (t *Tools) fxDefinitions() []Tool {
 			Name: "find_params",
 			Description: "Search the parameters of every effect on a track by words, such as " +
 				"\"reverb mix\" or \"gain\". Returns the best matches with their fx_id and param_id, " +
-				"which set_fx_param and get_fx_param take. Use this instead of guessing indices.",
+				"which set_fx_param and get_fx_param take. Use this instead of guessing indices. " +
+				"A match with kind \"switch\" takes 0 or 1; \"list\" with N steps takes (position-1)/(N-1); " +
+				"no kind means a continuous 0.0 to 1.0 control.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -146,7 +153,7 @@ func (t *Tools) fxDefinitions() []Tool {
 		{
 			Name: "set_fx_param",
 			Description: "Set an effect parameter by position, as found by find_params. " +
-				"Values are normalized 0.0 to 1.0, never dB, Hz or percent. " +
+				"Values are normalized 0.0 to 1.0, never dB, Hz or percent; a switch takes 0 or 1. " +
 				"Returns what the DAW reports the value became, which the plugin may have rounded.",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -234,7 +241,7 @@ func (t *Tools) findParams(args json.RawMessage) Result {
 				}
 			}
 			if score > 0 {
-				found = append(found, scored{ParamMatch{fx.Number, fx.Name, param.Number, param.Name}, score})
+				found = append(found, scored{ParamMatch{FX: fx.Number, FXName: fx.Name, Param: param.Number, Name: param.Name, Kind: param.Kind, Steps: param.Steps}, score})
 			}
 		}
 	}

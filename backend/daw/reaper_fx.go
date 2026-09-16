@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,31 @@ type FX struct {
 type FXParam struct {
 	Number int    `json:"number"`
 	Name   string `json:"name"`
+	// Kind is "" for a continuous control, "switch" for two states, "list"
+	// for a known number of states (in Steps), "discrete" for stepped
+	// with the count unknown. A model sending 0.8 to a switch gets
+	// something it did not ask for, so it is told which is which.
+	Kind  string `json:"kind,omitempty"`
+	Steps int    `json:"steps,omitempty"`
+}
+
+var switchWords = map[string]bool{"on": true, "off": true, "normal": true, "bypassed": true, "bypass": true,
+	"yes": true, "no": true, "true": true, "false": true, "enabled": true, "disabled": true}
+
+// kindOfText infers a kind from the DAW's readout, the only hint REAPER
+// gives: a number means a control, a word means a position.
+func kindOfText(readout string) string {
+	text := strings.TrimSpace(readout)
+	if text == "" {
+		return ""
+	}
+	if _, err := strconv.ParseFloat(strings.Fields(text)[0], 64); err == nil {
+		return ""
+	}
+	if switchWords[strings.ToLower(text)] {
+		return "switch"
+	}
+	return "discrete"
 }
 
 // bankSize is how many parameters the surface shows at once, its setting and
@@ -41,6 +67,8 @@ var (
 	chainName  = regexp.MustCompile(`^/fx/([0-9]+)/name$`)
 	chainParam = regexp.MustCompile(`^/fx/([0-9]+)/fxparam/([0-9]+)/name$`)
 	bankParam  = regexp.MustCompile(`^/fxparam/([0-9]+)/name$`)
+	chainText  = regexp.MustCompile(`^/fx/([0-9]+)/fxparam/([0-9]+)/value/str$`)
+	bankText   = regexp.MustCompile(`^/fxparam/([0-9]+)/value/str$`)
 )
 
 // FXChain enumerates the effects on one track and their parameters. Measured,
@@ -112,11 +140,12 @@ func (r *REAPER) walkBanks(collector *fxCollector, fx int, timeout time.Duration
 		if !collector.awaitBank(bank, timeout) {
 			break
 		}
-		names, ended := collector.bank()
-		for k, name := range names {
-			params = append(params, FXParam{Number: (bank-1)*bankSize + k + 1, Name: name})
+		inBank, ended := collector.bank()
+		for _, param := range inBank {
+			param.Number += (bank - 1) * bankSize
+			params = append(params, param)
 		}
-		if ended || len(names) < bankSize {
+		if ended || len(inBank) < bankSize {
 			break
 		}
 	}
@@ -136,7 +165,9 @@ type fxCollector struct {
 	mu       sync.Mutex
 	names    map[int]string
 	params   map[int]map[int]string
+	kinds    map[int]map[int]string
 	inBank   map[int]string
+	bankKind map[int]string
 	bankSeen int
 	ended    bool
 	last     time.Time
@@ -154,7 +185,9 @@ func (c *fxCollector) reset() {
 	defer c.mu.Unlock()
 	c.names = make(map[int]string)
 	c.params = make(map[int]map[int]string)
+	c.kinds = make(map[int]map[int]string)
 	c.inBank = make(map[int]string)
+	c.bankKind = make(map[int]string)
 	c.bankSeen = 0
 	c.ended = false
 	c.last = time.Now()
@@ -178,6 +211,18 @@ func (c *fxCollector) absorb(msg *goosc.Message) {
 				c.params[fx] = make(map[int]string)
 			}
 			c.params[fx][atoi(m[2])] = name
+		}
+	} else if m := chainText.FindStringSubmatch(msg.Address); m != nil {
+		if text, ok := stringArg(msg); ok {
+			fx := atoi(m[1])
+			if c.kinds[fx] == nil {
+				c.kinds[fx] = make(map[int]string)
+			}
+			c.kinds[fx][atoi(m[2])] = kindOfText(text)
+		}
+	} else if m := bankText.FindStringSubmatch(msg.Address); m != nil {
+		if text, ok := stringArg(msg); ok {
+			c.bankKind[atoi(m[1])] = kindOfText(text)
 		}
 	} else if m := bankParam.FindStringSubmatch(msg.Address); m != nil {
 		if name, ok := stringArg(msg); ok {
@@ -258,25 +303,25 @@ func (c *fxCollector) chain() []FX {
 			if !ok {
 				break
 			}
-			fx.Params = append(fx.Params, FXParam{Number: k, Name: param})
+			fx.Params = append(fx.Params, FXParam{Number: k, Name: param, Kind: c.kinds[number][k]})
 		}
 		chain = append(chain, fx)
 	}
 	return chain
 }
 
-func (c *fxCollector) bank() ([]string, bool) {
+func (c *fxCollector) bank() ([]FXParam, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var names []string
+	var params []FXParam
 	for k := 1; k <= bankSize; k++ {
 		name, ok := c.inBank[k]
 		if !ok {
 			break
 		}
-		names = append(names, name)
+		params = append(params, FXParam{Number: k, Name: name, Kind: c.bankKind[k]})
 	}
-	return names, c.ended
+	return params, c.ended
 }
 
 func stringArg(msg *goosc.Message) (string, bool) {

@@ -37,6 +37,8 @@ type fakeDevice struct {
 	min    []float32
 	max    []float32
 	value  []float32
+	// Which parameters step, as Live reports.
+	quantized []bool
 }
 
 func (f *fakeLive) sent() []string {
@@ -120,6 +122,13 @@ func (f *fakeLive) answer(msg *goosc.Message) *goosc.Message {
 			}
 		}
 		return echo(2, out...)
+	case "/live/device/get/parameters/is_quantized":
+		d := f.devices[id(0)][id(1)]
+		var out []any
+		for i := range d.params {
+			out = append(out, d.quantized != nil && d.quantized[i])
+		}
+		return echo(2, out...)
 	case "/live/device/get/parameter/value":
 		return echo(3, f.devices[id(0)][id(1)].value[id(2)])
 	case "/live/device/set/parameter/value":
@@ -140,7 +149,7 @@ func newLive(t *testing.T) (*daw.Ableton, *fakeLive) {
 		pan:    []float32{0, 0},
 		mute:   []int32{0, 0},
 		devices: map[int][]fakeDevice{
-			1: {{name: "Amp", params: []string{"Gain", "Bass"}, min: []float32{0, -12}, max: []float32{10, 12}, value: []float32{5, 0}}},
+			1: {{name: "Amp", params: []string{"Gain", "Bass", "Device On", "Cab"}, min: []float32{0, -12, 0, 0}, max: []float32{10, 12, 1, 3}, value: []float32{5, 0, 1, 0}, quantized: []bool{false, false, true, true}}},
 		},
 	}
 	fake.run(receiver, feed)
@@ -201,7 +210,7 @@ func TestAbletonFXParamsAreNormalizedAcrossTheRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FXChain: %v", err)
 	}
-	if len(chain) != 1 || chain[0].Name != "Amp" || len(chain[0].Params) != 2 || chain[0].Params[1].Name != "Bass" {
+	if len(chain) != 1 || chain[0].Name != "Amp" || len(chain[0].Params) != 4 || chain[0].Params[1].Name != "Bass" {
 		t.Fatalf("unexpected chain: %+v", chain)
 	}
 
@@ -292,5 +301,26 @@ func TestAbletonIgnoresRepliesToOtherQuestions(t *testing.T) {
 	value, err := live.ReadParam(1, "volume", time.Second)
 	if v, _ := value.(float64); err != nil || v < 0.84 || v > 0.86 {
 		t.Fatalf("expected track 1 answered, got %v, %v", value, err)
+	}
+}
+
+// Live says which parameters step and the range counts the steps; a set
+// to one lands on a whole position, since 0.8 of two states is not a state.
+func TestAbletonSteppedParametersAreKnownAndRounded(t *testing.T) {
+	live, fake := newLive(t)
+	chain, err := live.FXChain(2, time.Second)
+	if err != nil {
+		t.Fatalf("FXChain: %v", err)
+	}
+	params := chain[0].Params
+	if params[0].Kind != "" || params[2].Kind != "switch" || params[2].Steps != 2 || params[3].Kind != "list" || params[3].Steps != 4 {
+		t.Fatalf("unexpected kinds: %+v", params)
+	}
+	if err := live.SetFXParam(2, 1, 4, 0.8); err != nil {
+		t.Fatalf("SetFXParam: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if fake.devices[1][0].value[3] != 2 {
+		t.Fatalf("expected 0.8 of 0..3 rounded to position 2, Live got %v", fake.devices[1][0].value[3])
 	}
 }

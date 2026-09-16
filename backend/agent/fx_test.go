@@ -31,7 +31,7 @@ func newFakeFXDAW() *fakeFXDAW {
 					{Number: 1, Name: "Input Gain"}, {Number: 2, Name: "Bass"}, {Number: 3, Name: "Middle"}, {Number: 4, Name: "Treble"}, {Number: 5, Name: "Presence"}, {Number: 6, Name: "Master"},
 				}},
 				{Number: 2, Name: "Cabinet", Params: []daw.FXParam{{Number: 1, Name: "Mic Distance"}, {Number: 2, Name: "Low Cut"}, {Number: 3, Name: "High Cut"}}},
-				{Number: 3, Name: "Reverb", Params: []daw.FXParam{{Number: 1, Name: "Room Size"}, {Number: 2, Name: "Mix"}, {Number: 3, Name: "Bypass"}}},
+				{Number: 3, Name: "Reverb", Params: []daw.FXParam{{Number: 1, Name: "Room Size"}, {Number: 2, Name: "Mix"}, {Number: 3, Name: "Bypass", Kind: "switch", Steps: 2}}},
 			},
 			2: nil,
 		},
@@ -242,5 +242,23 @@ func TestPreviewDisarmsSetFXParam(t *testing.T) {
 	}
 	if len(backend.fxValues) != 0 {
 		t.Fatal("a preview must not reach the DAW")
+	}
+}
+
+// What a value means travels with the match, so a model is not left to send
+// 0.8 to a switch and read "unverified" back.
+func TestFindParamsCarriesTheKind(t *testing.T) {
+	tools := agent.NewTools(newFakeFXDAW())
+	result := call(t, tools, "find_params", `{"track_id": 1, "query": "bypass"}`)
+	matches, ok := result.Value.([]agent.ParamMatch)
+	if !ok || len(matches) == 0 {
+		t.Fatalf("expected matches, got %+v", result)
+	}
+	if matches[0].Name != "Bypass" || matches[0].Kind != "switch" || matches[0].Steps != 2 {
+		t.Fatalf("expected Bypass as a two-step switch, got %+v", matches[0])
+	}
+	text, _ := json.Marshal(matches[0])
+	if !strings.Contains(string(text), `"kind":"switch"`) {
+		t.Fatalf("the kind must reach the model: %s", text)
 	}
 }
