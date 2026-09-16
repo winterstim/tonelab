@@ -45,15 +45,21 @@ jobs:
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
-      # The Wails CLI links the desktop runtime and wants GTK4 on Linux; the
-      # Linux build below goes through go build directly and needs no CLI.
+      # The CLI links the desktop runtime, which on Linux defaults to GTK4;
+      # the gtk3 tag makes it use the headers installed above.
       - name: Install the Wails CLI
-        if: runner.os != 'Linux'
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+          else
+            go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+          fi
       - name: Build
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
+            wails3 generate bindings -ts -d frontend/bindings
             npm --prefix frontend ci && npm --prefix frontend run build
             go build -tags "production gtk3" -trimpath -ldflags="-w -s" -o bin/tonelab .
           else
