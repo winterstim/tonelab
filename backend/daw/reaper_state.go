@@ -20,6 +20,10 @@ var ErrValueUnknown = errors.New("daw: value not reported by the DAW yet")
 type state struct {
 	mu     sync.RWMutex
 	values map[string]float64
+	// The reading count at which each value last arrived, so a caller can
+	// insist on a reading of that value made after its question rather
+	// than any reading at all.
+	arrived map[string]uint64
 
 	// How many readings have been recorded, so a caller can tell a value the
 	// DAW just reported from one it reported before a question was asked.
@@ -40,6 +44,7 @@ type state struct {
 func newState() *state {
 	return &state{
 		values:  make(map[string]float64),
+		arrived: make(map[string]uint64),
 		updated: make(chan struct{}),
 	}
 }
@@ -54,6 +59,7 @@ func (s *state) set(track int, param string, value float64) {
 
 	s.values[key(track, param)] = value
 	s.readings++
+	s.arrived[key(track, param)] = s.readings
 
 	close(s.updated)
 	s.updated = make(chan struct{})
@@ -86,6 +92,18 @@ func (s *state) changed() <-chan struct{} {
 	return s.updated
 }
 
+// getSince returns the value only if it arrived after the given reading
+// count; before that it is the old answer, which is the one in question.
+func (s *state) getSince(track int, param string, seen uint64) (float64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	k := key(track, param)
+	if s.arrived[k] <= seen {
+		return 0, false
+	}
+	return s.values[k], true
+}
+
 func (s *state) get(track int, param string) (float64, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -111,6 +129,12 @@ func (r *REAPER) Observe(feedback <-chan *goosc.Message) {
 			r.observed.Add(1)
 			r.lastSeen.Store(time.Now().UnixNano())
 			r.absorb(msg)
+			r.tapMu.Lock()
+			tap := r.tap
+			r.tapMu.Unlock()
+			if tap != nil {
+				tap(msg)
+			}
 		}
 	}()
 }
@@ -142,6 +166,10 @@ func (r *REAPER) absorb(msg *goosc.Message) {
 			r.state.setTrackName(name)
 			return
 		}
+	}
+
+	if r.absorbFX(msg) {
+		return
 	}
 
 	track, param, ok := parseTrackAddress(msg.Address)

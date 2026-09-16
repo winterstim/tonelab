@@ -8,6 +8,8 @@
 package daw
 
 import (
+	goosc "github.com/hypebeast/go-osc/osc"
+
 	"errors"
 	"fmt"
 	"math"
@@ -62,6 +64,20 @@ type REAPER struct {
 	// Guards the control surface's view, which both the track walk and the
 	// liveness probe move. Concurrent users would read each other's answers.
 	surface sync.Mutex
+
+	// A walk in progress reads raw feedback through here, since what it
+	// needs (names in banks) is transient and not state worth keeping.
+	tapMu sync.Mutex
+	tap   func(*goosc.Message)
+
+	// Where the surface was last pointed, since its feedback names no
+	// track. Zero until this backend has pointed it somewhere.
+	surfaceTrack atomic.Int64
+	// Likewise which effect and parameter bank, since bank feedback names
+	// neither. Both are left at 1 between operations, so selecting a
+	// higher one is always a transition the DAW announces.
+	surfaceFX   atomic.Int64
+	surfaceBank atomic.Int64
 }
 
 var _ Client = (*REAPER)(nil)

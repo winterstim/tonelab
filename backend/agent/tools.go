@@ -94,7 +94,8 @@ type reader interface {
 // resolve against whatever the backend reports, so a DAW with a different set
 // needs no change here.
 type Tools struct {
-	daw daw.Client
+	chains chainCache
+	daw    daw.Client
 
 	// dryRun makes the changing tools describe themselves instead of acting.
 	// Reads still run: seeing the plan is worth nothing if the agent could
@@ -190,6 +191,9 @@ func (t *Tools) Definitions() []Tool {
 			},
 		})
 	}
+	if _, ok := t.daw.(fxer); ok {
+		definitions = append(definitions, t.fxDefinitions()...)
+	}
 	return definitions
 }
 
@@ -220,6 +224,14 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 		return t.listTracks()
 	case "undo":
 		return t.undo()
+	case "list_fx":
+		return t.listFX(args)
+	case "find_params":
+		return t.findParams(args)
+	case "get_fx_param":
+		return t.getFXParam(args)
+	case "set_fx_param":
+		return t.setFXParam(args)
 	default:
 		return failure("unknown_tool", fmt.Sprintf("There is no tool called %q.", name))
 	}
