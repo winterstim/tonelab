@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+      - run: wails3 task darwin:package:universal
+      - run: wails3 task darwin:package:dmg
+      - run: mv bin/tonelab.dmg bin/tonelab-${{ github.ref_name }}-macos-universal.dmg
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: bin/tonelab-*.dmg
+
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm --prefix frontend ci && npm --prefix frontend run build
+      - name: Cross-compile
+        run: |
+          for arch in amd64 arm64; do
+            GOOS=windows GOARCH=$arch CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui" -o bin/tonelab-${{ github.ref_name }}-windows-$arch.exe .
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: bin/tonelab-*.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - run: npm --prefix frontend ci && npm --prefix frontend run build
+      - run: go build -tags "production gtk3" -trimpath -ldflags="-w -s" -o bin/tonelab-${{ github.ref_name }}-linux-amd64 .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: bin/tonelab-*-linux-amd64
