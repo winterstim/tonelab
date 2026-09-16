@@ -8,6 +8,8 @@
 package daw
 
 import (
+	goosc "github.com/hypebeast/go-osc/osc"
+
 	"errors"
 	"fmt"
 	"math"
@@ -62,6 +64,11 @@ type REAPER struct {
 	// Guards the control surface's view, which both the track walk and the
 	// liveness probe move. Concurrent users would read each other's answers.
 	surface sync.Mutex
+
+	// A walk in progress reads raw feedback through here, since what it
+	// needs (names in banks) is transient and not state worth keeping.
+	tapMu sync.Mutex
+	tap   func(*goosc.Message)
 }
 
 var _ Client = (*REAPER)(nil)

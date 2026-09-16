@@ -111,6 +111,12 @@ func (r *REAPER) Observe(feedback <-chan *goosc.Message) {
 			r.observed.Add(1)
 			r.lastSeen.Store(time.Now().UnixNano())
 			r.absorb(msg)
+			r.tapMu.Lock()
+			tap := r.tap
+			r.tapMu.Unlock()
+			if tap != nil {
+				tap(msg)
+			}
 		}
 	}()
 }

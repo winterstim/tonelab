@@ -1,0 +1,286 @@
+package daw
+
+import (
+	"regexp"
+	"strconv"
+	"sync"
+	"time"
+
+	goosc "github.com/hypebeast/go-osc/osc"
+)
+
+// FX is one effect on a track as the DAW names it, with the parameters it
+// reports. Nothing here is known ahead of time: a plugin Tonelab has never
+// seen arrives the same way as one it has.
+type FX struct {
+	Number int       `json:"number"`
+	Name   string    `json:"name"`
+	Params []FXParam `json:"params"`
+}
+
+type FXParam struct {
+	Number int    `json:"number"`
+	Name   string `json:"name"`
+}
+
+// bankSize is how many parameters the surface shows at once, its setting and
+// not the plugin's. Parameters beyond it come by selecting further banks.
+const bankSize = 16
+
+// maxBanks bounds the walk. A plugin with more parameters than this exists,
+// but a model would not be helped by all of them.
+const maxBanks = 64
+
+// quiet is how long the feedback has to be silent for a dump to count as
+// finished. The DAW sends a chain as one burst, so a gap means the end.
+const quiet = 150 * time.Millisecond
+
+var (
+	chainName  = regexp.MustCompile(`^/fx/([0-9]+)/name$`)
+	chainParam = regexp.MustCompile(`^/fx/([0-9]+)/fxparam/([0-9]+)/name$`)
+	bankParam  = regexp.MustCompile(`^/fxparam/([0-9]+)/name$`)
+)
+
+// FXChain enumerates the effects on one track and their parameters. Measured,
+// not documented: pointing the surface at a track dumps every effect and the
+// first bank of each in one burst; parameters past that come one bank at a
+// time, numbered from one within the bank, and an empty name ends the list.
+// Only /device/* is sent, so the project and the user's selection are
+// untouched.
+func (r *REAPER) FXChain(track int, timeout time.Duration) ([]FX, error) {
+	if track < 1 {
+		return nil, ErrInvalidTrack
+	}
+	r.surface.Lock()
+	defer r.surface.Unlock()
+
+	collector := newFXCollector()
+	r.setTap(collector.absorb)
+	defer r.setTap(nil)
+
+	// Parked first: the surface may already sit on the track, and a DAW
+	// announcing only transitions would then say nothing.
+	if err := r.send("/device/track/select", int32(parkIndex)); err != nil {
+		return nil, err
+	}
+	collector.awaitQuiet(timeout)
+	collector.reset()
+	if err := r.send("/device/track/select", int32(track)); err != nil {
+		return nil, err
+	}
+	collector.awaitQuiet(timeout)
+
+	chain := collector.chain()
+	for i := range chain {
+		if len(chain[i].Params) < bankSize {
+			continue
+		}
+		more, err := r.walkBanks(collector, i+1, timeout)
+		if err != nil {
+			return nil, err
+		}
+		chain[i].Params = append(chain[i].Params, more...)
+	}
+
+	// Left where it was found, so the next dump reads the same way.
+	if err := r.send("/device/fxparam/bank/select", int32(1)); err != nil {
+		return nil, err
+	}
+	if err := r.send("/device/fx/select", int32(1)); err != nil {
+		return nil, err
+	}
+	return chain, nil
+}
+
+// walkBanks reads the parameters of one effect beyond the first bank. It
+// stops at the first empty name and never on silence, since a bank past the
+// end is silent and silence is also what a slow DAW looks like.
+func (r *REAPER) walkBanks(collector *fxCollector, fx int, timeout time.Duration) ([]FXParam, error) {
+	if err := r.send("/device/fx/select", int32(fx)); err != nil {
+		return nil, err
+	}
+	collector.awaitQuiet(timeout)
+
+	var params []FXParam
+	for bank := 2; bank <= maxBanks; bank++ {
+		collector.reset()
+		if err := r.send("/device/fxparam/bank/select", int32(bank)); err != nil {
+			return nil, err
+		}
+		if !collector.awaitBank(bank, timeout) {
+			break
+		}
+		names, ended := collector.bank()
+		for k, name := range names {
+			params = append(params, FXParam{Number: (bank-1)*bankSize + k + 1, Name: name})
+		}
+		if ended || len(names) < bankSize {
+			break
+		}
+	}
+	return params, nil
+}
+
+func (r *REAPER) setTap(tap func(*goosc.Message)) {
+	r.tapMu.Lock()
+	defer r.tapMu.Unlock()
+	r.tap = tap
+}
+
+// fxCollector gathers one dump. Names are kept by position rather than
+// appended, because the DAW repeats itself and order across a burst is not
+// guaranteed.
+type fxCollector struct {
+	mu       sync.Mutex
+	names    map[int]string
+	params   map[int]map[int]string
+	inBank   map[int]string
+	bankSeen int
+	ended    bool
+	last     time.Time
+	changed  chan struct{}
+}
+
+func newFXCollector() *fxCollector {
+	c := &fxCollector{changed: make(chan struct{})}
+	c.reset()
+	return c
+}
+
+func (c *fxCollector) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.names = make(map[int]string)
+	c.params = make(map[int]map[int]string)
+	c.inBank = make(map[int]string)
+	c.bankSeen = 0
+	c.ended = false
+	c.last = time.Now()
+}
+
+func (c *fxCollector) absorb(msg *goosc.Message) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.last = time.Now()
+
+	if m := chainName.FindStringSubmatch(msg.Address); m != nil {
+		if name, ok := stringArg(msg); ok && name != "" {
+			c.names[atoi(m[1])] = name
+		}
+	} else if m := chainParam.FindStringSubmatch(msg.Address); m != nil {
+		if name, ok := stringArg(msg); ok && name != "" {
+			fx := atoi(m[1])
+			if c.params[fx] == nil {
+				c.params[fx] = make(map[int]string)
+			}
+			c.params[fx][atoi(m[2])] = name
+		}
+	} else if m := bankParam.FindStringSubmatch(msg.Address); m != nil {
+		if name, ok := stringArg(msg); ok {
+			if name == "" {
+				c.ended = true
+			} else {
+				c.inBank[atoi(m[1])] = name
+			}
+		}
+	} else if msg.Address == "/device/fxparam/bank/str" {
+		if text, ok := stringArg(msg); ok {
+			c.bankSeen = atoi(text)
+		}
+	}
+
+	close(c.changed)
+	c.changed = make(chan struct{})
+}
+
+// awaitQuiet returns once nothing has arrived for a while, or at the
+// deadline. A burst has no terminator of its own.
+func (c *fxCollector) awaitQuiet(timeout time.Duration) {
+	deadline := time.After(timeout)
+	for {
+		c.mu.Lock()
+		since := time.Since(c.last)
+		changed := c.changed
+		c.mu.Unlock()
+		if since >= quiet {
+			return
+		}
+		select {
+		case <-changed:
+		case <-time.After(quiet - since):
+		case <-deadline:
+			return
+		}
+	}
+}
+
+// awaitBank waits for the DAW to confirm it switched, then for the names to
+// settle. Without the confirmation a bank past the end, which is silent,
+// would be read as an empty bank that exists.
+func (c *fxCollector) awaitBank(bank int, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	for {
+		c.mu.Lock()
+		seen := c.bankSeen
+		changed := c.changed
+		c.mu.Unlock()
+		if seen == bank {
+			c.awaitQuiet(timeout)
+			return true
+		}
+		select {
+		case <-changed:
+		case <-deadline:
+			return false
+		}
+	}
+}
+
+func (c *fxCollector) chain() []FX {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var chain []FX
+	for number := 1; ; number++ {
+		name, ok := c.names[number]
+		if !ok {
+			break
+		}
+		fx := FX{Number: number, Name: name}
+		for k := 1; ; k++ {
+			param, ok := c.params[number][k]
+			if !ok {
+				break
+			}
+			fx.Params = append(fx.Params, FXParam{Number: k, Name: param})
+		}
+		chain = append(chain, fx)
+	}
+	return chain
+}
+
+func (c *fxCollector) bank() ([]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var names []string
+	for k := 1; k <= bankSize; k++ {
+		name, ok := c.inBank[k]
+		if !ok {
+			break
+		}
+		names = append(names, name)
+	}
+	return names, c.ended
+}
+
+func stringArg(msg *goosc.Message) (string, bool) {
+	if len(msg.Arguments) == 0 {
+		return "", false
+	}
+	text, ok := msg.Arguments[0].(string)
+	return text, ok
+}
+
+func atoi(text string) int {
+	n, _ := strconv.Atoi(text)
+	return n
+}
