@@ -35,9 +35,6 @@ type Settings struct {
 	// Theme is light, dark, or system.
 	Theme string
 
-	// Accent is colour or mono.
-	Accent string
-
 	// Web search is optional; empty provider means off. The key stays in
 	// the backend for the same reason the model's does.
 	SearchProvider  string
@@ -77,13 +74,6 @@ func theme(name string) string {
 	}
 }
 
-func accent(name string) string {
-	if name == "mono" {
-		return "mono"
-	}
-	return "colour"
-}
-
 func NewSettingsService(path string, live, previews *agent.Orchestrator, applySearch func(search.Provider)) *SettingsService {
 	return &SettingsService{path: path, agent: live, previews: previews, applySearch: applySearch}
 }
@@ -93,7 +83,7 @@ func NewSettingsService(path string, live, previews *agent.Orchestrator, applySe
 func (s *SettingsService) Get() (Settings, error) {
 	settings, err := config.Load(s.path)
 	if err != nil {
-		return Settings{DAWAvailable: daw.Backends(), SearchAvailable: search.Providers(), Theme: "system", Accent: "colour"}, nil
+		return Settings{DAWAvailable: daw.Backends(), SearchAvailable: search.Providers(), Theme: "system"}, nil
 	}
 
 	return Settings{
@@ -107,7 +97,6 @@ func (s *SettingsService) Get() (Settings, error) {
 		DAWAvailable:     daw.Backends(),
 		PreviewByDefault: settings.UI.PreviewByDefault,
 		Theme:            theme(settings.UI.Theme),
-		Accent:           accent(settings.UI.Accent),
 		SearchProvider:   settings.Search.Provider,
 		SearchURL:        settings.Search.BaseURL,
 		SearchKeySet:     settings.Search.APIKey != "",
@@ -140,7 +129,6 @@ func (s *SettingsService) Save(incoming Settings, apiKey, searchKey string) (Set
 		},
 		UI: config.UI{
 			Theme:            theme(incoming.Theme),
-			Accent:           accent(incoming.Accent),
 			PreviewByDefault: incoming.PreviewByDefault,
 		},
 		Search: config.Search{

@@ -779,7 +779,6 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
         DAWAvailable: [],
         PreviewByDefault: el<HTMLInputElement>("preview-default").checked,
         Theme: chosenTheme,
-        Accent: "mono",
         SearchProvider: el<HTMLSelectElement>("search-provider").value,
         SearchURL: el<HTMLInputElement>("search-url").value,
         SearchKeySet: false,
