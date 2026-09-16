@@ -252,6 +252,14 @@ func (a *Ableton) ConfirmParam(track int, name string, timeout time.Duration) (a
 	if len(args) == 0 {
 		return nil, fmt.Errorf("%w: empty reply", ErrValueUnknown)
 	}
+	// Toggles come back as booleans from a real Live, and as 0/1 in the
+	// script's documentation; both are accepted.
+	if on, ok := args[0].(bool); ok && param.Kind == Toggle {
+		a.mu.Lock()
+		a.cache[key(track, name)] = on
+		a.mu.Unlock()
+		return on, nil
+	}
 	raw, ok := numeric(args[0])
 	if !ok {
 		return nil, fmt.Errorf("%w: unreadable reply", ErrValueUnknown)

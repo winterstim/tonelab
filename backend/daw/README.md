@@ -8,6 +8,8 @@ away (Live counts from zero, pans -1..1, and reports device parameters in
 their own units with ranges on request).
 
 REAPER announces and never answers; Live answers and never announces.
+Measured on Live 12.4: mixer volume set over OSC enters its undo history,
+mute does not, so undo there is partial and reported as the DAW's own.
 Reading, liveness and effect discovery are therefore built differently in
 each, and identically above.
 

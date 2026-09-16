@@ -4,8 +4,8 @@ Natural-language control for your DAW. Type "turn the vocals down a bit" and
 the agent resolves it to a real parameter change, sends it to the DAW, and
 reports back what the DAW says the value is now.
 
-Desktop app: Go, Wails v3, plain TypeScript. REAPER over OSC is the first
-backend. Any OpenAI-compatible endpoint works for the model, hosted or local.
+Desktop app: Go, Wails v3, plain TypeScript. Backends: REAPER over its OSC
+surface, Ableton Live over the AbletonOSC remote script. Any OpenAI-compatible endpoint works for the model, hosted or local.
 
 ## Running
 
@@ -26,6 +26,7 @@ REAPER defaults that to off.
 ```
 go test ./...                          # no DAW or model needed
 go test -tags reaper -count=1 -p 1 ./...   # against a running REAPER
+go test -tags ableton -count=1 ./backend/daw   # against a running Live with AbletonOSC
 go test -tags llm ./backend/agent/...      # against the configured model
 go test -tags "llm reaper" -p 1 ./backend/app   # the whole thing, as the window uses it
 ```
@@ -47,4 +48,5 @@ frontend/src     the window
 
 - FX and plugin parameters, discovered from the DAW at runtime rather than
   listed in code, with a search tool so the model never sees the whole set.
-- Further DAW backends behind the same `Client` interface.
+- Further DAW backends behind the same `Client` interface; with two in
+  place, the REAPER table becomes data.
