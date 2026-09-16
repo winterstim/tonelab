@@ -150,6 +150,10 @@ func (r *REAPER) absorb(msg *goosc.Message) {
 		}
 	}
 
+	if r.absorbFX(msg) {
+		return
+	}
+
 	track, param, ok := parseTrackAddress(msg.Address)
 	if !ok {
 		return

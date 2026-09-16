@@ -1,6 +1,8 @@
 package daw
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"sync"
@@ -283,4 +285,119 @@ func stringArg(msg *goosc.Message) (string, bool) {
 func atoi(text string) int {
 	n, _ := strconv.Atoi(text)
 	return n
+}
+
+// ErrInvalidFX covers an effect or parameter index below one. Past the end is
+// not checked here: the DAW is silent about it, and silence reaches the
+// caller as an unconfirmed set rather than a guess.
+var ErrInvalidFX = errors.New("daw: effect and parameter indices start at 1")
+
+var (
+	absoluteFXValue = regexp.MustCompile(`^/track/([0-9]+)/fx/([0-9]+)/fxparam/([0-9]+)/value$`)
+	surfaceFXValue  = regexp.MustCompile(`^/fx/([0-9]+)/fxparam/([0-9]+)/value$`)
+)
+
+func fxKey(fx, param int) string {
+	return fmt.Sprintf("fx/%d/param/%d", fx, param)
+}
+
+func validateFX(track, fx, param int) error {
+	if err := validateTrack(track); err != nil {
+		return err
+	}
+	if fx < 1 || param < 1 {
+		return ErrInvalidFX
+	}
+	return nil
+}
+
+// SetFXParam addresses a parameter by position, since that is the only
+// handle the DAW offers; the name to position mapping is FXChain's to give.
+func (r *REAPER) SetFXParam(track, fx, param int, value float64) error {
+	if err := validateFX(track, fx, param); err != nil {
+		return err
+	}
+	if err := validateNormalized(value); err != nil {
+		return err
+	}
+	return r.send(fmt.Sprintf("/track/%d/fx/%d/fxparam/%d/value", track, fx, param), float32(value))
+}
+
+// GetFXParam answers from the DAW's account. An effect parameter differs from
+// a track parameter in one useful way, measured: the DAW echoes a set back,
+// as the plugin quantized it, whichever track the surface looks at.
+func (r *REAPER) GetFXParam(track, fx, param int) (float64, error) {
+	if err := validateFX(track, fx, param); err != nil {
+		return 0, err
+	}
+	value, ok := r.state.get(track, fxKey(fx, param))
+	if !ok {
+		return 0, fmt.Errorf("%w: track %d fx %d param %d", ErrValueUnknown, track, fx, param)
+	}
+	return value, nil
+}
+
+// ConfirmFXParam accepts only a reading made after the call, for the same
+// reason ConfirmParam does: the cache right after a change holds the value
+// being disproved.
+func (r *REAPER) ConfirmFXParam(track, fx, param int, timeout time.Duration) (float64, error) {
+	if err := validateFX(track, fx, param); err != nil {
+		return 0, err
+	}
+	seen := r.state.readingsSeen()
+	changed := r.state.changed()
+
+	if err := r.Refresh(track); err != nil {
+		return 0, err
+	}
+
+	deadline := time.After(timeout)
+	for {
+		if r.state.readingsSeen() > seen {
+			if value, err := r.GetFXParam(track, fx, param); err == nil {
+				return value, nil
+			}
+		}
+		select {
+		case <-changed:
+			changed = r.state.changed()
+		case <-deadline:
+			return 0, fmt.Errorf("%w: track %d fx %d param %d", ErrValueUnknown, track, fx, param)
+		}
+	}
+}
+
+// ReadFXParam asks, and falls back to the last reading, as ReadParam does.
+func (r *REAPER) ReadFXParam(track, fx, param int, timeout time.Duration) (float64, error) {
+	value, err := r.ConfirmFXParam(track, fx, param, timeout)
+	if err == nil {
+		return value, nil
+	}
+	if !errors.Is(err, ErrValueUnknown) {
+		return 0, err
+	}
+	return r.GetFXParam(track, fx, param)
+}
+
+// absorbFX files effect values. The surface-relative form names no track, so
+// it is filed under the track the surface was last pointed at, which this
+// backend knows because it is the only thing pointing it.
+func (r *REAPER) absorbFX(msg *goosc.Message) bool {
+	if len(msg.Arguments) == 0 {
+		return false
+	}
+	if m := absoluteFXValue.FindStringSubmatch(msg.Address); m != nil {
+		if value, ok := numeric(msg.Arguments[0]); ok {
+			r.state.set(atoi(m[1]), fxKey(atoi(m[2]), atoi(m[3])), value)
+		}
+		return true
+	}
+	if m := surfaceFXValue.FindStringSubmatch(msg.Address); m != nil {
+		track := int(r.surfaceTrack.Load())
+		if value, ok := numeric(msg.Arguments[0]); ok && track > 0 {
+			r.state.set(track, fxKey(atoi(m[1]), atoi(m[2])), value)
+		}
+		return true
+	}
+	return false
 }

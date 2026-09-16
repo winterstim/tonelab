@@ -69,6 +69,10 @@ type REAPER struct {
 	// needs (names in banks) is transient and not state worth keeping.
 	tapMu sync.Mutex
 	tap   func(*goosc.Message)
+
+	// Where the surface was last pointed, since its feedback names no
+	// track. Zero until this backend has pointed it somewhere.
+	surfaceTrack atomic.Int64
 }
 
 var _ Client = (*REAPER)(nil)

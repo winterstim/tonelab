@@ -2,6 +2,8 @@ package daw_test
 
 import (
 	"fmt"
+	"math"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +27,11 @@ type fakeFXSurface struct {
 	fx       int
 	bank     int
 
+	// What a set comes back as, since plugins round to their own steps.
+	quantize func(float32) float32
+	// Values by "track/fx/param", dumped with the chain.
+	values map[string]float32
+
 	mu       sync.Mutex
 	observed []string
 }
@@ -35,6 +42,8 @@ type fakeFX struct {
 }
 
 const fakeBankSize = 16
+
+var setPattern = regexp.MustCompile(`^/track/([0-9]+)/fx/([0-9]+)/fxparam/([0-9]+)/value$`)
 
 func (f *fakeFXSurface) sent() []string {
 	f.mu.Lock()
@@ -57,6 +66,20 @@ func (f *fakeFXSurface) run(receiver *osctest.Receiver, feed chan<- *goosc.Messa
 			if len(msg.Arguments) == 0 {
 				continue
 			}
+			if m := setPattern.FindStringSubmatch(msg.Address); m != nil {
+				// Echoed whatever the surface looks at, measured; through
+				// the plugin's own rounding.
+				v, _ := msg.Arguments[0].(float32)
+				if f.quantize != nil {
+					v = f.quantize(v)
+				}
+				if f.values == nil {
+					f.values = make(map[string]float32)
+				}
+				f.values[fmt.Sprintf("%s/%s/%s", m[1], m[2], m[3])] = v
+				feed <- goosc.NewMessage(msg.Address, v)
+				continue
+			}
 			requested, ok := msg.Arguments[0].(int32)
 			if !ok {
 				continue
@@ -77,7 +100,11 @@ func (f *fakeFXSurface) run(receiver *osctest.Receiver, feed chan<- *goosc.Messa
 							break
 						}
 						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/name", i+1, k+1), name)
-						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/value", i+1, k+1), float32(0.5))
+						value, ok := f.values[fmt.Sprintf("%d/%d/%d", target, i+1, k+1)]
+						if !ok {
+							value = 0.5
+						}
+						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/value", i+1, k+1), value)
 					}
 				}
 				f.announceBank(feed)
@@ -204,5 +231,71 @@ func TestFXChainTouchesOnlyTheControlSurface(t *testing.T) {
 	}
 	if len(fake.sent()) == 0 {
 		t.Fatal("nothing was sent")
+	}
+}
+
+// A set is confirmed by what the DAW echoes, which for an effect parameter is
+// the value as the plugin quantized it rather than the one sent, measured as
+// 0.7 coming back 0.708. The confirmation therefore reports the echo.
+func TestFXParamSetIsConfirmedFromTheEcho(t *testing.T) {
+	reaper, fake := newFXReaper(t, map[int][]fakeFX{1: {{name: "Amp", params: knobs(3)}}})
+	fake.quantize = func(v float32) float32 { return float32(int(v*12)) / 12 }
+
+	seen := reaper.Observed()
+	if err := reaper.SetFXParam(1, 1, 2, 0.7); err != nil {
+		t.Fatalf("SetFXParam: %v", err)
+	}
+	value, err := reaper.ConfirmFXParam(1, 1, 2, time.Second)
+	if err != nil {
+		t.Fatalf("ConfirmFXParam: %v", err)
+	}
+	if value < 0.66 || value > 0.67 {
+		t.Fatalf("expected the quantized echo near 0.667, got %v", value)
+	}
+	if reaper.Observed() == seen {
+		t.Fatal("nothing was observed, so the value cannot have come from the DAW")
+	}
+}
+
+// Reading a value nobody has set means making the DAW dump the track, which
+// names values relative to the surface's view; the backend has to know which
+// track that view is on to file them under the right number.
+func TestFXParamReadComesFromTheTrackDump(t *testing.T) {
+	reaper, fake := newFXReaper(t, map[int][]fakeFX{
+		1: {{name: "Amp", params: knobs(3)}},
+		2: {{name: "Verb", params: []string{"Size", "Mix"}}},
+	})
+	fake.values = map[string]float32{"2/1/2": 0.25}
+
+	value, err := reaper.ReadFXParam(2, 1, 2, time.Second)
+	if err != nil {
+		t.Fatalf("ReadFXParam: %v", err)
+	}
+	if value != 0.25 {
+		t.Fatalf("expected 0.25 from the dump, got %v", value)
+	}
+	for _, address := range fake.sent() {
+		if !strings.HasPrefix(address, "/device/") {
+			t.Errorf("reading sent %s, which reaches the project", address)
+		}
+	}
+}
+
+func TestFXParamRefusesWhatTheDAWWouldClamp(t *testing.T) {
+	reaper, _ := newFXReaper(t, map[int][]fakeFX{1: {{name: "Amp", params: knobs(3)}}})
+	for _, tc := range []struct {
+		name           string
+		track, fx, prm int
+		value          float64
+	}{
+		{"track 0", 0, 1, 1, 0.5},
+		{"fx 0", 1, 0, 1, 0.5},
+		{"param 0", 1, 1, 0, 0.5},
+		{"above one", 1, 1, 1, 1.5},
+		{"NaN", 1, 1, 1, math.NaN()},
+	} {
+		if err := reaper.SetFXParam(tc.track, tc.fx, tc.prm, tc.value); err == nil {
+			t.Errorf("%s: expected a refusal", tc.name)
+		}
 	}
 }

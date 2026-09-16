@@ -29,6 +29,7 @@ var allowedAddresses = []*regexp.Regexp{
 	regexp.MustCompile(`^/(play|stop)$`),
 	regexp.MustCompile(`^/track/[0-9]+/(volume|pan|mute|solo)$`),
 	regexp.MustCompile(`^/track/[0-9]+/send/[0-9]+/volume$`),
+	regexp.MustCompile(`^/track/[0-9]+/fx/[0-9]+/fxparam/[0-9]+/value$`),
 
 	// The control surface's own view, which reading depends on and which
 	// cannot alter the project.
@@ -46,6 +47,11 @@ var allowedAddresses = []*regexp.Regexp{
 func (r *REAPER) send(address string, args ...any) error {
 	if err := permitted(address, args); err != nil {
 		return err
+	}
+	if address == "/device/track/select" && len(args) == 1 {
+		if target, ok := args[0].(int32); ok {
+			r.surfaceTrack.Store(int64(target))
+		}
 	}
 	return r.osc.Send(address, args...)
 }
