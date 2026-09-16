@@ -11,10 +11,11 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-	"unicode"
 
 	"tonelab/backend/daw"
+	"tonelab/backend/search"
 )
 
 // How long a read waits for the DAW to answer. Long enough for a local DAW to
@@ -94,8 +95,10 @@ type reader interface {
 // resolve against whatever the backend reports, so a DAW with a different set
 // needs no change here.
 type Tools struct {
-	chains chainCache
-	daw    daw.Client
+	chains   chainCache
+	searchMu sync.Mutex
+	search   search.Provider
+	daw      daw.Client
 
 	// dryRun makes the changing tools describe themselves instead of acting.
 	// Reads still run: seeing the plan is worth nothing if the agent could
@@ -194,6 +197,9 @@ func (t *Tools) Definitions() []Tool {
 	if _, ok := t.daw.(fxer); ok {
 		definitions = append(definitions, t.fxDefinitions()...)
 	}
+	if t.searcher() != nil {
+		definitions = append(definitions, t.searchDefinition())
+	}
 	return definitions
 }
 
@@ -232,6 +238,8 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 		return t.getFXParam(args)
 	case "set_fx_param":
 		return t.setFXParam(args)
+	case "search":
+		return t.searchWeb(args)
 	default:
 		return failure("unknown_tool", fmt.Sprintf("There is no tool called %q.", name))
 	}
@@ -303,17 +311,7 @@ const maxNameLength = 80
 // the allowlist and undo already bound what a fooled model could do; this
 // removes the easy way of fooling it.
 func asName(raw string) string {
-	var out strings.Builder
-	for _, r := range raw {
-		if unicode.IsControl(r) {
-			r = ' '
-		}
-		out.WriteRune(r)
-		if out.Len() >= maxNameLength {
-			break
-		}
-	}
-	return strings.TrimSpace(out.String())
+	return asLine(raw, maxNameLength)
 }
 
 // coerce turns what the model sent into what the parameter takes, or explains
