@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -163,6 +164,9 @@ func TestSavedSettingsLoadBack(t *testing.T) {
 
 // The file holds an API key, so it must not be readable by other accounts.
 func TestSavedSettingsArePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mode bits are Unix; see TestSavedSettingsArePrivateOnWindows")
+	}
 	path := filepath.Join(t.TempDir(), "config.json")
 	settings := config.Config{
 		LLM: config.LLM{BaseURL: "u", Model: "m"},
