@@ -1,0 +1,29 @@
+name: Feature request
+description: Something Tonelab should be able to do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do today, and where it costs you time
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How it could work. A rough idea is fine
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How we will know it is done
+      value: |
+        - [ ]
+  - type: textarea
+    id: scope
+    attributes:
+      label: Out of scope

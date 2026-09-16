@@ -1,0 +1,52 @@
+name: Bug report
+description: Something Tonelab did wrong against a real DAW or model
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Tonelab version
+      placeholder: v0.0.1, or the commit hash for a local build
+    validations:
+      required: true
+  - type: dropdown
+    id: daw
+    attributes:
+      label: DAW
+      options:
+        - REAPER
+        - Ableton Live
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and DAW version
+      placeholder: macOS 26.0, REAPER 7.5
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and endpoint
+      placeholder: openai/gpt-oss-20b on Groq, or bonsai-tonelab on Ollama
+  - type: textarea
+    id: command
+    attributes:
+      label: What you asked
+      description: The exact text typed into Tonelab
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected the DAW to do
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include the tool calls from the History view if they help
+    validations:
+      required: true
