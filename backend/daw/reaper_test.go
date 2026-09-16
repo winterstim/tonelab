@@ -131,12 +131,18 @@ func TestRejectsInvalidInputSendsNothing(t *testing.T) {
 // The tools layer can only choose a recovery if a failed send is not reported
 // as a done command.
 func TestSurfacesTransportFailure(t *testing.T) {
-	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", 0))
+	reaper := daw.NewREAPER(refusingSender{})
 
 	if err := reaper.SetTrackVolume(1, 0.5); err == nil {
 		t.Fatal("expected an error when the transport cannot send, got nil")
 	}
 }
+
+// A transport that refuses, since whether a UDP write to a bad port fails
+// at once differs by operating system and is not what is under test.
+type refusingSender struct{}
+
+func (refusingSender) Send(string, ...any) error { return errors.New("no route") }
 
 // Every comparison against NaN is false, so a range check alone lets it
 // through to the DAW, where its effect is undefined. The guard belongs here
