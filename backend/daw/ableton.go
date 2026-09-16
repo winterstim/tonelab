@@ -3,6 +3,7 @@ package daw
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sync"
 	"sync/atomic"
@@ -34,12 +35,14 @@ type Ableton struct {
 	// Parameter ranges per device, since a set has to speak the device's
 	// own units and a read has to translate back.
 	ranges map[string][2][]float64
+	// Which parameters step, per device, learned with the ranges.
+	steps map[string]map[int]bool
 }
 
 var _ Client = (*Ableton)(nil)
 
 func NewAbleton(sender Sender) *Ableton {
-	return &Ableton{osc: sender, cache: make(map[string]any), ranges: make(map[string][2][]float64)}
+	return &Ableton{osc: sender, cache: make(map[string]any), ranges: make(map[string][2][]float64), steps: make(map[string]map[int]bool)}
 }
 
 const abletonReplyTimeout = 2 * time.Second
@@ -52,7 +55,7 @@ var abletonAllowed = []*regexp.Regexp{
 	regexp.MustCompile(`^/live/song/get/(num_tracks|track_names)$`),
 	regexp.MustCompile(`^/live/track/get/(volume|panning|mute|solo|send|name|num_devices|devices/name)$`),
 	regexp.MustCompile(`^/live/track/set/(volume|panning|mute|solo|send)$`),
-	regexp.MustCompile(`^/live/device/get/(name|num_parameters|parameters/(name|min|max|value)|parameter/value)$`),
+	regexp.MustCompile(`^/live/device/get/(name|num_parameters|parameters/(name|min|max|value|is_quantized)|parameter/value)$`),
 	regexp.MustCompile(`^/live/device/set/parameter/value$`),
 }
 
@@ -356,12 +359,33 @@ func (a *Ableton) FXChain(track int, timeout time.Duration) ([]FX, error) {
 		if err != nil {
 			return nil, err
 		}
+		known, err := a.rangeOf(timeout, track, i+1)
+		if err != nil {
+			return nil, err
+		}
+		quantized, err := a.ask(timeout, "/live/device/get/parameters/is_quantized", int32(track-1), int32(i))
+		if err != nil {
+			return nil, err
+		}
 		for k, p := range params {
 			pname, _ := p.(string)
-			fx.Params = append(fx.Params, FXParam{Number: k + 1, Name: pname})
-		}
-		if _, err := a.rangeOf(timeout, track, i+1); err != nil {
-			return nil, err
+			param := FXParam{Number: k + 1, Name: pname}
+			// Live says which parameters step, and the range then counts
+			// the steps: a two-step one is a switch.
+			if k < len(quantized) && isTrue(quantized[k]) && k < len(known[0]) && k < len(known[1]) {
+				a.mu.Lock()
+				if a.steps[rangeKey(track, i+1)] == nil {
+					a.steps[rangeKey(track, i+1)] = make(map[int]bool)
+				}
+				a.steps[rangeKey(track, i+1)][k+1] = true
+				a.mu.Unlock()
+				param.Steps = int(known[1][k]-known[0][k]) + 1
+				param.Kind = "list"
+				if param.Steps == 2 {
+					param.Kind = "switch"
+				}
+			}
+			fx.Params = append(fx.Params, param)
 		}
 		chain = append(chain, fx)
 	}
@@ -390,6 +414,20 @@ func (a *Ableton) rangeOf(timeout time.Duration, track, fx int) ([2][]float64, e
 	a.ranges[rangeKey(track, fx)] = known
 	a.mu.Unlock()
 	return known, nil
+}
+
+func isTrue(arg any) bool {
+	if b, ok := arg.(bool); ok {
+		return b
+	}
+	n, _ := numeric(arg)
+	return n != 0
+}
+
+func (a *Ableton) quantized(track, fx, param int) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.steps[rangeKey(track, fx)][param]
 }
 
 func floats(args []any) []float64 {
@@ -424,6 +462,11 @@ func (a *Ableton) SetFXParam(track, fx, param int, value float64) error {
 		return err
 	}
 	raw := low + value*(high-low)
+	if a.quantized(track, fx, param) {
+		// A stepped parameter takes whole positions; 0.8 of two is the
+		// second, not "mostly on".
+		raw = math.Round(raw)
+	}
 	return a.send("/live/device/set/parameter/value", int32(track-1), int32(fx-1), int32(param-1), float32(raw))
 }
 
