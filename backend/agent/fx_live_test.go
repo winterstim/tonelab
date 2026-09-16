@@ -1,4 +1,4 @@
-//go:build llm && reaper
+//go:build llm && (reaper || ableton)
 
 package agent_test
 
@@ -9,7 +9,6 @@ import (
 
 	"tonelab/backend/agent"
 	"tonelab/backend/daw"
-	"tonelab/backend/osc"
 )
 
 // The whole point of effect support, against a real model and a real DAW:
@@ -19,27 +18,31 @@ import (
 func TestModelFindsAndSetsAnEffectParameter(t *testing.T) {
 	llm := liveConfig(t)
 
-	listener, err := osc.Listen("127.0.0.1", 9000)
-	if err != nil {
-		t.Fatalf("could not listen for REAPER's feedback: %v", err)
-	}
-	defer listener.Close()
-	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", 8000))
-	reaper.Observe(listener.Messages())
+	client := liveDAW(t)
+	reaper := client.(interface {
+		FXChain(int, time.Duration) ([]daw.FX, error)
+		ReadFXParam(int, int, int, time.Duration) (float64, error)
+		ConfirmFXParam(int, int, int, time.Duration) (float64, error)
+	})
 
 	chain, err := reaper.FXChain(1, 2*time.Second)
 	if err != nil || len(chain) == 0 {
 		t.Skip("track 1 of the open project has no effects")
 	}
-	// The last effect's first parameter, whatever it is: the command names
-	// it by the words the DAW uses, so the test holds for any plugin.
+	// The last effect's second parameter, whatever it is: the command names
+	// it by the words the DAW uses, so the test holds for any plugin. The
+	// second, because some DAWs put an on/off switch first, which 0.8 does
+	// not fit.
 	target := chain[len(chain)-1]
 	param := target.Params[0]
+	if len(target.Params) > 1 {
+		param = target.Params[1]
+	}
 	before, _ := reaper.ReadFXParam(1, target.Number, param.Number, time.Second)
 
 	orchestrator := agent.NewOrchestrator(
 		agent.Config{BaseURL: llm.BaseURL, APIKey: llm.APIKey, Model: llm.Model},
-		agent.NewTools(reaper),
+		agent.NewTools(client),
 	)
 	command := "On track 1, set the " + strings.ToLower(param.Name) + " of the " + target.Name + " to 0.8."
 	response := orchestrator.Send(command)
@@ -72,5 +75,5 @@ func TestModelFindsAndSetsAnEffectParameter(t *testing.T) {
 	if after < 0.75 || after > 0.85 {
 		t.Fatalf("expected %q on %q near 0.8, got %v (was %v)", param.Name, target.Name, after, before)
 	}
-	t.Logf("REAPER reports %q on %q at %v", param.Name, target.Name, after)
+	t.Logf("the DAW reports %q on %q at %v", param.Name, target.Name, after)
 }

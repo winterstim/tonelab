@@ -8,13 +8,41 @@
 package agent_test
 
 import (
+	goosc "github.com/hypebeast/go-osc/osc"
 	"os"
 	"strings"
 	"testing"
+	"tonelab/backend/daw"
+	"tonelab/backend/osc"
 
 	"tonelab/backend/agent"
 	"tonelab/backend/config"
 )
+
+// liveDAW builds whichever backend the config names, observing its
+// feedback, so the same live tests run against any DAW.
+func liveDAW(t *testing.T) daw.Client {
+	t.Helper()
+	path := os.Getenv("TONELAB_CONFIG")
+	if path == "" {
+		path, _ = config.Path()
+	}
+	settings, err := config.Load(path)
+	if err != nil {
+		t.Skipf("no usable config at %s: %v", path, err)
+	}
+	client, err := daw.New(settings.DAW.Backend, osc.NewTransport(settings.DAW.Host, settings.DAW.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := osc.Listen(settings.DAW.Host, settings.DAW.FeedbackPort)
+	if err != nil {
+		t.Fatalf("could not listen for the DAW's feedback: %v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	client.(interface{ Observe(<-chan *goosc.Message) }).Observe(listener.Messages())
+	return client
+}
 
 func liveConfig(t *testing.T) config.LLM {
 	t.Helper()

@@ -143,6 +143,10 @@ func numeric(value any) (float64, bool) {
 		return float64(v), true
 	case int:
 		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
 	}
 	return 0, false
 }

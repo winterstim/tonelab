@@ -1,14 +1,15 @@
-//go:build llm && reaper
+//go:build llm && (reaper || ableton)
 
 // The application as the window uses it: the same service methods the frontend
 // calls, over the same wiring the application builds, against a real DAW and a real
 // model. Everything below has been tested in pieces; this is the only place
 // the pieces are assembled the way they ship.
 //
-//	go test -tags "llm reaper" -count=1 -p 1 -run TestApp ./backend/app/backend/app
+//	go test -tags "llm reaper" -count=1 -p 1 -run TestApp ./backend/app
 package app
 
 import (
+	goosc "github.com/hypebeast/go-osc/osc"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,8 +43,8 @@ func build(t *testing.T) *AgentService {
 	}
 	t.Cleanup(func() { listener.Close() })
 
-	reaper := client.(*daw.REAPER)
-	reaper.Observe(listener.Messages())
+	// Whichever backend the config names; both observe the same way.
+	client.(interface{ Observe(<-chan *goosc.Message) }).Observe(listener.Messages())
 
 	llm := agent.Config{BaseURL: settings.LLM.BaseURL, APIKey: settings.LLM.APIKey, Model: settings.LLM.Model}
 	live := agent.NewOrchestrator(llm, agent.NewTools(client))

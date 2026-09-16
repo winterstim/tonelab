@@ -1,4 +1,4 @@
-//go:build llm && reaper
+//go:build llm && (reaper || ableton)
 
 package app
 

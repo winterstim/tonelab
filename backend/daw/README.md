@@ -1,8 +1,17 @@
 # daw
 
-What can be done to a DAW, typed. `Client` is the seam a second backend
-implements; REAPER is the first. Values are normalized 0.0-1.0 at this
-boundary, so a DAW speaking dB or Hz converts here.
+What can be done to a DAW, typed, behind `Client`. Two backends: REAPER
+over its OSC control surface, and Ableton Live over the AbletonOSC remote
+script (ports 11000 in, 11001 back). Values are normalized 0.0-1.0 and
+tracks count from one at this boundary; each backend folds its own shape
+away (Live counts from zero, pans -1..1, and reports device parameters in
+their own units with ranges on request).
+
+REAPER announces and never answers; Live answers and never announces.
+Measured on Live 12.4: mixer volume set over OSC enters its undo history,
+mute does not, so undo there is partial and reported as the DAW's own.
+Reading, liveness and effect discovery are therefore built differently in
+each, and identically above.
 
 A backend describes itself through `Parameters()`; nothing above carries a
 parameter list. REAPER's is static because OSC has no discovery. Plugin

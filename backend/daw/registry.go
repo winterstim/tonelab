@@ -10,7 +10,8 @@ import (
 type Factory func(Sender) Client
 
 var backends = map[string]Factory{
-	"reaper": func(sender Sender) Client { return NewREAPER(sender) },
+	"reaper":  func(sender Sender) Client { return NewREAPER(sender) },
+	"ableton": func(sender Sender) Client { return NewAbleton(sender) },
 }
 
 // New takes a name so the choice of DAW is configuration rather than a
