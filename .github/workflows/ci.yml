@@ -45,7 +45,11 @@ jobs:
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
-      - run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+      # The Wails CLI links the desktop runtime and wants GTK4 on Linux; the
+      # Linux build below goes through go build directly and needs no CLI.
+      - name: Install the Wails CLI
+        if: runner.os != 'Linux'
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
       - name: Build
         shell: bash
         run: |
