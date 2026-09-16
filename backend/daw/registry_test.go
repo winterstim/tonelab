@@ -28,7 +28,7 @@ func TestNewBuildsARegisteredBackend(t *testing.T) {
 // A mistyped config value must not produce a nil client that fails later,
 // somewhere unrelated.
 func TestNewRejectsUnknownBackend(t *testing.T) {
-	client, err := daw.New("ableton", nil)
+	client, err := daw.New("protools", nil)
 
 	if err == nil {
 		t.Fatal("expected an error naming an unregistered backend, got nil")
