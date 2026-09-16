@@ -169,7 +169,7 @@ func Save(path string, settings Config) error {
 	// Written beside the target and renamed, so an interrupted save leaves
 	// the previous settings rather than half of the new ones.
 	temporary := path + ".new"
-	if err := os.WriteFile(temporary, append(body, '\n'), 0o600); err != nil {
+	if err := writePrivate(temporary, append(body, '\n')); err != nil {
 		return fmt.Errorf("config: could not write %s: %w", temporary, err)
 	}
 	if err := os.Rename(temporary, path); err != nil {
@@ -195,6 +195,5 @@ func writeTemplate(path string) error {
 		return err
 	}
 
-	// 0600: the file holds an API key.
-	return os.WriteFile(path, append(body, '\n'), 0o600)
+	return writePrivate(path, append(body, '\n'))
 }

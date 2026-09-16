@@ -165,7 +165,7 @@ func TestSavedSettingsLoadBack(t *testing.T) {
 // The file holds an API key, so it must not be readable by other accounts.
 func TestSavedSettingsArePrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows has no Unix mode bits; the file inherits the user profile's ACL")
+		t.Skip("mode bits are Unix; see TestSavedSettingsArePrivateOnWindows")
 	}
 	path := filepath.Join(t.TempDir(), "config.json")
 	settings := config.Config{
