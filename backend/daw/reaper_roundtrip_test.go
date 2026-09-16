@@ -296,3 +296,41 @@ func TestREAPERAnswersAProbe(t *testing.T) {
 		}
 	}
 }
+
+// A send has to exist before its volume can be set, and no OSC action
+// creates one, so this runs against whatever project is open and skips
+// when track 1 has no send. Measured: a real send announces its volume when
+// the track is selected, a placeholder announces only a name.
+func TestREAPERSendVolume(t *testing.T) {
+	feedback := osctest.NewFeedback(t, reaperFeedbackPort)
+	transport := osc.NewTransport(reaperHost, reaperListenPort)
+	reaper := daw.NewREAPER(transport)
+
+	transport.Send("/device/track/select", int32(0))
+	time.Sleep(200 * time.Millisecond)
+	transport.Send("/device/track/select", int32(1))
+	deadline := time.Now().Add(await)
+	hasSend := false
+	for time.Now().Before(deadline) && !hasSend {
+		msg := feedback.AwaitAny("/track/send/1/volume", time.Second, func(m *goosc.Message) bool {
+			return m.Address == "/track/send/1/volume" || m.Address == "/track/send/4/name"
+		})
+		hasSend = msg != nil && msg.Address == "/track/send/1/volume"
+		if msg != nil && msg.Address == "/track/send/4/name" {
+			break
+		}
+	}
+	if !hasSend {
+		t.Skip("track 1 of the open project has no send; give it one to run this")
+	}
+
+	if err := reaper.SetTrackSendVolume(1, 1, 0.25); err != nil {
+		t.Fatalf("SetTrackSendVolume: %v", err)
+	}
+	// The dB figure proves REAPER applied the value to the send rather than
+	// merely received it, and it follows the same curve as track volume.
+	feedback.Await("/track/1/send/1/volume/str", await, func(m *goosc.Message) bool {
+		return len(m.Arguments) > 0 && m.Arguments[0] == "-30.0dB"
+	})
+	_ = reaper.SetTrackSendVolume(1, 1, 0.5)
+}

@@ -24,5 +24,6 @@ it never echoes the normalized value a device set, only `/volume/db` and the
 like; toggles echo only on a transition; index 0 is the master track; an
 idle REAPER sends nothing at all.
 
-`SetTrackSendVolume` is verified against the fake receiver only; a send has
-to exist first and no OSC action creates one.
+`SetTrackSendVolume` is verified live against a project with a send
+(0.25 reads back as -30.0dB, the track volume curve); the tagged test skips
+when track 1 has none.

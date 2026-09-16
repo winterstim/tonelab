@@ -2,7 +2,11 @@ package daw
 
 import "time"
 
-// Probe asks the DAW to say something, and reports whether it did. Silence
+// Probe asks the DAW to say something, and reports whether it did. A
+// project with no tracks cannot be probed: master is already selected and
+// track 1 does not exist, and every other surface command was measured
+// silent there too (bank sizes announce a slot once per DAW session only).
+// Callers word silence with that in mind. Silence
 // proves nothing: an idle REAPER sends zero messages in ten seconds, so a
 // status read from quiet alone shows disconnected whenever the musician is
 // thinking. The answer is provoked by moving the control surface's own view,
