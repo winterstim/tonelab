@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"tonelab/backend/agent"
 	"tonelab/backend/search"
@@ -70,6 +71,40 @@ func TestSearchHitsReachTheModelBounded(t *testing.T) {
 	if text, _ := json.Marshal(hits[0]); !strings.Contains(string(text), `"url":"https://x.example/tone"`) {
 		t.Errorf("the source must travel with the hit: %s", text)
 	}
+}
+
+// A provider that refuses once for pace is asked again after the wait it
+// named; one that keeps refusing is reported, since that is the quota.
+func TestSearchRetriesOnceForPace(t *testing.T) {
+	provider := &pacedSearch{refusals: 1, hits: []search.Hit{{Title: "T", URL: "u", Snippet: "s"}}}
+	tools := agent.NewTools(newFakeDAW())
+	tools.EnableSearch(provider)
+	result := call(t, tools, "search", `{"query": "x"}`)
+	if result.Error != nil || provider.calls != 2 {
+		t.Fatalf("expected one retry then hits, got %+v after %d calls", result, provider.calls)
+	}
+
+	provider = &pacedSearch{refusals: 5}
+	tools = agent.NewTools(newFakeDAW())
+	tools.EnableSearch(provider)
+	result = call(t, tools, "search", `{"query": "x"}`)
+	if result.Error == nil || result.Error.Code != "search_rate_limited" || provider.calls != 2 {
+		t.Fatalf("expected a report after one retry, got %+v after %d calls", result, provider.calls)
+	}
+}
+
+type pacedSearch struct {
+	refusals int
+	calls    int
+	hits     []search.Hit
+}
+
+func (p *pacedSearch) Search(ctx context.Context, query string, limit int) ([]search.Hit, error) {
+	p.calls++
+	if p.calls <= p.refusals {
+		return nil, search.RateLimited{RetryAfter: 10 * time.Millisecond}
+	}
+	return p.hits, nil
 }
 
 func TestSearchFailuresAreCodes(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 	"unicode"
 
 	"tonelab/backend/search"
@@ -14,8 +15,9 @@ import (
 // written by strangers and read by a model that acts on a live project, so
 // it arrives as a few short, attributed pieces of data rather than pages.
 const (
-	maxHits    = 5
-	maxSnippet = 300
+	maxHits       = 5
+	maxSnippet    = 300
+	maxSearchWait = 3 * time.Second
 )
 
 // EnableSearch adds the search tool. Kept off Tools' constructor because the
@@ -63,10 +65,18 @@ func (t *Tools) searchWeb(args json.RawMessage) Result {
 		return invalidArguments("query must be a few words")
 	}
 
-	hits, err := provider.Search(context.Background(), asLine(*decoded.Query, maxSnippet), maxHits)
+	query := asLine(*decoded.Query, maxSnippet)
+	hits, err := provider.Search(context.Background(), query, maxHits)
+	// Once, not more: a free tier allows about a request a second, and a
+	// second refusal means the monthly quota rather than the pace.
+	var limited search.RateLimited
+	if errors.As(err, &limited) && limited.RetryAfter <= maxSearchWait {
+		time.Sleep(limited.RetryAfter)
+		hits, err = provider.Search(context.Background(), query, maxHits)
+	}
 	switch {
 	case errors.Is(err, search.ErrUnauthorized):
-		return failure("search_unauthorized", "The search provider refused the key. Check it in Settings.")
+		return failure("search_unauthorized", "The search provider refused the request. Check the key in Settings, or for a local instance that its json output is enabled.")
 	case errors.Is(err, search.ErrRateLimited):
 		return failure("search_rate_limited", "The search provider is rate limiting. Try again shortly.")
 	case err != nil:

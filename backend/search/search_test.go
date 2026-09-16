@@ -18,8 +18,8 @@ func TestProvidersAnswerAlike(t *testing.T) {
 		body     string
 		wantKey  string
 	}{
-		{"brave", `{"web":{"results":[{"title":"Amp settings","url":"https://a.example","description":"Turn the gain down."}]}}`, "X-Subscription-Token"},
-		{"searxng", `{"results":[{"title":"Amp settings","url":"https://a.example","content":"Turn the gain down."}]}`, ""},
+		{"brave", `{"web":{"results":[{"title":"Amp settings","url":"https://a.example","description":"Turn the <strong>gain</strong> down.","page_age":"2012-09-11T18:58:15"}]}}`, "X-Subscription-Token"},
+		{"searxng", `{"results":[{"title":"Amp settings","url":"https://a.example","content":"Turn the gain down.","publishedDate":"2012-09-11T18:58:15"}]}`, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.provider, func(t *testing.T) {
@@ -39,7 +39,7 @@ func TestProvidersAnswerAlike(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Search: %v", err)
 			}
-			if len(hits) != 1 || hits[0].Title != "Amp settings" || hits[0].URL != "https://a.example" || hits[0].Snippet != "Turn the gain down." {
+			if len(hits) != 1 || hits[0].Title != "Amp settings" || hits[0].URL != "https://a.example" || hits[0].Snippet != "Turn the gain down." || hits[0].Age != "2012-09-11T18:58:15" {
 				t.Fatalf("unexpected hits: %+v", hits)
 			}
 			if got.URL.Query().Get("q") != "amp gain" {
