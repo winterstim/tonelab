@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"tonelab/backend/daw"
@@ -41,6 +40,18 @@ type FXSummary struct {
 	ParamCount int    `json:"param_count"`
 }
 
+// FXList and ParamMatches carry a note when the chain came from the store,
+// so the model knows the indices are last session's until confirmed.
+type FXList struct {
+	FX   []FXSummary `json:"fx"`
+	Note string      `json:"note,omitempty"`
+}
+
+type ParamMatches struct {
+	Matches []ParamMatch `json:"matches"`
+	Note    string       `json:"note,omitempty"`
+}
+
 type ParamMatch struct {
 	FX     int    `json:"fx_id"`
 	FXName string `json:"fx_name"`
@@ -73,37 +84,51 @@ type ReadFX struct {
 	Value  float64 `json:"value"`
 }
 
-// chainCache keeps walks from repeating within a turn. Held on Tools rather
-// than the backend because it is a policy about tool calls, not about the DAW.
-type chainCache struct {
-	mu     sync.Mutex
-	chains map[int]cachedChain
+// staleNote goes with a chain that was read from the store rather than
+// walked this run. Reads may use it; a write waits for a fresh walk first.
+const staleNote = "From the last session; the DAW is being read now, and any change is checked against it first."
+
+// chain answers reads. It never blocks on a known chain.
+func (t *Tools) chain(track int) ([]daw.FX, bool, *Result) {
+	source, ok := t.daw.(fxer)
+	if !ok {
+		return nil, false, ptr(failure("not_supported", "This DAW backend cannot enumerate effects."))
+	}
+	chain, stale, err := t.cache().get(source, track, false)
+	if err != nil {
+		return nil, false, ptr(t.domainFailureFor("", err))
+	}
+	return chain, stale, nil
 }
 
-type cachedChain struct {
-	chain []daw.FX
-	at    time.Time
-}
-
-func (t *Tools) chain(track int) ([]daw.FX, *Result) {
+// freshChain answers writes, and waits for the DAW's current account.
+func (t *Tools) freshChain(track int) ([]daw.FX, *Result) {
 	source, ok := t.daw.(fxer)
 	if !ok {
 		return nil, ptr(failure("not_supported", "This DAW backend cannot enumerate effects."))
 	}
-	t.chains.mu.Lock()
-	defer t.chains.mu.Unlock()
-	if t.chains.chains == nil {
-		t.chains.chains = make(map[int]cachedChain)
-	}
-	if cached, ok := t.chains.chains[track]; ok && time.Since(cached.at) < chainTTL {
-		return cached.chain, nil
-	}
-	chain, err := source.FXChain(track, chainTimeout)
+	chain, _, err := t.cache().get(source, track, true)
 	if err != nil {
 		return nil, ptr(t.domainFailureFor("", err))
 	}
-	t.chains.chains[track] = cachedChain{chain: chain, at: time.Now()}
 	return chain, nil
+}
+
+func (t *Tools) cache() *ChainCache {
+	t.chainsMu.Lock()
+	defer t.chainsMu.Unlock()
+	if t.chains == nil {
+		t.chains = NewChainCache(nil)
+	}
+	return t.chains
+}
+
+// ShareChains makes this Tools serve chains from a cache built by the app,
+// usually one with a store behind it and shared with the preview tools.
+func (t *Tools) ShareChains(c *ChainCache) {
+	t.chainsMu.Lock()
+	defer t.chainsMu.Unlock()
+	t.chains = c
 }
 
 func ptr(r Result) *Result { return &r }
@@ -186,7 +211,7 @@ func (t *Tools) listFX(args json.RawMessage) Result {
 	if !ok {
 		return invalidArguments("track_id must be a positive integer")
 	}
-	chain, refused := t.chain(track)
+	chain, stale, refused := t.chain(track)
 	if refused != nil {
 		return *refused
 	}
@@ -194,7 +219,7 @@ func (t *Tools) listFX(args json.RawMessage) Result {
 	for _, fx := range chain {
 		summary = append(summary, FXSummary{FX: fx.Number, Name: fx.Name, ParamCount: len(fx.Params)})
 	}
-	return Result{Value: summary}
+	return Result{Value: FXList{FX: summary, Note: noteIf(stale)}}
 }
 
 // findParams matches query words against parameter and effect names. It is
@@ -213,7 +238,7 @@ func (t *Tools) findParams(args json.RawMessage) Result {
 	if decoded.Query == nil || strings.TrimSpace(*decoded.Query) == "" {
 		return invalidArguments("query must be one or more words")
 	}
-	chain, refused := t.chain(track)
+	chain, stale, refused := t.chain(track)
 	if refused != nil {
 		return *refused
 	}
@@ -261,12 +286,21 @@ func (t *Tools) findParams(args json.RawMessage) Result {
 	for _, one := range found {
 		matches = append(matches, one.match)
 	}
-	return Result{Value: matches}
+	return Result{Value: ParamMatches{Matches: matches, Note: noteIf(stale)}}
+}
+
+func noteIf(stale bool) string {
+	if stale {
+		return staleNote
+	}
+	return ""
 }
 
 // locate resolves indices against the chain, because the DAW itself is
 // silent about an effect that does not exist and silence must not become a
-// guess. It also gives the report names a user recognises.
+// guess. It also gives the report names a user recognises. It waits for a
+// chain walked this run: an index from a stored chain may point at another
+// plugin now, and both a read and a write by index would land there.
 func (t *Tools) locate(args json.RawMessage) (int, daw.FX, daw.FXParam, fxArgs, *Result) {
 	var decoded fxArgs
 	if err := json.Unmarshal(args, &decoded); err != nil {
@@ -284,7 +318,7 @@ func (t *Tools) locate(args json.RawMessage) (int, daw.FX, daw.FXParam, fxArgs, 
 	if !ok {
 		return 0, daw.FX{}, daw.FXParam{}, decoded, ptr(invalidArguments("param_id must be a positive integer"))
 	}
-	chain, refused := t.chain(track)
+	chain, refused := t.freshChain(track)
 	if refused != nil {
 		return 0, daw.FX{}, daw.FXParam{}, decoded, refused
 	}
