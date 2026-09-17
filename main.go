@@ -58,6 +58,11 @@ func main() {
 	}); ok {
 		observer.Observe(listener.Messages())
 	}
+	// A backend that subscribed to the DAW unsubscribes on the way out, so
+	// the DAW is not left pushing to a port nobody reads.
+	if closer, ok := dawClient.(interface{ Close() error }); ok {
+		defer closer.Close()
+	}
 
 	llm := agent.Config{
 		BaseURL: settings.LLM.BaseURL,
