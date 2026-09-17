@@ -430,7 +430,7 @@ func (a *AgentService) GetDAWStatus() (DAWStatus, error) {
 	if a.liveness.Probe(probeTimeout) {
 		return DAWStatus{Connected: true, Detail: "The DAW answered."}, nil
 	}
-	return DAWStatus{Detail: "The DAW did not answer. Check it is running and sending OSC feedback; a project with no tracks yet cannot answer either."}, nil
+	return DAWStatus{Detail: "The DAW did not answer. Check it is running and set up for Tonelab as the README describes; a project with no tracks yet cannot answer either."}, nil
 }
 
 // orchestratorBrain adapts the agent package to this boundary, keeping the

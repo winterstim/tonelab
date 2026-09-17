@@ -80,7 +80,13 @@ func (c Config) String() string {
 }
 
 // Path is where the file lives when the user has not said otherwise.
+// TONELAB_CONFIG points at another file, the same way the live test
+// suites are pointed at one, so a second DAW can be run without editing
+// the first's settings.
 func Path() (string, error) {
+	if path := os.Getenv("TONELAB_CONFIG"); path != "" {
+		return path, nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("config: no user config directory: %w", err)
