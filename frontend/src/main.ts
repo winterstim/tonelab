@@ -1,3 +1,4 @@
+import { renderMarkdown } from "./markdown";
 import { AgentService, SettingsService } from "../bindings/tonelab/backend/app";
 import type {
     AgentResponse,
@@ -152,7 +153,13 @@ function append(from: "you" | "tonelab", text: string, tone: Tone = "answer"): H
 
     const said = document.createElement("div");
     said.className = "said";
-    said.textContent = text;
+    if (from === "tonelab" && tone === "answer") {
+        // The model writes markdown; laid out rather than shown with its
+        // asterisks, and from escaped text, so nothing it says is markup.
+        said.replaceChildren(renderMarkdown(text));
+    } else {
+        said.textContent = text;
+    }
 
     message.append(who, said);
     thread.append(message);
@@ -176,6 +183,7 @@ function attachChanges(message: HTMLElement, changed: AgentResponse["Changed"]) 
             line.className = "unconfirmed";
             line.textContent = `${target}: sent ${format(change.Requested)}, not confirmed`;
         } else {
+            line.className = "confirmed";
             line.textContent = `${target}: ${format(change.NewValue)}`;
         }
         list.append(line);
@@ -255,9 +263,16 @@ function report(response: AgentResponse) {
     attachPlan(message, response.Plan);
 }
 
+// Chips seen before are drawn settled: the list is rebuilt after every
+// rename, delete or switch, and replaying the entrance each time made a
+// click look like a page load.
+const knownChips = new Set<string>();
+
 function renderChip(summary: ConversationSummary): HTMLElement {
     const chip = document.createElement("button");
     chip.className = "thread-chip";
+    chip.dataset.settled = String(knownChips.has(summary.ID));
+    knownChips.add(summary.ID);
     chip.type = "button";
     chip.setAttribute("aria-pressed", String(summary.Active));
 
@@ -597,12 +612,11 @@ function renderTurn(entry: JournalEntry): HTMLElement {
     }
 
     const outcome = document.createElement("div");
-    outcome.className = entry.Error ? "said" : "";
-    outcome.textContent = entry.Error
-        ? `${entry.Error.Code}: ${entry.Error.Message}`
-        : entry.Answer;
+    outcome.className = entry.Error ? "said turn-problem" : "said";
     if (entry.Error) {
-        outcome.style.color = "var(--alarm)";
+        outcome.textContent = `${entry.Error.Code}: ${entry.Error.Message}`;
+    } else {
+        outcome.replaceChildren(renderMarkdown(entry.Answer));
     }
     turn.append(outcome);
     return turn;

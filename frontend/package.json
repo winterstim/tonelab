@@ -8,13 +8,16 @@
     "build:dev": "vite build --minify false --mode development",
     "build": "tsc --noEmit && vite build --mode production",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --environment jsdom"
   },
   "dependencies": {
     "@wailsio/runtime": "latest"
   },
   "devDependencies": {
+    "jsdom": "^30.1.0",
     "typescript": "^5.9.2",
-    "vite": "^8.0.5"
+    "vite": "^8.0.5",
+    "vitest": "^5.0.1"
   }
 }
