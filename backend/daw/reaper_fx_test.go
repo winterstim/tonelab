@@ -51,6 +51,13 @@ func (f *fakeFXSurface) sent() []string {
 	return append([]string(nil), f.observed...)
 }
 
+// set changes what the fake reports, under the lock its goroutine holds.
+func (f *fakeFXSurface) set(change func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	change()
+}
+
 func (f *fakeFXSurface) run(receiver *osctest.Receiver, feed chan<- *goosc.Message) {
 	f.fx, f.bank = 1, 1
 	go func() {
@@ -62,70 +69,77 @@ func (f *fakeFXSurface) run(receiver *osctest.Receiver, feed chan<- *goosc.Messa
 			}
 			f.mu.Lock()
 			f.observed = append(f.observed, msg.Address)
+			f.handle(msg, feed)
 			f.mu.Unlock()
-			if len(msg.Arguments) == 0 {
-				continue
-			}
-			if m := setPattern.FindStringSubmatch(msg.Address); m != nil {
-				// Echoed whatever the surface looks at, measured; through
-				// the plugin's own rounding.
-				v, _ := msg.Arguments[0].(float32)
-				if f.quantize != nil {
-					v = f.quantize(v)
-				}
-				if f.values == nil {
-					f.values = make(map[string]float32)
-				}
-				f.values[fmt.Sprintf("%s/%s/%s", m[1], m[2], m[3])] = v
-				feed <- goosc.NewMessage(msg.Address, v)
-				continue
-			}
-			requested, ok := msg.Arguments[0].(int32)
-			if !ok {
-				continue
-			}
-			target := int(requested)
-
-			switch msg.Address {
-			case "/device/track/select":
-				if target == f.selected {
-					continue
-				}
-				f.selected, f.fx, f.bank = target, 1, 1
-				feed <- goosc.NewMessage("/track/name", fmt.Sprintf("Track %d", target))
-				for i, fx := range f.chains[target] {
-					feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/name", i+1), fx.name)
-					for k, name := range fx.params {
-						if k >= fakeBankSize {
-							break
-						}
-						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/name", i+1, k+1), name)
-						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/value/str", i+1, k+1), readoutFor(name))
-						value, ok := f.values[fmt.Sprintf("%d/%d/%d", target, i+1, k+1)]
-						if !ok {
-							value = 0.5
-						}
-						feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/value", i+1, k+1), value)
-					}
-				}
-				f.announceBank(feed)
-			case "/device/fx/select":
-				if target == f.fx || target > len(f.chains[f.selected]) {
-					continue
-				}
-				f.fx = target
-				f.announceBank(feed)
-			case "/device/fxparam/bank/select":
-				chain := f.chains[f.selected]
-				if target == f.bank || f.fx > len(chain) || (target-1)*fakeBankSize >= len(chain[f.fx-1].params) {
-					continue // a bank past the end is silent, measured
-				}
-				f.bank = target
-				feed <- goosc.NewMessage("/device/fxparam/bank/str", fmt.Sprint(target))
-				f.announceBank(feed)
-			}
 		}
 	}()
+}
+
+// handle runs under the lock, since the test body sets the plugin's rounding
+// and stored values on the same fields; a fake racing its own test proves
+// nothing. Feeding while locked is safe: the consumer never takes this lock.
+func (f *fakeFXSurface) handle(msg *goosc.Message, feed chan<- *goosc.Message) {
+	if len(msg.Arguments) == 0 {
+		return
+	}
+	if m := setPattern.FindStringSubmatch(msg.Address); m != nil {
+		// Echoed whatever the surface looks at, measured; through
+		// the plugin's own rounding.
+		v, _ := msg.Arguments[0].(float32)
+		if f.quantize != nil {
+			v = f.quantize(v)
+		}
+		if f.values == nil {
+			f.values = make(map[string]float32)
+		}
+		f.values[fmt.Sprintf("%s/%s/%s", m[1], m[2], m[3])] = v
+		feed <- goosc.NewMessage(msg.Address, v)
+		return
+	}
+	requested, ok := msg.Arguments[0].(int32)
+	if !ok {
+		return
+	}
+	target := int(requested)
+
+	switch msg.Address {
+	case "/device/track/select":
+		if target == f.selected {
+			return
+		}
+		f.selected, f.fx, f.bank = target, 1, 1
+		feed <- goosc.NewMessage("/track/name", fmt.Sprintf("Track %d", target))
+		for i, fx := range f.chains[target] {
+			feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/name", i+1), fx.name)
+			for k, name := range fx.params {
+				if k >= fakeBankSize {
+					break
+				}
+				feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/name", i+1, k+1), name)
+				feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/value/str", i+1, k+1), readoutFor(name))
+				value, ok := f.values[fmt.Sprintf("%d/%d/%d", target, i+1, k+1)]
+				if !ok {
+					value = 0.5
+				}
+				feed <- goosc.NewMessage(fmt.Sprintf("/fx/%d/fxparam/%d/value", i+1, k+1), value)
+			}
+		}
+		f.announceBank(feed)
+	case "/device/fx/select":
+		if target == f.fx || target > len(f.chains[f.selected]) {
+			return
+		}
+		f.fx = target
+		f.announceBank(feed)
+	case "/device/fxparam/bank/select":
+		chain := f.chains[f.selected]
+		if target == f.bank || f.fx > len(chain) || (target-1)*fakeBankSize >= len(chain[f.fx-1].params) {
+			return // a bank past the end is silent, measured
+		}
+		f.bank = target
+		feed <- goosc.NewMessage("/device/fxparam/bank/str", fmt.Sprint(target))
+		f.announceBank(feed)
+	}
 }
 
 func (f *fakeFXSurface) announceBank(feed chan<- *goosc.Message) {
@@ -260,7 +274,7 @@ func TestFXChainTouchesOnlyTheControlSurface(t *testing.T) {
 // 0.7 coming back 0.708. The confirmation therefore reports the echo.
 func TestFXParamSetIsConfirmedFromTheEcho(t *testing.T) {
 	reaper, fake := newFXReaper(t, map[int][]fakeFX{1: {{name: "Amp", params: knobs(3)}}})
-	fake.quantize = func(v float32) float32 { return float32(int(v*12)) / 12 }
+	fake.set(func() { fake.quantize = func(v float32) float32 { return float32(int(v*12)) / 12 } })
 
 	seen := reaper.Observed()
 	if err := reaper.SetFXParam(1, 1, 2, 0.7); err != nil {
@@ -286,7 +300,7 @@ func TestFXParamReadComesFromTheTrackDump(t *testing.T) {
 		1: {{name: "Amp", params: knobs(3)}},
 		2: {{name: "Verb", params: []string{"Size", "Mix"}}},
 	})
-	fake.values = map[string]float32{"2/1/2": 0.25}
+	fake.set(func() { fake.values = map[string]float32{"2/1/2": 0.25} })
 
 	value, err := reaper.ReadFXParam(2, 1, 2, time.Second)
 	if err != nil {
@@ -326,7 +340,7 @@ func TestFXParamRefusesWhatTheDAWWouldClamp(t *testing.T) {
 // the surface is left on bank 1 so the next such read is a transition too.
 func TestFXParamReadBeyondTheFirstBank(t *testing.T) {
 	reaper, fake := newFXReaper(t, map[int][]fakeFX{1: {{name: "Amp", params: knobs(40)}}})
-	fake.values = map[string]float32{"1/1/37": 0.125}
+	fake.set(func() { fake.values = map[string]float32{"1/1/37": 0.125} })
 
 	for round := 0; round < 2; round++ {
 		value, err := reaper.ReadFXParam(1, 1, 37, time.Second)
