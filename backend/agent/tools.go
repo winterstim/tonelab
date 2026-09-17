@@ -96,7 +96,8 @@ type reader interface {
 // resolve against whatever the backend reports, so a DAW with a different set
 // needs no change here.
 type Tools struct {
-	chains   chainCache
+	chainsMu sync.Mutex
+	chains   *ChainCache
 	searchMu sync.Mutex
 	search   search.Provider
 	// offered is the urls search returned this turn, the only ones fetch_page
