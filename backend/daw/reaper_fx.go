@@ -42,13 +42,27 @@ func kindOfText(readout string) string {
 	if text == "" {
 		return ""
 	}
-	if _, err := strconv.ParseFloat(strings.Fields(text)[0], 64); err == nil {
+	if numericPrefix(strings.Fields(text)[0]) {
 		return ""
 	}
 	if switchWords[strings.ToLower(text)] {
 		return "switch"
 	}
 	return "discrete"
+}
+
+// numericPrefix reports whether a readout token starts with a number. Units
+// are not always spaced off: FL writes "75Hz" and "1.5sec", REAPER "-6.0 dB".
+func numericPrefix(token string) bool {
+	end := 0
+	for end < len(token) && strings.ContainsRune("+-0123456789.", rune(token[end])) {
+		end++
+	}
+	if end == 0 {
+		return false
+	}
+	_, err := strconv.ParseFloat(token[:end], 64)
+	return err == nil
 }
 
 // bankSize is how many parameters the surface shows at once, its setting and

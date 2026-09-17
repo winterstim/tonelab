@@ -6,14 +6,11 @@ import (
 	"log"
 	"path/filepath"
 
-	goosc "github.com/hypebeast/go-osc/osc"
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"tonelab/backend/agent"
 	"tonelab/backend/app"
 	"tonelab/backend/config"
-	"tonelab/backend/daw"
-	"tonelab/backend/osc"
 	"tonelab/backend/search"
 )
 
@@ -37,31 +34,27 @@ func main() {
 	log.Printf("[tonelab] %s", settings)
 
 	// Services get the daw.Client interface rather than the transport, so
-	// nothing above this line knows an OSC address or which DAW is behind it.
-	dawClient, err := daw.New(settings.DAW.Backend, osc.NewTransport(settings.DAW.Host, settings.DAW.Port))
+	// nothing above this line knows an address or which DAW is behind it.
+	// The transport is the backend's choice: OSC over UDP, or a virtual
+	// MIDI port for a DAW whose scripting has nothing else.
+	dawClient, release, err := app.OpenDAW(settings)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// The read path only exists while something is listening, so the listener
-	// is started here and handed to the backend rather than opened on demand.
-	listener, err := osc.Listen(settings.DAW.Host, settings.DAW.FeedbackPort)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer listener.Close()
-
-	// Observing is optional in the interface, so a backend that cannot read
-	// its DAW simply never gets asked to.
-	if observer, ok := dawClient.(interface {
-		Observe(<-chan *goosc.Message)
-	}); ok {
-		observer.Observe(listener.Messages())
-	}
+	defer release()
 	// A backend that subscribed to the DAW unsubscribes on the way out, so
 	// the DAW is not left pushing to a port nobody reads.
 	if closer, ok := dawClient.(interface{ Close() error }); ok {
 		defer closer.Close()
+	}
+	// A backend with a script of its own to put inside the DAW installs it
+	// now, and says where, since the user has to point the DAW at it once.
+	if installer, ok := dawClient.(interface{ Install() (string, error) }); ok {
+		if path, err := installer.Install(); err != nil {
+			log.Printf("[tonelab] could not install the DAW script: %v", err)
+		} else {
+			log.Printf("[tonelab] DAW script at %s", path)
+		}
 	}
 
 	llm := agent.Config{

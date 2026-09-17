@@ -110,3 +110,17 @@ func TestSetParamRejectsBadRequests(t *testing.T) {
 		})
 	}
 }
+
+// Readouts do not always space the unit off the number, measured: FL
+// writes "75Hz" and "1.5sec", REAPER "-6.0 dB". All of these are controls;
+// a word alone is a position.
+func TestKindOfTextReadsUnitsGluedToNumbers(t *testing.T) {
+	for readout, want := range map[string]string{
+		"75Hz": "", "4.0kHz": "", "1.5sec": "", "-6.0 dB": "", "50": "", "100%": "", "0.50": "",
+		"Original": "discrete", "Hard": "discrete", "Off": "switch", "Bypassed": "switch", "": "",
+	} {
+		if got := daw.KindOfTextForTest(readout); got != want {
+			t.Errorf("%q: got %q, want %q", readout, got, want)
+		}
+	}
+}

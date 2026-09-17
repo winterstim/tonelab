@@ -1,8 +1,9 @@
-//go:build llm && (reaper || ableton)
+//go:build llm && (reaper || ableton || flstudio)
 
 package agent_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,9 +26,18 @@ func TestModelFindsAndSetsAnEffectParameter(t *testing.T) {
 		ConfirmFXParam(int, int, int, time.Duration) (float64, error)
 	})
 
-	chain, err := reaper.FXChain(1, 2*time.Second)
-	if err != nil || len(chain) == 0 {
-		t.Skip("track 1 of the open project has no effects")
+	// The first of the first few tracks with an effect that has named
+	// parameters; a wrapped plugin may have one or none.
+	var chain []daw.FX
+	track := 0
+	for candidate := 1; candidate <= 4 && track == 0; candidate++ {
+		found, err := reaper.FXChain(candidate, 5*time.Second)
+		if err == nil && len(found) > 0 && len(found[len(found)-1].Params) > 1 {
+			chain, track = found, candidate
+		}
+	}
+	if track == 0 {
+		t.Skip("no track among the first four has an effect with named parameters")
 	}
 	// The last effect's second parameter, whatever it is: the command names
 	// it by the words the DAW uses, so the test holds for any plugin. The
@@ -38,13 +48,13 @@ func TestModelFindsAndSetsAnEffectParameter(t *testing.T) {
 	if len(target.Params) > 1 {
 		param = target.Params[1]
 	}
-	before, _ := reaper.ReadFXParam(1, target.Number, param.Number, time.Second)
+	before, _ := reaper.ReadFXParam(track, target.Number, param.Number, time.Second)
 
 	orchestrator := agent.NewOrchestrator(
 		agent.Config{BaseURL: llm.BaseURL, APIKey: llm.APIKey, Model: llm.Model},
 		agent.NewTools(client),
 	)
-	command := "On track 1, set the " + strings.ToLower(param.Name) + " of the " + target.Name + " to 0.8."
+	command := fmt.Sprintf("On track %d, set the %s of the %s to 0.8.", track, strings.ToLower(param.Name), target.Name)
 	response := orchestrator.Send(command)
 	if response.Error != nil {
 		t.Fatalf("the command failed: %+v", response.Error)
@@ -65,9 +75,9 @@ func TestModelFindsAndSetsAnEffectParameter(t *testing.T) {
 		t.Error("the model was expected to search rather than guess indices")
 	}
 
-	after, err := reaper.ConfirmFXParam(1, target.Number, param.Number, 2*time.Second)
+	after, err := reaper.ConfirmFXParam(track, target.Number, param.Number, 2*time.Second)
 	if err != nil {
-		after, err = reaper.ReadFXParam(1, target.Number, param.Number, 2*time.Second)
+		after, err = reaper.ReadFXParam(track, target.Number, param.Number, 2*time.Second)
 	}
 	if err != nil {
 		t.Fatalf("the DAW never reported the parameter: %v", err)

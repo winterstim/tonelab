@@ -327,11 +327,15 @@ func (t *Tools) locate(args json.RawMessage) (int, daw.FX, daw.FXParam, fxArgs, 
 			fmt.Sprintf("Track %d has %d effects, so there is no fx_id %d. Use list_fx.", track, len(chain), fxID)))
 	}
 	fx := chain[fxID-1]
-	if paramID > len(fx.Params) {
-		return 0, daw.FX{}, daw.FXParam{}, decoded, ptr(failure("unknown_param",
-			fmt.Sprintf("%q has %d parameters, so there is no param_id %d. Use find_params.", fx.Name, len(fx.Params), paramID)))
+	// By number, not position: a backend may list only the parameters
+	// worth naming and keep the DAW's own numbering for the rest.
+	for _, param := range fx.Params {
+		if param.Number == paramID {
+			return track, fx, param, decoded, nil
+		}
 	}
-	return track, fx, fx.Params[paramID-1], decoded, nil
+	return 0, daw.FX{}, daw.FXParam{}, decoded, ptr(failure("unknown_param",
+		fmt.Sprintf("%q has no param_id %d among its %d named parameters. Use find_params.", fx.Name, paramID, len(fx.Params))))
 }
 
 func (t *Tools) getFXParam(args json.RawMessage) Result {
