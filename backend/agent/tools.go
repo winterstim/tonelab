@@ -594,7 +594,10 @@ func domainFailure(err error) Result {
 	case errors.Is(err, daw.ErrNotReadable):
 		return failure("param_not_readable", "This DAW does not report that parameter's value.")
 	case errors.Is(err, daw.ErrValueUnknown):
-		return failure("value_unknown", "The DAW has not reported that value yet.")
+		// Silence from a DAW that reports only changes is also what a
+		// track that does not exist sounds like, so the model is pointed
+		// at the one tool that can tell the two apart.
+		return failure("value_unknown", "The DAW has not reported that value. If the track might not exist, list_tracks shows which do.")
 	default:
 		return failure("daw_command_failed", "The DAW did not accept the command.")
 	}
