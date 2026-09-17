@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,8 +31,16 @@ type Ableton struct {
 	observed atomic.Uint64
 	lastSeen atomic.Int64
 
-	// Last answers, so GetParam can report without asking again.
-	cache map[string]any
+	// Last readings, pushed by Live for subscribed tracks or replied to a
+	// query, with a count per key so a wait can tell a new one from the old.
+	cache   map[string]any
+	arrived map[string]uint64
+	changed chan struct{}
+	// Tracks whose mix properties Live has been asked to push.
+	listened map[int]bool
+	// The arrival count when each set was sent, so a confirmation waits
+	// for a push made after it rather than accepting one from before.
+	pending map[string]uint64
 	// Parameter ranges per device, since a set has to speak the device's
 	// own units and a read has to translate back.
 	ranges map[string][2][]float64
@@ -42,7 +51,16 @@ type Ableton struct {
 var _ Client = (*Ableton)(nil)
 
 func NewAbleton(sender Sender) *Ableton {
-	return &Ableton{osc: sender, cache: make(map[string]any), ranges: make(map[string][2][]float64), steps: make(map[string]map[int]bool)}
+	return &Ableton{
+		osc:      sender,
+		cache:    make(map[string]any),
+		arrived:  make(map[string]uint64),
+		changed:  make(chan struct{}),
+		listened: make(map[int]bool),
+		pending:  make(map[string]uint64),
+		ranges:   make(map[string][2][]float64),
+		steps:    make(map[string]map[int]bool),
+	}
 }
 
 const abletonReplyTimeout = 2 * time.Second
@@ -55,6 +73,7 @@ var abletonAllowed = []*regexp.Regexp{
 	regexp.MustCompile(`^/live/song/get/(num_tracks|track_names)$`),
 	regexp.MustCompile(`^/live/track/get/(volume|panning|mute|solo|send|name|num_devices|devices/name)$`),
 	regexp.MustCompile(`^/live/track/set/(volume|panning|mute|solo|send)$`),
+	regexp.MustCompile(`^/live/track/(start|stop)_listen/(volume|panning|mute|solo)$`),
 	regexp.MustCompile(`^/live/device/get/(name|num_parameters|parameters/(name|min|max|value|is_quantized)|parameter/value)$`),
 	regexp.MustCompile(`^/live/device/set/parameter/value$`),
 }
@@ -68,14 +87,18 @@ func (a *Ableton) send(address string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrForbidden, address)
 }
 
-// Observe routes replies to whoever is waiting for that address. Anything
-// else counts as a sign of life and nothing more.
+// Observe files every mix reading, pushed or replied, and routes replies to
+// whoever is waiting for that address. Anything else counts as a sign of
+// life and nothing more.
 func (a *Ableton) Observe(feedback <-chan *goosc.Message) {
 	go func() {
 		for msg := range feedback {
 			a.observed.Add(1)
 			a.lastSeen.Store(time.Now().UnixNano())
 			a.mu.Lock()
+			if strings.HasPrefix(msg.Address, "/live/track/get/") {
+				a.absorb(msg.Address, msg.Arguments)
+			}
 			if a.waiter != nil && msg.Address == a.want {
 				select {
 				case a.waiter <- msg:
@@ -201,6 +224,7 @@ func (a *Ableton) SetTrackVolume(track int, value float64) error {
 	if err := validateNormalized(value); err != nil {
 		return err
 	}
+	a.expect(track, "volume")
 	return a.send("/live/track/set/volume", int32(track-1), float32(value))
 }
 
@@ -213,6 +237,7 @@ func (a *Ableton) SetTrackPan(track int, value float64) error {
 	if err := validateNormalized(value); err != nil {
 		return err
 	}
+	a.expect(track, "pan")
 	return a.send("/live/track/set/panning", int32(track-1), float32(value*2-1))
 }
 
@@ -220,6 +245,7 @@ func (a *Ableton) SetTrackMute(track int, muted bool) error {
 	if err := validateTrack(track); err != nil {
 		return err
 	}
+	a.expect(track, "mute")
 	return a.send("/live/track/set/mute", int32(track-1), boolInt(muted))
 }
 
@@ -227,6 +253,7 @@ func (a *Ableton) SetTrackSolo(track int, soloed bool) error {
 	if err := validateTrack(track); err != nil {
 		return err
 	}
+	a.expect(track, "solo")
 	return a.send("/live/track/set/solo", int32(track-1), boolInt(soloed))
 }
 
@@ -243,6 +270,15 @@ func (a *Ableton) SetTrackSendVolume(track, send int, value float64) error {
 	return a.send("/live/track/set/send", int32(track-1), int32(send-1), float32(value))
 }
 
+// expect subscribes the track and notes where its readings stand, so the
+// confirmation that follows waits for the push this set will cause.
+func (a *Ableton) expect(track int, name string) {
+	a.listen(track)
+	a.mu.Lock()
+	a.pending[key(track, name)] = a.arrived[key(track, name)]
+	a.mu.Unlock()
+}
+
 func boolInt(on bool) int32 {
 	if on {
 		return 1
@@ -250,55 +286,80 @@ func boolInt(on bool) int32 {
 	return 0
 }
 
-// ReadParam and ConfirmParam are one operation here: a query is always
-// fresh, so there is no cache to be confidently wrong from.
+// ReadParam answers from what Live pushed for a subscribed track, which
+// the first read of a track sets up. With a set of this parameter not yet
+// heard back from it behaves as ConfirmParam, since the cache then holds
+// the value from before the set. Only when Live has pushed nothing is a
+// query made, so silence from a dead Live still reads as an error rather
+// than as a stale number.
 func (a *Ableton) ReadParam(track int, name string, timeout time.Duration) (any, error) {
-	return a.ConfirmParam(track, name, timeout)
+	if err := a.readable(track, name); err != nil {
+		return nil, err
+	}
+	a.listen(track)
+	k := key(track, name)
+	a.mu.Lock()
+	value, known := a.cache[k]
+	seen, set := a.pending[k]
+	unconfirmed := set && a.arrived[k] <= seen
+	a.mu.Unlock()
+	if known && !unconfirmed {
+		return value, nil
+	}
+	if unconfirmed {
+		return a.ConfirmParam(track, name, timeout)
+	}
+	return a.query(track, name, timeout)
 }
 
+// ConfirmParam accepts only a reading made after the last set of this
+// parameter. Live pushes one about 100 ms after a change, and nothing when
+// the value was already what was asked, so a quiet timeout falls back to a
+// query rather than to the cache.
 func (a *Ableton) ConfirmParam(track int, name string, timeout time.Duration) (any, error) {
-	if err := validateTrack(track); err != nil {
+	if err := a.readable(track, name); err != nil {
 		return nil, err
+	}
+	a.listen(track)
+	k := key(track, name)
+	a.mu.Lock()
+	seen, set := a.pending[k]
+	a.mu.Unlock()
+	if set {
+		if value, err := a.awaitArrival(k, seen, timeout); err == nil {
+			return value, nil
+		}
+	}
+	return a.query(track, name, timeout)
+}
+
+func (a *Ableton) readable(track int, name string) error {
+	if err := validateTrack(track); err != nil {
+		return err
 	}
 	param, err := FindParameter(a, name)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !param.Readable {
-		return nil, fmt.Errorf("%w: %s", ErrNotReadable, name)
+		return fmt.Errorf("%w: %s", ErrNotReadable, name)
 	}
-	address := map[string]string{"volume": "volume", "pan": "panning", "mute": "mute", "solo": "solo"}[name]
-	args, err := a.ask(timeout, "/live/track/get/"+address, int32(track-1))
+	return nil
+}
+
+// query asks Live outright. The reply is filed by Observe like a push.
+func (a *Ableton) query(track int, name string, timeout time.Duration) (any, error) {
+	args, err := a.ask(timeout, "/live/track/get/"+abletonListened[name], int32(track-1))
 	if err != nil {
 		return nil, err
 	}
 	if len(args) == 0 {
 		return nil, fmt.Errorf("%w: empty reply", ErrValueUnknown)
 	}
-	// Toggles come back as booleans from a real Live, and as 0/1 in the
-	// script's documentation; both are accepted.
-	if on, ok := args[0].(bool); ok && param.Kind == Toggle {
-		a.mu.Lock()
-		a.cache[key(track, name)] = on
-		a.mu.Unlock()
-		return on, nil
-	}
-	raw, ok := numeric(args[0])
+	value, ok := translate(name, args[0])
 	if !ok {
 		return nil, fmt.Errorf("%w: unreadable reply", ErrValueUnknown)
 	}
-	var value any
-	switch {
-	case param.Kind == Toggle:
-		value = raw != 0
-	case name == "pan":
-		value = (raw + 1) / 2
-	default:
-		value = raw
-	}
-	a.mu.Lock()
-	a.cache[key(track, name)] = value
-	a.mu.Unlock()
 	return value, nil
 }
 
@@ -334,10 +395,15 @@ func (a *Ableton) Tracks(timeout time.Duration) ([]Track, error) {
 	return tracks, nil
 }
 
-// Probe is a real question here, answered "ok".
+// Probe is a real question here, answered "ok". It runs when Live has
+// gone quiet, which is also when it may have been restarted, so a Live
+// that answers is asked to push again what this backend listens to.
 func (a *Ableton) Probe(timeout time.Duration) bool {
-	_, err := a.ask(timeout, "/live/test")
-	return err == nil
+	if _, err := a.ask(timeout, "/live/test"); err != nil {
+		return false
+	}
+	a.relisten()
+	return true
 }
 
 // FXChain asks rather than provokes: device names, then each device's
