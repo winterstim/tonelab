@@ -20,7 +20,8 @@ jobs:
           node-version: 22
       - run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
       - run: wails3 task darwin:package:universal
-      - run: wails3 task darwin:package:dmg
+      - run: wails3 task darwin:create:dmg
+      - run: lipo -archs bin/tonelab.app/Contents/MacOS/tonelab | grep -q "x86_64 arm64"
       - run: mv bin/tonelab.dmg bin/tonelab-${{ github.ref_name }}-macos-universal.dmg
       - uses: softprops/action-gh-release@v2
         with:
