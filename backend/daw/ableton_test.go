@@ -19,16 +19,74 @@ import (
 // the query's address, the ids that were sent, then the values; indices are
 // zero-based; panning is -1..1; device parameters are in their own units
 // with min and max on request. A set is applied and answered on the next
-// query, since the script has no push of its own without a listener.
+// query. A listened property is pushed on subscription and, a little after
+// each change, on the reply address, as the script does; the delay is there
+// because a fake pushing before the set returns hides every ordering bug.
 type fakeLive struct {
 	tracks  []string
 	volume  []float32
 	pan     []float32
 	mute    []int32
+	solo    []int32
 	devices map[int][]fakeDevice
 
-	mu       sync.Mutex
-	observed []string
+	mu        sync.Mutex
+	observed  []string
+	listeners map[string]bool
+	feed      chan<- *goosc.Message
+	stopped   chan struct{}
+	// pushes go out in order, one script tick apart, as Live sends them.
+	pushes chan *goosc.Message
+}
+
+const fakePushDelay = 20 * time.Millisecond
+
+// listening reports whether a track's property has a listener. Called
+// under the lock.
+func (f *fakeLive) listening(prop string, track int) bool {
+	return f.listeners[fmt.Sprintf("%s/%d", prop, track)]
+}
+
+// push sends the property the way a listener fires: current value, on the
+// query's address, after the script's tick. Called under the lock.
+func (f *fakeLive) push(prop string, track int) {
+	if !f.listening(prop, track) {
+		return
+	}
+	f.pushes <- &goosc.Message{Address: "/live/track/get/" + prop, Arguments: []any{int32(track), f.current(prop, track)}}
+}
+
+// current is the property as Live would report it. Called under the lock.
+func (f *fakeLive) current(prop string, track int) any {
+	switch prop {
+	case "volume":
+		return f.volume[track]
+	case "panning":
+		return f.pan[track]
+	case "mute":
+		return f.mute[track] != 0
+	case "solo":
+		return f.solo[track] != 0
+	}
+	return nil
+}
+
+// change is a hand on a fader in Live: the value moves and listeners hear
+// of it, with no query from this side.
+func (f *fakeLive) change(prop string, track int, value float32) {
+	f.mu.Lock()
+	switch prop {
+	case "volume":
+		f.volume[track] = value
+	case "panning":
+		f.pan[track] = value
+	case "mute":
+		f.mute[track] = int32(value)
+	case "solo":
+		f.solo[track] = int32(value)
+	}
+	f.push(prop, track)
+	f.mu.Unlock()
 }
 
 type fakeDevice struct {
@@ -56,12 +114,28 @@ func (f *fakeLive) sent() []string {
 }
 
 func (f *fakeLive) run(receiver *osctest.Receiver, feed chan<- *goosc.Message) {
+	f.feed = feed
+	f.stopped = make(chan struct{})
+	f.listeners = map[string]bool{}
+	f.pushes = make(chan *goosc.Message, 64)
+	go func() {
+		for msg := range f.pushes {
+			time.Sleep(fakePushDelay)
+			feed <- msg
+		}
+		close(feed)
+	}()
 	go func() {
 		for {
-			msg, ok := receiver.Poll(200 * time.Millisecond)
-			if !ok {
-				close(feed)
+			msg, ok := receiver.Poll(50 * time.Millisecond)
+			select {
+			case <-f.stopped:
+				close(f.pushes)
 				return
+			default:
+			}
+			if !ok {
+				continue
 			}
 			// One lock around the whole answer: the test body reads what
 			// Live was sent, and a fake racing its own test proves nothing.
@@ -92,6 +166,16 @@ func (f *fakeLive) answer(msg *goosc.Message) *goosc.Message {
 		reply.Arguments = append(append([]any{}, msg.Arguments[:n]...), values...)
 		return reply
 	}
+	if strings.HasPrefix(msg.Address, "/live/track/start_listen/") {
+		prop := strings.TrimPrefix(msg.Address, "/live/track/start_listen/")
+		f.listeners[fmt.Sprintf("%s/%d", prop, id(0))] = true
+		defer f.push(prop, id(0))
+		return nil
+	}
+	if strings.HasPrefix(msg.Address, "/live/track/stop_listen/") {
+		delete(f.listeners, fmt.Sprintf("%s/%d", strings.TrimPrefix(msg.Address, "/live/track/stop_listen/"), id(0)))
+		return nil
+	}
 	switch msg.Address {
 	case "/live/test":
 		return echo(0, "ok")
@@ -107,12 +191,30 @@ func (f *fakeLive) answer(msg *goosc.Message) *goosc.Message {
 		return echo(1, f.pan[id(0)])
 	case "/live/track/get/mute":
 		return echo(1, f.mute[id(0)])
+	case "/live/track/get/solo":
+		return echo(1, f.solo[id(0)])
+	// Live's listeners fire on change only, measured: a set to the value
+	// already there is silent, which is what confirmation has to handle.
 	case "/live/track/set/volume":
-		f.volume[id(0)] = num(1)
+		if f.volume[id(0)] != num(1) {
+			f.volume[id(0)] = num(1)
+			defer f.push("volume", id(0))
+		}
 	case "/live/track/set/panning":
-		f.pan[id(0)] = num(1)
+		if f.pan[id(0)] != num(1) {
+			f.pan[id(0)] = num(1)
+			defer f.push("panning", id(0))
+		}
 	case "/live/track/set/mute":
-		f.mute[id(0)] = int32(num(1))
+		if f.mute[id(0)] != int32(num(1)) {
+			f.mute[id(0)] = int32(num(1))
+			defer f.push("mute", id(0))
+		}
+	case "/live/track/set/solo":
+		if f.solo[id(0)] != int32(num(1)) {
+			f.solo[id(0)] = int32(num(1))
+			defer f.push("solo", id(0))
+		}
 	case "/live/track/get/devices/name":
 		var names []any
 		for _, d := range f.devices[id(0)] {
@@ -159,11 +261,13 @@ func newLive(t *testing.T) (*daw.Ableton, *fakeLive) {
 		volume: []float32{0.85, 0.85},
 		pan:    []float32{0, 0},
 		mute:   []int32{0, 0},
+		solo:   []int32{0, 0},
 		devices: map[int][]fakeDevice{
 			1: {{name: "Amp", params: []string{"Gain", "Bass", "Device On", "Cab"}, min: []float32{0, -12, 0, 0}, max: []float32{10, 12, 1, 3}, value: []float32{5, 0, 1, 0}, quantized: []bool{false, false, true, true}}},
 		},
 	}
 	fake.run(receiver, feed)
+	t.Cleanup(func() { close(fake.stopped) })
 	return live, fake
 }
 
@@ -339,5 +443,94 @@ func TestAbletonSteppedParametersAreKnownAndRounded(t *testing.T) {
 	fake.received(func() { got = fake.devices[1][0].value[3] })
 	if got != 2 {
 		t.Fatalf("expected 0.8 of 0..3 rounded to position 2, Live got %v", got)
+	}
+}
+
+func near(value any, want float64) bool {
+	v, ok := value.(float64)
+	return ok && v > want-0.001 && v < want+0.001
+}
+
+func count(sent []string, address string) int {
+	n := 0
+	for _, s := range sent {
+		if s == address {
+			n++
+		}
+	}
+	return n
+}
+
+// A change made by hand in Live reaches the backend without a query: the
+// track was subscribed by the first read, and Live pushes from then on.
+func TestAbletonHearsAHandChangeWithoutAsking(t *testing.T) {
+	live, fake := newLive(t)
+	if v, err := live.ReadParam(1, "volume", time.Second); err != nil || !near(v, 0.85) {
+		t.Fatalf("first read: %v, %v", v, err)
+	}
+	fake.change("volume", 0, 0.3)
+	time.Sleep(3 * fakePushDelay)
+	if v, err := live.ReadParam(1, "volume", time.Second); err != nil || !near(v, 0.3) {
+		t.Fatalf("expected the hand change to be heard, got %v, %v", v, err)
+	}
+	if n := count(fake.sent(), "/live/track/get/volume"); n != 0 {
+		t.Fatalf("a subscribed track is never queried, but was %d times", n)
+	}
+	if n := count(fake.sent(), "/live/track/start_listen/volume"); n != 1 {
+		t.Fatalf("one subscription per track, got %d", n)
+	}
+}
+
+// A set is confirmed from the push it causes, and one that changes nothing
+// is confirmed by asking, since Live pushes only changes.
+func TestAbletonConfirmsFromThePush(t *testing.T) {
+	live, fake := newLive(t)
+	if err := live.SetTrackVolume(2, 0.4); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := live.ConfirmParam(2, "volume", time.Second); err != nil || !near(v, 0.4) {
+		t.Fatalf("expected 0.4 from the push, got %v, %v", v, err)
+	}
+	if n := count(fake.sent(), "/live/track/get/volume"); n != 0 {
+		t.Fatalf("the push should have confirmed it without a query, but %d were made", n)
+	}
+
+	if err := live.SetTrackVolume(2, 0.4); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := live.ConfirmParam(2, "volume", 200*time.Millisecond); err != nil || !near(v, 0.4) {
+		t.Fatalf("an unchanged value is still confirmed, got %v, %v", v, err)
+	}
+	if n := count(fake.sent(), "/live/track/get/volume"); n != 1 {
+		t.Fatalf("no push comes for an unchanged value, so one query is right, got %d", n)
+	}
+}
+
+// Live drops every listener when it restarts. A probe is what runs when
+// Live has gone quiet, so a probe that succeeds subscribes again.
+func TestAbletonProbeRestoresSubscriptions(t *testing.T) {
+	live, fake := newLive(t)
+	_, _ = live.ReadParam(1, "mute", time.Second)
+	before := count(fake.sent(), "/live/track/start_listen/mute")
+	if !live.Probe(time.Second) {
+		t.Fatal("probe")
+	}
+	time.Sleep(fakePushDelay)
+	if after := count(fake.sent(), "/live/track/start_listen/mute"); after != before+1 {
+		t.Fatalf("expected the probe to subscribe again, %d -> %d", before, after)
+	}
+}
+
+func TestAbletonCloseStopsListening(t *testing.T) {
+	live, fake := newLive(t)
+	_, _ = live.ReadParam(1, "volume", time.Second)
+	if err := live.Close(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(fakePushDelay)
+	for _, prop := range []string{"volume", "panning", "mute", "solo"} {
+		if count(fake.sent(), "/live/track/stop_listen/"+prop) != 1 {
+			t.Fatalf("expected stop_listen for %s", prop)
+		}
 	}
 }

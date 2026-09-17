@@ -7,11 +7,20 @@ tracks count from one at this boundary; each backend folds its own shape
 away (Live counts from zero, pans -1..1, and reports device parameters in
 their own units with ranges on request).
 
-REAPER announces and never answers; Live answers and never announces.
-Measured on Live 12.4: mixer volume set over OSC enters its undo history,
-mute does not, so undo there is partial and reported as the DAW's own.
-Reading, liveness and effect discovery are therefore built differently in
-each, and identically above.
+REAPER announces and never answers; Live answers, and announces only what
+it was asked to listen to. Measured on Live 12.4: mixer volume set over OSC
+enters its undo history, mute does not, so undo there is partial and
+reported as the DAW's own. Reading, liveness and effect discovery are
+therefore built differently in each, and identically above.
+
+Live listener facts, measured: a query costs 64 to 100 ms; `start_listen`
+pushes the current value at once and every change about 100 ms later, on
+the query's reply address, and nothing for a set that changed nothing.
+The backend subscribes the mix properties of each track it touches, waits
+for that first push before anything else so it cannot count as the answer
+to a set, and reads from what Live pushed after that (2.5 µs). A probe
+that succeeds subscribes again, since a probe runs when Live has gone
+quiet, which is when it may have restarted and dropped the listeners.
 
 A backend describes itself through `Parameters()`; nothing above carries a
 parameter list. REAPER's is static because OSC has no discovery. Plugin
