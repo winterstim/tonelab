@@ -5,6 +5,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,6 +99,14 @@ type Tools struct {
 	chains   chainCache
 	searchMu sync.Mutex
 	search   search.Provider
+	// offered is the urls search returned this turn, the only ones fetch_page
+	// will read.
+	offered  map[string]struct{}
+	searched map[string]struct{}
+	read     map[string]struct{}
+	// readPage stands in for search.ReadPage in tests, which cannot serve a
+	// public page. Nil means the real reader.
+	readPage func(ctx context.Context, address string, limit int) (string, error)
 	daw      daw.Client
 
 	// dryRun makes the changing tools describe themselves instead of acting.
@@ -198,7 +207,7 @@ func (t *Tools) Definitions() []Tool {
 		definitions = append(definitions, t.fxDefinitions()...)
 	}
 	if t.searcher() != nil {
-		definitions = append(definitions, t.searchDefinition())
+		definitions = append(definitions, t.searchDefinition(), t.fetchDefinition())
 	}
 	return definitions
 }
@@ -240,6 +249,8 @@ func (t *Tools) Call(name string, args json.RawMessage) Result {
 		return t.setFXParam(args)
 	case "search":
 		return t.searchWeb(args)
+	case "fetch_page":
+		return t.fetchPage(args)
 	default:
 		return failure("unknown_tool", fmt.Sprintf("There is no tool called %q.", name))
 	}
