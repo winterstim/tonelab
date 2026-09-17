@@ -47,8 +47,40 @@ func TestBackendsListsWhatCanBeSelected(t *testing.T) {
 		t.Fatal("expected at least one registered backend")
 	}
 	for _, name := range names {
-		if _, err := daw.New(name, nil); err != nil {
-			t.Errorf("Backends listed %q but New rejected it: %v", name, err)
+		transport, err := daw.TransportOf(name)
+		if err != nil {
+			t.Errorf("Backends listed %q but it has no transport: %v", name, err)
+			continue
 		}
+		switch transport {
+		case daw.OSC:
+			_, err = daw.New(name, nil)
+		case daw.MIDI:
+			_, err = daw.NewMIDI(name, nil)
+		}
+		if err != nil {
+			t.Errorf("Backends listed %q but its constructor rejected it: %v", name, err)
+		}
+	}
+}
+
+// A backend says which transport it needs, so startup can open a MIDI port
+// or an OSC socket without naming the DAW; asking for the wrong one is an
+// error rather than a nil client.
+func TestRegistryKnowsEachBackendsTransport(t *testing.T) {
+	if transport, err := daw.TransportOf("flstudio"); err != nil || transport != daw.MIDI {
+		t.Fatalf("flstudio speaks MIDI, got %v, %v", transport, err)
+	}
+	if transport, err := daw.TransportOf("reaper"); err != nil || transport != daw.OSC {
+		t.Fatalf("reaper speaks OSC, got %v, %v", transport, err)
+	}
+	if _, err := daw.New("flstudio", nil); err == nil {
+		t.Fatal("an OSC sender cannot drive a MIDI backend")
+	}
+	if _, err := daw.NewMIDI("reaper", nil); err == nil {
+		t.Fatal("a MIDI link cannot drive an OSC backend")
+	}
+	if _, err := daw.TransportOf("protools"); err == nil {
+		t.Fatal("unknown backends have no transport")
 	}
 }
