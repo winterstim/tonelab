@@ -20,17 +20,22 @@
     --faint: #9a9aa2;
     --inverse: #ffffff;
     --solid: #16161a;
-    /* No hue anywhere. Emphasis is carried by contrast, and failure by weight
-       and a heavier edge, which is what the colour was doing before it was
-       taken out. A palette with nothing to spend cannot spend it wrongly. */
+    /* The chrome has no hue. Colour is spent on one thing only: whether an
+       outcome was good, bad, or still an offer, so a glance at a card tells
+       it without reading. Surfaces are told apart by tone, never by a line
+       around them. */
     --accent: var(--text);
     --accent-soft: rgba(16, 16, 26, 0.05);
-    --accent-line: rgba(16, 16, 26, 0.20);
     --accent-ink: #ffffff;
 
-    --alarm: var(--text);
-    --alarm-soft: transparent;
-    --alarm-line: rgba(16, 16, 26, 0.55);
+    --ok: #1f9d6a;
+    --ok-soft: rgba(31, 157, 106, 0.10);
+    --bad: #d6455d;
+    --bad-soft: rgba(214, 69, 93, 0.10);
+    --offer: #b7791f;
+    --offer-soft: rgba(183, 121, 31, 0.12);
+
+    --alarm: var(--bad);
 
     /* Gradients are kept nearly invisible on purpose: enough to give a
        surface a direction, not enough to become decoration. */
@@ -81,12 +86,9 @@
     --solid: #f0f0f2;
     --accent: var(--text);
     --accent-soft: rgba(255, 255, 255, 0.07);
-    --accent-line: rgba(255, 255, 255, 0.24);
     --accent-ink: #0d0d0f;
 
-    --alarm: var(--text);
-    --alarm-soft: transparent;
-    --alarm-line: rgba(255, 255, 255, 0.58);
+    --alarm: var(--bad);
 
     --wash: linear-gradient(180deg, #131318 0%, #0d0d10 100%);
     /* Inverted on a dark window: what has to stay legible is the text on
@@ -200,7 +202,7 @@ body {
     background: color-mix(in srgb, var(--raised) 80%, transparent);
     backdrop-filter: saturate(170%) blur(14px);
     -webkit-backdrop-filter: saturate(170%) blur(14px);
-    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line);
+    box-shadow: var(--lift-1);
     -webkit-app-region: no-drag;
 }
 
@@ -229,7 +231,7 @@ body {
     font-weight: 500;
     /* Lifted out of its group rather than tinted in place, so which one is
        chosen survives being glanced at. */
-    box-shadow: var(--lift-1), inset 0 0 0 1px var(--accent-line);
+    box-shadow: var(--lift-1);
 }
 
 /* Taken out of the flow so the tabs sit centred on the window rather than on
@@ -242,19 +244,18 @@ body {
     gap: 7px;
     padding: 5px 12px 5px 10px;
     border-radius: var(--radius-pill);
-    box-shadow: inset 0 0 0 2px var(--alarm-line);
-    color: var(--alarm);
+    background: var(--bad-soft);
+    color: var(--bad);
     font-weight: 500;
     font-size: 12.5px;
     white-space: nowrap;
-    transition: background var(--quick), box-shadow var(--quick), color var(--quick);
+    transition: background var(--quick), color var(--quick);
 }
 
 .status[data-connected="true"] {
-    background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--line);
-    color: var(--muted);
-    font-weight: 400;
+    background: var(--ok-soft);
+    color: var(--ok);
+    font-weight: 500;
 }
 
 /* Not connected is a failure state, not an absence of one: the app cannot do
@@ -263,13 +264,12 @@ body {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--alarm);
-    box-shadow: 0 0 0 1px var(--bg);
+    background: var(--bad);
     transition: background var(--quick);
 }
 
 .status[data-connected="true"] .dot {
-    background: var(--accent);
+    background: var(--ok);
 }
 
 /* A live connection is worth one quiet sign of life; a dead one sits still,
@@ -343,7 +343,7 @@ body {
     padding: 5px;
     border-radius: 14px;
     background: var(--bg);
-    box-shadow: var(--lift-3), inset 0 0 0 1px var(--line);
+    box-shadow: var(--lift-3);
     animation: settle 140ms cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -424,6 +424,10 @@ body {
     animation: rise 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
+.thread-chip[data-settled="true"] {
+    animation: none;
+}
+
 .thread-chip:hover {
     background: var(--raised);
     color: var(--text);
@@ -431,7 +435,7 @@ body {
 
 .thread-chip[aria-pressed="true"] {
     background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--line-strong);
+    box-shadow: none;
     color: var(--text);
     font-weight: 500;
 }
@@ -586,6 +590,74 @@ body {
     white-space: pre-wrap;
 }
 
+/* The model's markdown, laid out. Paragraph spacing comes from the blocks,
+   so the container stops preserving whitespace for them. */
+.msg[data-from="tonelab"][data-tone="answer"] .said,
+.turn .said {
+    white-space: normal;
+}
+
+.said p,
+.said ul,
+.said ol,
+.said .md-table {
+    margin: 0;
+}
+
+.said > * + * {
+    margin-top: 8px;
+}
+
+.said ul,
+.said ol {
+    padding-left: 1.4em;
+}
+
+.said li + li {
+    margin-top: 2px;
+}
+
+.said strong,
+.said .md-heading {
+    font-weight: 600;
+}
+
+.said code {
+    padding: 1px 5px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.92em;
+}
+
+.md-table {
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.md-table th,
+.md-table td {
+    padding: 5px 12px;
+    text-align: left;
+}
+
+.md-table th {
+    color: var(--muted);
+    font-weight: 500;
+}
+
+/* Rows are separated by lines, not by tint: a table is the one place a line
+   is the quieter choice, since a striped block reads as a panel. */
+.md-table th,
+.md-table td {
+    border-bottom: 1px solid var(--line);
+}
+
+.md-table tr:last-child td {
+    border-bottom: none;
+}
+
 .msg[data-from="you"] .said {
     padding: 10px 17px;
     border-radius: 20px 20px 7px 20px;
@@ -594,15 +666,11 @@ body {
     box-shadow: var(--shadow-accent);
 }
 
-/* Failure is told apart by weight and a heavier edge, since there is no hue
-   left to tell it apart with. Without that a refusal would look like a
-   remark. */
+/* Failure is a colour, nothing else: the same shape and size as an answer,
+   read differently at a glance. A tinted block behind it made refusals a
+   different kind of object from the reply they are. */
 .msg[data-tone="problem"] .said {
-    padding: 10px 16px;
-    border-radius: 14px;
-    box-shadow: inset 0 0 0 2px var(--alarm-line);
-    color: var(--alarm);
-    font-weight: 500;
+    color: var(--bad);
 }
 
 .msg[data-tone="working"] .said {
@@ -612,21 +680,43 @@ body {
 /* What the DAW confirmed, kept visually apart from what the model said about
    it: one of the two can be checked and the other cannot. */
 .did {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
     margin: 0;
-    padding: var(--gap-2) var(--gap-3);
-    border-radius: 14px;
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1px var(--accent-line);
-    color: var(--muted);
-    font-size: 13.5px;
+    padding: 0;
+    font-size: 13px;
 }
 
 .did li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
     list-style: none;
+    padding: 2px 0;
+    font-variant-numeric: tabular-nums;
 }
 
-.unconfirmed {
-    color: var(--faint);
+.did li::before {
+    flex: none;
+    font-weight: 600;
+}
+
+.did .confirmed {
+    color: var(--ok);
+}
+
+.did .confirmed::before {
+    content: "✓";
+}
+
+.did .unconfirmed {
+    color: var(--offer);
+}
+
+.did .unconfirmed::before {
+    content: "?";
 }
 
 .plan {
@@ -647,7 +737,7 @@ body {
        as it grows, which a fixed radius cannot do. */
     border-radius: 26px;
     background: var(--bg);
-    box-shadow: var(--lift-3), var(--sheen), inset 0 0 0 1px var(--line);
+    box-shadow: var(--lift-3), var(--sheen);
     transition: box-shadow var(--quick);
 }
 
@@ -716,7 +806,7 @@ body {
 .stop {
     background: var(--raised);
     color: var(--text);
-    box-shadow: inset 0 0 0 1px var(--line-strong);
+    box-shadow: none;
 }
 
 .composer-row {
@@ -834,7 +924,7 @@ body {
     padding: var(--gap-3) var(--gap-4);
     border-radius: var(--radius);
     background: var(--bg);
-    box-shadow: var(--lift-1), var(--sheen), inset 0 0 0 1px var(--line);
+    box-shadow: var(--lift-1), var(--sheen);
 }
 
 .turn-head {
@@ -888,14 +978,11 @@ body {
 
 .turn-steps li[data-failed="true"],
 .turn-steps li[data-failed="true"] .icon {
-    color: var(--alarm);
-    font-weight: 500;
+    color: var(--bad);
 }
 
-/* A failed turn is outlined rather than tinted, so it can be found in a list
-   without being read. */
-.turn:has(.turn-steps li[data-failed="true"]) {
-    box-shadow: var(--lift-1), inset 0 0 0 2px var(--alarm-line);
+.turn-problem {
+    color: var(--bad);
 }
 
 /* The exact call, for someone checking rather than reading. */
@@ -989,17 +1076,17 @@ body {
     padding: 11px 16px;
     border: none;
     border-radius: 14px;
-    background: var(--bg);
+    background: var(--sunken);
     color: inherit;
     font: inherit;
     font-size: 13.5px;
-    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line);
+    box-shadow: var(--lift-1);
     transition: box-shadow var(--quick);
 }
 
 .text:focus {
     outline: none;
-    box-shadow: var(--lift-1), inset 0 0 0 1px var(--line-strong);
+    background: var(--raised);
 }
 
 .hint {
