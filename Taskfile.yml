@@ -54,13 +54,27 @@ tasks:
     cmds:
       - gofmt -l . | tee /dev/stderr | test -z "$(cat)"
       - go vet ./...
-      - go test -race -count=1 ./backend/...
-      - GOOS=windows CGO_ENABLED=0 go vet ./backend/...
-      - GOOS=linux CGO_ENABLED=0 go vet ./backend/...
+      - go test -race -count=1 ./backend/... ./cmd/...
+      - GOOS=windows CGO_ENABLED=0 go vet ./backend/... ./cmd/...
+      - GOOS=linux CGO_ENABLED=0 go vet ./backend/... ./cmd/...
       - task: common:build:frontend
       - task: darwin:package
       - task: build:windows
       - task: build:linux
+      - task: build:cli
+
+  build:cli:
+    summary: Builds the command line for this machine, Windows and Linux. The Linux one needs ALSA headers, so it is built in Docker like the app.
+    cmds:
+      - go build -trimpath -ldflags="-w -s" -o {{.BIN_DIR}}/tonelab-cli ./cmd/tonelab-cli
+      - for: ["amd64", "arm64"]
+        cmd: GOOS=windows GOARCH={{.ITEM}} CGO_ENABLED=0 go build -trimpath -ldflags="-w -s" -o {{.BIN_DIR}}/tonelab-cli-windows-{{.ITEM}}.exe ./cmd/tonelab-cli
+      - for: ["amd64", "arm64"]
+        cmd: >-
+          docker run --rm --platform linux/{{.ITEM}} -v "$PWD":/src -w /src -e GOFLAGS=-buildvcs=false -e HOME=/tmp golang:1.25-bookworm bash -c
+          'apt-get update -qq >/dev/null && apt-get install -y -qq libasound2-dev >/dev/null 2>&1
+          && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -trimpath -ldflags="-w -s"
+          -o {{.BIN_DIR}}/tonelab-cli-linux-{{.ITEM}} ./cmd/tonelab-cli'
 
   build:windows:
     summary: Cross-compiles the Windows binaries from any host (no cgo on Windows)

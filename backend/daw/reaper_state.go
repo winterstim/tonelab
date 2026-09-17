@@ -29,6 +29,9 @@ type state struct {
 	// DAW just reported from one it reported before a question was asked.
 	// Presence alone cannot: the stale reading looks identical.
 	readings uint64
+	// surface is the track the DAW says its control surface is on, the
+	// owner of every value it announces without an index.
+	surface int
 
 	// The name of the track the control surface is looking at, with a count
 	// of how many times it has been announced. Two tracks may share a name,
@@ -63,6 +66,20 @@ func (s *state) set(track int, param string, value float64) {
 
 	close(s.updated)
 	s.updated = make(chan struct{})
+}
+
+// setSurface records which track the DAW says its surface is on, so the
+// unindexed values that follow can be filed under it. Under the lock.
+func (s *state) setSurface(track int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.surface = track
+}
+
+func (s *state) surfaceTrack() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.surface
 }
 
 // setTrackName records what the DAW says it is looking at.
@@ -168,13 +185,30 @@ func (r *REAPER) absorb(msg *goosc.Message) {
 		}
 	}
 
+	// A selection is answered with the selected number, then that track's
+	// values with no index at all: /track/volume, not /track/N/volume.
+	// Measured: the indexed form comes only when a value changes, so a
+	// value that has not moved is readable only this way.
+	if strings.HasPrefix(msg.Address, "/device/track/select/") && len(msg.Arguments) > 0 {
+		if selected, ok := numeric(msg.Arguments[0]); ok {
+			r.state.setSurface(int(selected))
+		}
+		return
+	}
+
 	if r.absorbFX(msg) {
 		return
 	}
 
 	track, param, ok := parseTrackAddress(msg.Address)
 	if !ok {
-		return
+		if param, ok = parseSurfaceAddress(msg.Address); !ok {
+			return
+		}
+		// Index 0 is the master, which this layer does not expose.
+		if track = r.state.surfaceTrack(); track < 1 {
+			return
+		}
 	}
 	if _, err := FindParameter(r, param); err != nil {
 		return // an address we can parse but not a parameter we expose
@@ -187,6 +221,16 @@ func (r *REAPER) absorb(msg *goosc.Message) {
 		return // a string readout such as /volume/str, not the value itself
 	}
 	r.state.set(track, param, value)
+}
+
+// parseSurfaceAddress reads the unindexed form, /track/volume, which
+// means the track the surface is on.
+func parseSurfaceAddress(address string) (param string, ok bool) {
+	parts := strings.Split(strings.TrimPrefix(address, "/"), "/")
+	if len(parts) != 2 || parts[0] != "track" {
+		return "", false
+	}
+	return parts[1], true
 }
 
 // parseTrackAddress rejects deeper paths such as /track/1/volume/str on
@@ -214,10 +258,11 @@ func (r *REAPER) Refresh(track int) error {
 		return err
 	}
 
-	// Bounce off a different track so the second message is a change; REAPER
-	// says nothing when asked to select what is already selected.
-	other := track + 1
-	if err := r.send("/device/track/select", int32(other)); err != nil {
+	// Bounce off the master so the second message is a change; REAPER says
+	// nothing when asked to select what is already selected, and clamps a
+	// selection past the last track to the last track, so bouncing off
+	// track+1 in a one-track project was two silences and a read timeout.
+	if err := r.send("/device/track/select", int32(0)); err != nil {
 		return err
 	}
 	return r.send("/device/track/select", int32(track))

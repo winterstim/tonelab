@@ -23,10 +23,17 @@ jobs:
       - run: wails3 task darwin:create:dmg
       - run: lipo -archs bin/tonelab.app/Contents/MacOS/tonelab | grep -q "x86_64 arm64"
       - run: mv bin/tonelab.dmg bin/tonelab-${{ github.ref_name }}-macos-universal.dmg
+      - name: Command line, universal
+        run: |
+          GOARCH=amd64 go build -trimpath -ldflags="-w -s" -o bin/cli-amd64 ./cmd/tonelab-cli
+          GOARCH=arm64 go build -trimpath -ldflags="-w -s" -o bin/cli-arm64 ./cmd/tonelab-cli
+          lipo -create -output bin/tonelab-cli-${{ github.ref_name }}-macos-universal bin/cli-amd64 bin/cli-arm64
       - uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ startsWith(github.ref_name, 'v0.0.') }}
-          files: bin/tonelab-*.dmg
+          files: |
+            bin/tonelab-*.dmg
+            bin/tonelab-cli-*-macos-universal
 
   windows:
     runs-on: ubuntu-latest
@@ -46,6 +53,7 @@ jobs:
         run: |
           for arch in amd64 arm64; do
             GOOS=windows GOARCH=$arch CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui" -o bin/tonelab-${{ github.ref_name }}-windows-$arch.exe .
+            GOOS=windows GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags="-w -s" -o bin/tonelab-cli-${{ github.ref_name }}-windows-$arch.exe ./cmd/tonelab-cli
           done
       - uses: softprops/action-gh-release@v2
         with:
@@ -67,7 +75,10 @@ jobs:
       - run: wails3 generate bindings -ts -d frontend/bindings
       - run: npm --prefix frontend ci && npm --prefix frontend run build
       - run: go build -tags "production gtk3" -trimpath -ldflags="-w -s" -o bin/tonelab-${{ github.ref_name }}-linux-amd64 .
+      - run: go build -trimpath -ldflags="-w -s" -o bin/tonelab-cli-${{ github.ref_name }}-linux-amd64 ./cmd/tonelab-cli
       - uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ startsWith(github.ref_name, 'v0.0.') }}
-          files: bin/tonelab-*-linux-amd64
+          files: |
+            bin/tonelab-*-linux-amd64
+            bin/tonelab-cli-*-linux-amd64
