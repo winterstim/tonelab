@@ -63,6 +63,6 @@ tasks:
       - for: ["amd64", "arm64"]
         cmd: >-
           docker run --rm --platform linux/{{.ITEM}} -v "$PWD":/src -w /src -e GOFLAGS=-buildvcs=false -e HOME=/tmp golang:1.25-bookworm bash -c
-          'apt-get update -qq >/dev/null && apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev >/dev/null 2>&1
+          'apt-get update -qq >/dev/null && apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev libasound2-dev >/dev/null 2>&1
           && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -tags "production gtk3" -trimpath -ldflags="-w -s"
           -o {{.BIN_DIR}}/{{.APP_NAME}}-linux-{{.ITEM}} .'

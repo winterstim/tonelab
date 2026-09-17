@@ -33,7 +33,7 @@ back what the DAW says the value became.
 |---|---|---|---|---|---|
 | REAPER 7 | built-in OSC control surface | yes | volume, pan, mute, solo, sends | discover, read, write | yes |
 | Ableton Live 12 | [AbletonOSC](https://github.com/ideoforms/AbletonOSC) remote script | yes | volume, pan, mute, solo, sends | discover, read, write | mixer only |
-| FL Studio 2026 | controller script Tonelab installs, over a virtual MIDI port (macOS) | yes | volume, pan, mute, solo, routes | discover, read, write | yes |
+| FL Studio 2026 | controller script Tonelab installs, over a MIDI port | yes | volume, pan, mute, solo, routes | discover, read, write | yes |
 
 Adding a DAW means one backend file behind the same interface; everything
 above it, including the agent and the window, stays as is.
@@ -73,8 +73,10 @@ creates a MIDI port named Tonelab and puts its controller script under
 Options, MIDI Settings: Refresh device list, enable the Tonelab input, set
 its Controller type to Tonelab, and give the Tonelab input and output the
 same Port number. FL's Python cannot open a socket or a file, so MIDI is
-the only channel it has; the port exists only while Tonelab runs. Virtual
-MIDI ports are built for macOS so far.
+the only channel it has. On macOS and Linux Tonelab creates the port
+itself, and it exists only while Tonelab runs. Windows has no virtual MIDI
+ports without a driver: install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html)
+(free), create a port named `Tonelab` in it, then start Tonelab.
 
 ## First run
 
