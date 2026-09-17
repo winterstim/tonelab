@@ -41,6 +41,14 @@ type fakeDevice struct {
 	quantized []bool
 }
 
+// received reads the fake's state the way a test asserts on it, under the
+// lock the answering goroutine holds.
+func (f *fakeLive) received(read func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	read()
+}
+
 func (f *fakeLive) sent() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -55,10 +63,13 @@ func (f *fakeLive) run(receiver *osctest.Receiver, feed chan<- *goosc.Message) {
 				close(feed)
 				return
 			}
+			// One lock around the whole answer: the test body reads what
+			// Live was sent, and a fake racing its own test proves nothing.
 			f.mu.Lock()
 			f.observed = append(f.observed, msg.Address)
+			reply := f.answer(msg)
 			f.mu.Unlock()
-			if reply := f.answer(msg); reply != nil {
+			if reply != nil {
 				feed <- reply
 			}
 		}
@@ -181,8 +192,10 @@ func TestAbletonPanIsTranslated(t *testing.T) {
 		t.Fatalf("SetTrackPan: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if fake.pan[1] != -0.5 {
-		t.Fatalf("expected Live to receive -0.5, got %v", fake.pan[1])
+	var pan float32
+	fake.received(func() { pan = fake.pan[1] })
+	if pan != -0.5 {
+		t.Fatalf("expected Live to receive -0.5, got %v", pan)
 	}
 	value, err := live.ReadParam(2, "pan", time.Second)
 	if err != nil || value != 0.25 {
@@ -218,8 +231,10 @@ func TestAbletonFXParamsAreNormalizedAcrossTheRange(t *testing.T) {
 		t.Fatalf("SetFXParam: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if fake.devices[1][0].value[1] != 6 {
-		t.Fatalf("expected 0.75 of -12..12 to reach Live as 6, got %v", fake.devices[1][0].value[1])
+	var raw float32
+	fake.received(func() { raw = fake.devices[1][0].value[1] })
+	if raw != 6 {
+		t.Fatalf("expected 0.75 of -12..12 to reach Live as 6, got %v", raw)
 	}
 	got, err := live.ConfirmFXParam(2, 1, 2, time.Second)
 	if err != nil || got != 0.75 {
@@ -320,7 +335,9 @@ func TestAbletonSteppedParametersAreKnownAndRounded(t *testing.T) {
 		t.Fatalf("SetFXParam: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if fake.devices[1][0].value[3] != 2 {
-		t.Fatalf("expected 0.8 of 0..3 rounded to position 2, Live got %v", fake.devices[1][0].value[3])
+	var got float32
+	fake.received(func() { got = fake.devices[1][0].value[3] })
+	if got != 2 {
+		t.Fatalf("expected 0.8 of 0..3 rounded to position 2, Live got %v", got)
 	}
 }
