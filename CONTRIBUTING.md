@@ -6,7 +6,7 @@ Go 1.25+, Node 22+ and the [Wails v3 CLI](https://v3.wails.io/getting-started/in
 
 ## Tests
 
-`go test ./...` needs nothing installed and is what CI runs on all three platforms. The tagged suites (`reaper`, `ableton`, `llm`) run against a real DAW or model and are expected for any change that touches one. They bind the DAW's single feedback port, so run them with `-p 1`.
+`go test ./...` needs nothing installed. `task ci` is the full bar for a merge: vet, the race suite, the frontend typecheck, a macOS package, a Windows cross-build and the Linux build in Docker. It runs on your machine; the hosted workflow is started by hand only, so nothing is spent on every push. The tagged suites (`reaper`, `ableton`, `llm`) run against a real DAW or model and are expected for any change that touches one. They bind the DAW's single feedback port, so run them with `-p 1`.
 
 ## Rules the code is held to
 
@@ -19,4 +19,4 @@ Go 1.25+, Node 22+ and the [Wails v3 CLI](https://v3.wails.io/getting-started/in
 
 ## Pull requests
 
-Branch from `main`, one topic per PR, small commits that each build. Fill in the template. CI must be green on all three platforms before merge.
+Branch from `main`, one topic per branch, small commits that each build. `task ci` must be green before the branch is merged into `main` with `--no-ff`, so the history keeps the branch. Pull requests are welcome from outside; the template says what to include.
