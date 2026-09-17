@@ -24,6 +24,7 @@ jobs:
       - run: mv bin/tonelab.dmg bin/tonelab-${{ github.ref_name }}-macos-universal.dmg
       - uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ startsWith(github.ref_name, 'v0.0.') }}
           files: bin/tonelab-*.dmg
 
   windows:
@@ -47,6 +48,7 @@ jobs:
           done
       - uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ startsWith(github.ref_name, 'v0.0.') }}
           files: bin/tonelab-*.exe
 
   linux:
@@ -66,4 +68,5 @@ jobs:
       - run: go build -tags "production gtk3" -trimpath -ldflags="-w -s" -o bin/tonelab-${{ github.ref_name }}-linux-amd64 .
       - uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ startsWith(github.ref_name, 'v0.0.') }}
           files: bin/tonelab-*-linux-amd64
