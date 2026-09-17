@@ -72,6 +72,12 @@ func main() {
 	previewTools := agent.NewPreviewTools(dawClient)
 	previews := agent.NewOrchestrator(llm, previewTools)
 
+	// Both look at the same project, so both read from one chain cache,
+	// which remembers the last session's chains beside the conversations.
+	chains := agent.NewChainCache(app.NewChainStore(filepath.Join(filepath.Dir(configPath), "chains.json"), settings.DAW.Backend))
+	tools.ShareChains(chains)
+	previewTools.ShareChains(chains)
+
 	// Web search is optional and reads only, so both agents share it. A bad
 	// search setting is logged, not fatal: the DAW still works without it.
 	applySearch := func(provider search.Provider) {
