@@ -1,11 +1,11 @@
-//go:build !(darwin && cgo)
+//go:build !(darwin && cgo) && !windows && !(linux && cgo)
 
 package midi
 
-// Open reports that virtual ports are not built for this platform. Windows
-// has no virtual MIDI API without a driver and Linux needs ALSA sequencer
-// bindings; both are real work, not a stub, and until done the DAWs that
-// need a port are refused at startup with this error.
+// Open reports that no port is built for this platform, such as a
+// CGO-free build on macOS or Linux, where the system MIDI libraries cannot
+// be reached. The DAWs that need a port are refused at startup with this
+// error rather than pretending.
 func Open(name string) (*Port, error) {
 	return nil, ErrUnsupported
 }
