@@ -26,6 +26,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: go vet ./backend/...
       - run: go test -race ./backend/...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm --prefix frontend ci && npm --prefix frontend test
 
   build:
     name: Build (${{ matrix.os }})
