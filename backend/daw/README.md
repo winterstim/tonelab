@@ -1,8 +1,11 @@
 # daw
 
-What can be done to a DAW, typed, behind `Client`. Two backends: REAPER
-over its OSC control surface, and Ableton Live over the AbletonOSC remote
-script (ports 11000 in, 11001 back). Values are normalized 0.0-1.0 and
+What can be done to a DAW, typed, behind `Client`. Three backends: REAPER
+over its OSC control surface, Ableton Live over the AbletonOSC remote
+script (ports 11000 in, 11001 back), and FL Studio over a controller
+script of our own (`flstudio/device_Tonelab.py`) that speaks JSON in MIDI
+system exclusive on a virtual port, since FL's Python has neither sockets
+nor files (measured: both return NULL). Values are normalized 0.0-1.0 and
 tracks count from one at this boundary; each backend folds its own shape
 away (Live counts from zero, pans -1..1, and reports device parameters in
 their own units with ranges on request).
@@ -21,6 +24,15 @@ for that first push before anything else so it cannot count as the answer
 to a set, and reads from what Live pushed after that (2.5 µs). A probe
 that succeeds subscribes again, since a probe runs when Live has gone
 quiet, which is when it may have restarted and dropped the listeners.
+
+FL facts, measured on FL Studio 2026: a request and its reply cross in
+about 1 ms; the API answers queries from its own state, so reads never
+wait on an announcement; a volume set is visible on the next read, while
+a mute or solo lands on FL's own tick up to a millisecond later, so
+confirmation reads until FL reports what was asked; effects sit in ten
+numbered slots per mixer track with gaps, and the chain is numbered
+without them; parameter readouts carry units, which is where kinds come
+from. The bridge speaks ASCII only, the seven bits sysex allows.
 
 A backend describes itself through `Parameters()`; nothing above carries a
 parameter list. REAPER's is static because OSC has no discovery. Plugin
