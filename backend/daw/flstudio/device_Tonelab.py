@@ -9,6 +9,7 @@
 import json
 
 import device
+import channels
 import general
 import mixer
 import plugins
@@ -76,23 +77,34 @@ def handle(request):
         # Names and counts only. A wrapped third-party plugin reports
         # thousands of parameters (measured: 4240 for an Audio Unit
         # reverb), and one sysex tops out between 64 and 128 KB, so the
-        # names come by page.
-        return {"fx": [{"slot": slot, "name": plugins.getPluginName(track, slot), "count": plugins.getParamCount(track, slot)}
-                       for slot in range(MAX_SLOTS) if plugins.isValid(track, slot)]}
+        # names come by page. Instruments live in the channel rack rather
+        # than in a mixer slot; the ones routed to this track are listed
+        # first, as an instrument sits first in a chain elsewhere. A
+        # channel is addressed as (channel, -1) in FL's API, which is what
+        # "slot" -1 means from here on.
+        chain = []
+        for c in range(channels.channelCount()):
+            if channels.getTargetFxTrack(c) == track and plugins.isValid(c, -1):
+                chain.append({"channel": c, "slot": -1, "name": plugins.getPluginName(c, -1), "count": plugins.getParamCount(c, -1)})
+        for slot in range(MAX_SLOTS):
+            if plugins.isValid(track, slot):
+                chain.append({"channel": track, "slot": slot, "name": plugins.getPluginName(track, slot), "count": plugins.getParamCount(track, slot)})
+        return {"fx": chain}
     slot = int(request.get("slot", -1))
+    index = int(request.get("channel", track))
     if op == "params":
-        if not plugins.isValid(track, slot):
+        if not plugins.isValid(index, slot):
             return {"error": "no such effect"}
         start = int(request.get("from", 0))
-        stop = min(start + int(request.get("n", 256)), plugins.getParamCount(track, slot))
-        return {"params": [[p, plugins.getParamName(p, track, slot), plugins.getParamValueString(p, track, slot)] for p in range(start, stop)]}
+        stop = min(start + int(request.get("n", 256)), plugins.getParamCount(index, slot))
+        return {"params": [[p, plugins.getParamName(p, index, slot), plugins.getParamValueString(p, index, slot)] for p in range(start, stop)]}
     param = int(request.get("param", -1))
-    if not plugins.isValid(track, slot) or param < 0 or param >= plugins.getParamCount(track, slot):
+    if not plugins.isValid(index, slot) or param < 0 or param >= plugins.getParamCount(index, slot):
         return {"error": "no such effect parameter"}
     if op == "fxget":
-        return {"value": plugins.getParamValue(param, track, slot), "str": plugins.getParamValueString(param, track, slot)}
+        return {"value": plugins.getParamValue(param, index, slot), "str": plugins.getParamValueString(param, index, slot)}
     if op == "fxset":
-        plugins.setParamValue(float(request.get("value")), param, track, slot)
+        plugins.setParamValue(float(request.get("value")), param, index, slot)
         return {"ok": True}
     return {"error": "unknown op %r" % op}
 

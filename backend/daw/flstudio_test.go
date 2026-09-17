@@ -18,18 +18,26 @@ import (
 // a read straight after the set can still show the old value), and
 // answers volume at once. Effects sit in numbered slots with gaps.
 type fakeFL struct {
-	mu      sync.Mutex
-	in      chan []byte
-	tracks  []string
-	volume  []float64
-	pan     []float64
-	mute    []bool
-	solo    []bool
-	slots   map[int]map[int]fakeFLPlugin
-	sent    []string
-	tick    time.Duration
-	closed  bool
-	pending []func()
+	mu     sync.Mutex
+	in     chan []byte
+	tracks []string
+	volume []float64
+	pan    []float64
+	mute   []bool
+	solo   []bool
+	slots  map[int]map[int]fakeFLPlugin
+	// generators are instruments in the channel rack, keyed by channel,
+	// each routed to a mixer track.
+	generators map[int]fakeFLGenerator
+	sent       []string
+	tick       time.Duration
+	closed     bool
+	pending    []func()
+}
+
+type fakeFLGenerator struct {
+	to     int
+	plugin fakeFLPlugin
 }
 
 type fakeFLPlugin struct {
@@ -56,8 +64,29 @@ func newFakeFL() *fakeFL {
 				9: {name: "AUReverb2", params: []string{"", "", "legacy mode", "", "MIDI CC #0 (Bank select MSB)", "MIDI Channel 1 Aftertouch"}, values: []float64{0.5, 1, 1, 0, 0, 0}, strs: []string{"0.50", "1.00", "1.00", "", "", ""}},
 			},
 		},
+		generators: map[int]fakeFLGenerator{
+			3: {to: 1, plugin: fakeFLPlugin{name: "Ample Guitar LP", params: []string{"M-Mic 1 Vol", "M-Pan"}, values: []float64{0.6, 0.5}, strs: []string{"0.60", "-0.00"}}},
+			4: {to: 2, plugin: fakeFLPlugin{name: "FLEX", params: []string{"Tone"}, values: []float64{0.66}, strs: []string{"66%"}}},
+		},
 		tick: 5 * time.Millisecond,
 	}
+}
+
+// pluginAt resolves FL's (index, slot) addressing: slot -1 is a channel's
+// instrument, otherwise a mixer track's effect slot.
+func (f *fakeFL) pluginAt(index, slot int) (*fakeFLPlugin, bool) {
+	if slot < 0 {
+		g, ok := f.generators[index]
+		if !ok {
+			return nil, false
+		}
+		return &g.plugin, true
+	}
+	p, ok := f.slots[index][slot]
+	if !ok {
+		return nil, false
+	}
+	return &p, true
 }
 
 func (f *fakeFL) Messages() <-chan []byte { return f.in }
@@ -167,16 +196,26 @@ func (f *fakeFL) handle(r map[string]any) map[string]any {
 		return map[string]any{"ok": true}
 	case "fx":
 		var chain []map[string]any
+		for c := 0; c < 8; c++ {
+			if g, ok := f.generators[c]; ok && g.to == track {
+				chain = append(chain, map[string]any{"channel": c, "slot": -1, "name": g.plugin.name, "count": len(g.plugin.params)})
+			}
+		}
 		for slot := 0; slot < 10; slot++ {
 			p, ok := f.slots[track][slot]
 			if !ok {
 				continue
 			}
-			chain = append(chain, map[string]any{"slot": slot, "name": p.name, "count": len(p.params)})
+			chain = append(chain, map[string]any{"channel": track, "slot": slot, "name": p.name, "count": len(p.params)})
 		}
 		return map[string]any{"fx": chain}
-	case "params":
-		p, ok := f.slots[track][num("slot")]
+	}
+	index := track
+	if _, given := r["channel"]; given {
+		index = num("channel")
+	}
+	p, ok := f.pluginAt(index, num("slot"))
+	if r["op"] == "params" {
 		if !ok {
 			return map[string]any{"error": "no such effect"}
 		}
@@ -187,7 +226,6 @@ func (f *fakeFL) handle(r map[string]any) map[string]any {
 		}
 		return map[string]any{"params": page}
 	}
-	p, ok := f.slots[track][num("slot")]
 	param := num("param")
 	if !ok || param < 0 || param >= len(p.params) {
 		return map[string]any{"error": "no such effect parameter"}
@@ -281,41 +319,55 @@ func TestFLStudioConfirmReportsFLsAccountWhenTheSetDidNotLand(t *testing.T) {
 func TestFLStudioChainHidesSlotGaps(t *testing.T) {
 	fl, fake := newFL(t)
 	chain, err := fl.FXChain(1, time.Second)
-	if err != nil || len(chain) != 3 {
+	if err != nil || len(chain) != 4 {
 		t.Fatalf("got %v, %v", chain, err)
 	}
-	if wrapped := chain[2]; len(wrapped.Params) != 1 || wrapped.Params[0].Number != 3 || wrapped.Params[0].Name != "legacy mode" {
-		t.Fatalf("a wrapped plugin keeps its one named control under FL's own number, got %+v", wrapped.Params)
+	// The instrument routed to the track comes first, as it would sit
+	// first in a chain elsewhere; it lives in the channel rack in FL.
+	if chain[0].Number != 1 || chain[0].Name != "Ample Guitar LP" || chain[1].Name != "Fruity Reeverb 2" || chain[2].Name != "Emphasizer" {
+		t.Fatalf("chain numbered by position with the instrument first, got %+v", chain)
 	}
-	if err := fl.SetFXParam(1, 3, 3, 0.7); err != nil {
-		t.Fatalf("writing by FL's number: %v", err)
-	}
-	if v, err := fl.ConfirmFXParam(1, 3, 3, time.Second); err != nil || v != 0.7 {
-		t.Fatalf("expected 0.7 on the named control, got %v, %v", v, err)
-	}
-	if chain[0].Number != 1 || chain[0].Name != "Fruity Reeverb 2" || chain[1].Number != 2 || chain[1].Name != "Emphasizer" {
-		t.Fatalf("chain numbered by position, got %+v", chain)
-	}
-	if chain[0].Params[2].Kind != "switch" || chain[0].Params[1].Kind != "" || chain[1].Params[1].Kind != "discrete" {
-		t.Fatalf("kinds from readouts: %+v %+v", chain[0].Params, chain[1].Params)
-	}
-	if err := fl.SetFXParam(1, 2, 1, 0.9); err != nil {
+	if err := fl.SetFXParam(1, 1, 1, 0.8); err != nil {
 		t.Fatal(err)
 	}
-	if v, err := fl.ConfirmFXParam(1, 2, 1, time.Second); err != nil || v != 0.9 {
+	if v, err := fl.ConfirmFXParam(1, 1, 1, time.Second); err != nil || v != 0.8 {
+		t.Fatalf("expected 0.8 on the instrument's first control, got %v, %v", v, err)
+	}
+	fake.mu.Lock()
+	gen := fake.generators[3].plugin.values[0]
+	fake.mu.Unlock()
+	if gen != 0.8 {
+		t.Fatalf("fx 1 must reach channel 3's instrument, it holds %v", gen)
+	}
+	if wrapped := chain[3]; len(wrapped.Params) != 1 || wrapped.Params[0].Number != 3 || wrapped.Params[0].Name != "legacy mode" {
+		t.Fatalf("a wrapped plugin keeps its one named control under FL's own number, got %+v", wrapped.Params)
+	}
+	if err := fl.SetFXParam(1, 4, 3, 0.7); err != nil {
+		t.Fatalf("writing by FL's number: %v", err)
+	}
+	if v, err := fl.ConfirmFXParam(1, 4, 3, time.Second); err != nil || v != 0.7 {
+		t.Fatalf("expected 0.7 on the named control, got %v, %v", v, err)
+	}
+	if chain[1].Params[2].Kind != "switch" || chain[1].Params[1].Kind != "" || chain[2].Params[1].Kind != "discrete" {
+		t.Fatalf("kinds from readouts: %+v %+v", chain[1].Params, chain[2].Params)
+	}
+	if err := fl.SetFXParam(1, 3, 1, 0.9); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := fl.ConfirmFXParam(1, 3, 1, time.Second); err != nil || v != 0.9 {
 		t.Fatalf("expected 0.9 from Emphasizer, got %v, %v", v, err)
 	}
 	fake.mu.Lock()
 	landed := fake.slots[1][7].values[0]
 	fake.mu.Unlock()
 	if landed != 0.9 {
-		t.Fatalf("fx 2 must map to slot 7, slot 7 holds %v", landed)
+		t.Fatalf("fx 3 must map to slot 7, slot 7 holds %v", landed)
 	}
-	if err := fl.SetFXParam(1, 4, 1, 0.5); err == nil {
+	if err := fl.SetFXParam(1, 5, 1, 0.5); err == nil {
 		t.Fatal("an effect beyond the chain must be refused, not sent to a slot")
 	}
-	if _, err := fl.FXChain(2, time.Second); err != nil {
-		t.Fatalf("an empty track is an empty chain, not an error: %v", err)
+	if chain, err := fl.FXChain(3, time.Second); err != nil || len(chain) != 0 {
+		t.Fatalf("an empty track is an empty chain, not an error: %v, %v", chain, err)
 	}
 }
 
