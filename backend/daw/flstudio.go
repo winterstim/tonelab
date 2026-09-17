@@ -27,10 +27,10 @@ type FLStudio struct {
 	mu      sync.Mutex
 	next    int
 	waiting map[int]chan map[string]any
-	// slots remembers which mixer slot each fx number of a track's chain
-	// stood for when it was enumerated, since FL numbers by slot and
-	// leaves gaps where nothing is loaded.
-	slots map[int][]int
+	// slots remembers what each fx number of a track's chain stood for
+	// when it was enumerated: a mixer slot, or an instrument's channel,
+	// since FL keeps instruments in the channel rack.
+	slots map[int][]flSlot
 	// expected is what each set asked for, so a confirmation can tell a
 	// reading from before the set apart from one after it.
 	expected map[string]any
@@ -39,10 +39,17 @@ type FLStudio struct {
 	lastSeen atomic.Int64
 }
 
+// flSlot addresses a plugin the way FL's API does: (mixer track, slot) for
+// an effect, (channel, -1) for an instrument.
+type flSlot struct {
+	index int
+	slot  int
+}
+
 var _ Client = (*FLStudio)(nil)
 
 func NewFLStudio(link midi.Link) *FLStudio {
-	f := &FLStudio{link: link, waiting: map[int]chan map[string]any{}, slots: map[int][]int{}, expected: map[string]any{}}
+	f := &FLStudio{link: link, waiting: map[int]chan map[string]any{}, slots: map[int][]flSlot{}, expected: map[string]any{}}
 	// The registry builds a backend before anything is connected; with no
 	// link every request fails as unanswered, which is the truth.
 	if link != nil {
@@ -401,17 +408,19 @@ func (f *FLStudio) FXChain(track int, timeout time.Duration) ([]FX, error) {
 	}
 	list, _ := reply["fx"].([]any)
 	chain := make([]FX, 0, len(list))
-	slots := make([]int, 0, len(list))
+	slots := make([]flSlot, 0, len(list))
 	for _, item := range list {
 		entry, _ := item.(map[string]any)
 		slot, _ := numeric(entry["slot"])
+		index, _ := numeric(entry["channel"])
 		name, _ := entry["name"].(string)
 		count, _ := numeric(entry["count"])
-		params, err := f.namedParams(track, int(slot), int(count), timeout)
+		at := flSlot{index: int(index), slot: int(slot)}
+		params, err := f.namedParams(at, int(count), timeout)
 		if err != nil {
 			return nil, err
 		}
-		slots = append(slots, int(slot))
+		slots = append(slots, at)
 		chain = append(chain, FX{Number: len(chain) + 1, Name: name, Params: params})
 	}
 	f.mu.Lock()
@@ -420,10 +429,10 @@ func (f *FLStudio) FXChain(track int, timeout time.Duration) ([]FX, error) {
 	return chain, nil
 }
 
-func (f *FLStudio) namedParams(track, slot, count int, timeout time.Duration) ([]FXParam, error) {
+func (f *FLStudio) namedParams(at flSlot, count int, timeout time.Duration) ([]FXParam, error) {
 	var params []FXParam
 	for from := 0; from < count && len(params) < flMaxParams; from += flParamPage {
-		reply, err := f.ask(timeout, map[string]any{"op": "params", "track": track, "slot": slot, "from": from, "n": flParamPage})
+		reply, err := f.ask(timeout, map[string]any{"op": "params", "track": at.track(), "channel": at.index, "slot": at.slot, "from": from, "n": flParamPage})
 		if err != nil {
 			return nil, err
 		}
@@ -456,14 +465,23 @@ func (f *FLStudio) namedParams(track, slot, count int, timeout time.Duration) ([
 	return params, nil
 }
 
-func (f *FLStudio) slotOf(track, fx int) (int, error) {
+func (f *FLStudio) slotOf(track, fx int) (flSlot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	slots := f.slots[track]
 	if fx < 1 || fx > len(slots) {
-		return 0, fmt.Errorf("%w: effect %d on track %d has not been enumerated", ErrInvalidFX, fx, track)
+		return flSlot{}, fmt.Errorf("%w: effect %d on track %d has not been enumerated", ErrInvalidFX, fx, track)
 	}
 	return slots[fx-1], nil
+}
+
+// track is what the script's track check wants: a mixer track for an
+// effect. An instrument's channel is not one, so any valid track does.
+func (s flSlot) track() int {
+	if s.slot < 0 {
+		return 0
+	}
+	return s.index
 }
 
 func (f *FLStudio) SetFXParam(track, fx, param int, value float64) error {
@@ -476,11 +494,11 @@ func (f *FLStudio) SetFXParam(track, fx, param int, value float64) error {
 	if err := validateNormalized(value); err != nil {
 		return err
 	}
-	slot, err := f.slotOf(track, fx)
+	at, err := f.slotOf(track, fx)
 	if err != nil {
 		return err
 	}
-	_, err = f.ask(flReplyTimeout, map[string]any{"op": "fxset", "track": track, "slot": slot, "param": param - 1, "value": value})
+	_, err = f.ask(flReplyTimeout, map[string]any{"op": "fxset", "track": at.track(), "channel": at.index, "slot": at.slot, "param": param - 1, "value": value})
 	return err
 }
 
@@ -491,11 +509,11 @@ func (f *FLStudio) ConfirmFXParam(track, fx, param int, timeout time.Duration) (
 	if fx < 1 || param < 1 {
 		return 0, ErrInvalidFX
 	}
-	slot, err := f.slotOf(track, fx)
+	at, err := f.slotOf(track, fx)
 	if err != nil {
 		return 0, err
 	}
-	reply, err := f.ask(timeout, map[string]any{"op": "fxget", "track": track, "slot": slot, "param": param - 1})
+	reply, err := f.ask(timeout, map[string]any{"op": "fxget", "track": at.track(), "channel": at.index, "slot": at.slot, "param": param - 1})
 	if err != nil {
 		return 0, err
 	}

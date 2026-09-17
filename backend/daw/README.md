@@ -31,8 +31,13 @@ wait on an announcement; a volume set is visible on the next read, while
 a mute or solo lands on FL's own tick up to a millisecond later, so
 confirmation reads until FL reports what was asked; effects sit in ten
 numbered slots per mixer track with gaps, and the chain is numbered
-without them; parameter readouts carry units, which is where kinds come
-from. The bridge speaks ASCII only, the seven bits sysex allows.
+without them; instruments live in the channel rack, addressed as
+(channel, -1), and the ones routed to a mixer track are listed first in
+its chain; FL's wrapper reports names for VST instruments (Ample Guitar
+LP: 218 named in 86 ms) and none for Audio Units (one named of 4240);
+parameter readouts carry units, which is where kinds come from; FL
+attaches to a freshly created port about a second after it appears. The
+bridge speaks ASCII only, the seven bits sysex allows.
 
 A backend describes itself through `Parameters()`; nothing above carries a
 parameter list. REAPER's is static because OSC has no discovery. Plugin
