@@ -86,6 +86,25 @@ Windows, `~/.config/tonelab` on Linux) and tells you where. Fill in the
 model endpoint and, for a hosted one, your key, or do it in Settings. Choose
 the DAW backend there too. Then ask for a change.
 
+## Command line
+
+`tonelab-cli` is the same backend without the window, for a terminal beside
+the DAW or for scripts. It reads the same config and shares the same
+conversations, so a thread started in the window continues in the shell.
+
+```
+tonelab-cli                          talk to the DAW interactively
+tonelab-cli "mute the vocals"        run one command and exit
+tonelab-cli --preview "..."          show the plan, change nothing
+tonelab-cli --json "..."             machine-readable result
+tonelab-cli status                   is the DAW answering
+tonelab-cli undo                     take back the DAW's last change
+```
+
+Inside the interactive screen, `/preview`, `/apply`, `/undo`, `/new` and
+`/status` do what the window's controls do. Binaries for each platform are
+on the Releases page beside the app.
+
 ## Configuration
 
 ```json
@@ -131,7 +150,9 @@ backend/daw      DAW command layer: the Client interface and the backends
 backend/agent    tools a model can call, and the loop that calls them
 backend/search   web search providers
 backend/config   the user's settings file
-backend/app      the services the window calls
+backend/app      the services the window calls, and the runtime both interfaces stand on
+backend/midi     a MIDI port for DAWs whose scripting has nothing else
+cmd/tonelab-cli  the command line, a second view on the same backend
 frontend/src     the window
 ```
 
