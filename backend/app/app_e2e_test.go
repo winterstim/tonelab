@@ -1,4 +1,4 @@
-//go:build llm && (reaper || ableton)
+//go:build llm && (reaper || ableton || flstudio)
 
 // The application as the window uses it: the same service methods the frontend
 // calls, over the same wiring the application builds, against a real DAW and a real
@@ -9,7 +9,6 @@
 package app
 
 import (
-	goosc "github.com/hypebeast/go-osc/osc"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,8 +16,6 @@ import (
 
 	"tonelab/backend/agent"
 	"tonelab/backend/config"
-	"tonelab/backend/daw"
-	"tonelab/backend/osc"
 )
 
 // build assembles the services exactly as main.go does, so a difference
@@ -32,19 +29,11 @@ func build(t *testing.T) *AgentService {
 		t.Skipf("no usable config at %s: %v", path, err)
 	}
 
-	client, err := daw.New(settings.DAW.Backend, osc.NewTransport(settings.DAW.Host, settings.DAW.Port))
+	client, release, err := OpenDAW(settings)
 	if err != nil {
 		t.Fatalf("could not build the DAW backend: %v", err)
 	}
-
-	listener, err := osc.Listen(settings.DAW.Host, settings.DAW.FeedbackPort)
-	if err != nil {
-		t.Fatalf("could not listen for feedback: %v", err)
-	}
-	t.Cleanup(func() { listener.Close() })
-
-	// Whichever backend the config names; both observe the same way.
-	client.(interface{ Observe(<-chan *goosc.Message) }).Observe(listener.Messages())
+	t.Cleanup(release)
 
 	llm := agent.Config{BaseURL: settings.LLM.BaseURL, APIKey: settings.LLM.APIKey, Model: settings.LLM.Model}
 	live := agent.NewOrchestrator(llm, agent.NewTools(client))
