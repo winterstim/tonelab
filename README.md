@@ -105,9 +105,12 @@ tonelab-cli undo                     take back the DAW's last change
 The interactive screen works like the agent terminals you may already
 use: each turn shows the tools it called, one line each with what came
 back, then the answer and what the DAW confirmed, all in your terminal's
-own scrollback. `/` opens the command list (`/preview`, `/apply`, `/undo`,
-`/new`, `/status`, `/daw`), arrows recall earlier commands, `esc` stops a
-turn in flight, `ctrl+c` twice quits. Piped or with `NO_COLOR` set, output
+own scrollback. `/` opens the command list: `/preview`, `/apply`, `/undo`,
+`/new`, `/resume` (pick an earlier conversation), `/rename`, `/status`,
+`/daw`, and `/settings`, which shows every setting the window has and
+changes one with `/settings <name> <value>`; keys are never echoed or
+recalled. Arrows recall earlier commands, `esc` stops a turn in flight,
+`ctrl+c` twice quits. Piped or with `NO_COLOR` set, output
 is plain text; the exit code is 1 when a command failed and 2 when it ran
 but the DAW did not confirm the change. Binaries for each platform are on
 the Releases page beside the app.
