@@ -1,4 +1,4 @@
-//go:build llm && (reaper || ableton)
+//go:build llm && (reaper || ableton || flstudio)
 
 package agent_test
 
