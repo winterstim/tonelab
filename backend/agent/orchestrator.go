@@ -30,9 +30,11 @@ const maxSchemaRetries = 4
 const maxRateLimitWaits = 5
 
 // maxWaitForRateLimit caps how long a turn will sit waiting for a quota to
-// refill. Free tiers refill in seconds, so a longer wait means the limit is
-// not the kind waiting fixes, and the user should hear about it instead.
-const maxWaitForRateLimit = 20 * time.Second
+// refill. A per-minute token quota refills within the minute, and a turn
+// carrying a web page asks for a good part of one, so waits near half a
+// minute are the quota working; past a minute the limit is not the kind
+// waiting fixes, and the user should hear about it instead.
+const maxWaitForRateLimit = 60 * time.Second
 
 // maxRemembered is how many past exchanges a turn carries. Enough for the
 // follow-ups a conversation actually produces ("a bit more", "now the drums
