@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,7 +20,10 @@ type fakeFXDAW struct {
 	*fakeDAW
 	chains   map[int][]daw.FX
 	fxValues map[string]float64
-	walks    int
+	walks    atomic.Int32
+	// delay makes a walk take time, as a real one does: a cache that only
+	// ever sees instant walks cannot show whether it waited.
+	delay time.Duration
 }
 
 func newFakeFXDAW() *fakeFXDAW {
@@ -43,7 +47,8 @@ func (f *fakeFXDAW) FXChain(track int, timeout time.Duration) ([]daw.FX, error) 
 	if track < 1 {
 		return nil, daw.ErrInvalidTrack
 	}
-	f.walks++
+	f.walks.Add(1)
+	time.Sleep(f.delay)
 	return f.chains[track], nil
 }
 
@@ -124,7 +129,8 @@ func TestFindParamsMatchesWords(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("expected success, got %+v", result.Error)
 	}
-	matches, ok := result.Value.([]agent.ParamMatch)
+	found, ok := result.Value.(agent.ParamMatches)
+	matches := found.Matches
 	if !ok || len(matches) == 0 {
 		t.Fatalf("expected matches, got %#v", result.Value)
 	}
@@ -221,8 +227,8 @@ func TestFXChainIsNotWalkedPerCall(t *testing.T) {
 	call(t, tools, "find_params", `{"track_id": 1, "query": "gain"}`)
 	call(t, tools, "set_fx_param", `{"track_id": 1, "fx_id": 1, "param_id": 1, "value": 0.5}`)
 
-	if backend.walks != 1 {
-		t.Fatalf("expected one walk, got %d", backend.walks)
+	if backend.walks.Load() != 1 {
+		t.Fatalf("expected one walk, got %d", backend.walks.Load())
 	}
 }
 
@@ -250,7 +256,8 @@ func TestPreviewDisarmsSetFXParam(t *testing.T) {
 func TestFindParamsCarriesTheKind(t *testing.T) {
 	tools := agent.NewTools(newFakeFXDAW())
 	result := call(t, tools, "find_params", `{"track_id": 1, "query": "bypass"}`)
-	matches, ok := result.Value.([]agent.ParamMatch)
+	found, ok := result.Value.(agent.ParamMatches)
+	matches := found.Matches
 	if !ok || len(matches) == 0 {
 		t.Fatalf("expected matches, got %+v", result)
 	}
