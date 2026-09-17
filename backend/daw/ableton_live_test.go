@@ -125,3 +125,59 @@ func TestLiveDevices(t *testing.T) {
 	t.Logf("%q %q: was %v, set 0.8, Live reports %v", target.Name, target.Params[param-1].Name, before, got)
 	_ = live.SetFXParam(1, target.Number, param, before)
 }
+
+// Listeners against a real Live: a subscribed track is read without a
+// query, a change made outside this backend is heard, and a set is
+// confirmed from what Live pushed.
+func TestLiveListeners(t *testing.T) {
+	listener, err := osc.Listen("127.0.0.1", 11001)
+	if err != nil {
+		t.Fatalf("could not listen for Live's replies: %v", err)
+	}
+	defer listener.Close()
+	transport := osc.NewTransport("127.0.0.1", 11000)
+	live := daw.NewAbleton(transport)
+	defer live.Close()
+	live.Observe(listener.Messages())
+	if !live.Probe(time.Second) {
+		t.Fatal("Live did not answer /live/test")
+	}
+
+	started := time.Now()
+	before, err := live.ReadParam(1, "volume", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.Since(started)
+	started = time.Now()
+	if _, err := live.ReadParam(1, "volume", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	second := time.Since(started)
+	t.Logf("first read (subscribes and waits for the push): %s, second read: %s", first, second)
+	if second > time.Millisecond {
+		t.Fatalf("a subscribed read should not wait on Live, took %s", second)
+	}
+
+	// A hand on the fader: the same message Live's own surface would
+	// cause, sent around the backend so nothing here expects it.
+	if err := transport.Send("/live/track/set/volume", int32(0), float32(0.33)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	heard, err := live.ReadParam(1, "volume", time.Second)
+	if err != nil || heard.(float64) < 0.32 || heard.(float64) > 0.34 {
+		t.Fatalf("expected the outside change to be heard, got %v, %v", heard, err)
+	}
+
+	started = time.Now()
+	if err := live.SetTrackVolume(1, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	confirmed, err := live.ConfirmParam(1, "volume", time.Second)
+	if err != nil || confirmed.(float64) < 0.49 || confirmed.(float64) > 0.51 {
+		t.Fatalf("expected 0.5 confirmed, got %v, %v", confirmed, err)
+	}
+	t.Logf("set and confirmed from the push in %s", time.Since(started))
+	_ = live.SetTrackVolume(1, before.(float64))
+}
