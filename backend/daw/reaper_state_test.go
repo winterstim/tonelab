@@ -195,11 +195,13 @@ func TestReadParamWaitsForAnAnswerToThisQuestion(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	// The DAW answers the refresh with the value it actually holds now.
+	// The DAW answers the refresh as REAPER does, measured: the selected
+	// track's number, then its values with no index at all.
 	go func() {
 		receiver.Expect(time.Second) // the refresh's first select
 		receiver.Expect(time.Second) // and its second
-		feed <- goosc.NewMessage("/track/1/volume", float32(0.9))
+		feed <- goosc.NewMessage("/device/track/select/1", int32(1))
+		feed <- goosc.NewMessage("/track/volume", float32(0.9))
 	}()
 
 	value, err := reaper.ReadParam(1, "volume", 2*time.Second)
@@ -240,5 +242,37 @@ func TestConfirmParamReportsSilenceRatherThanStaleness(t *testing.T) {
 	}
 	if value != float64(float32(0.5)) {
 		t.Fatalf("expected the last known 0.5, got %v", value)
+	}
+}
+
+// A value announced without an index belongs to the track the surface is
+// on, which the DAW names first; before it has named one, or on the
+// master, the value has no track and is dropped.
+func TestUnindexedValuesFollowTheSurface(t *testing.T) {
+	reaper := daw.NewREAPER(osc.NewTransport("127.0.0.1", 1))
+	feed := make(chan *goosc.Message, 8)
+	reaper.Observe(feed)
+
+	feed <- goosc.NewMessage("/track/volume", float32(0.3))
+	feed <- goosc.NewMessage("/device/track/select/1", int32(0))
+	feed <- goosc.NewMessage("/track/volume", float32(0.716))
+	feed <- goosc.NewMessage("/device/track/select/1", int32(2))
+	feed <- goosc.NewMessage("/track/volume", float32(0.5))
+	feed <- goosc.NewMessage("/track/pan", float32(0.25))
+	deadline := time.Now().Add(time.Second)
+	for reaper.Observed() < 6 {
+		if time.Now().After(deadline) {
+			t.Fatal("feedback was not taken in")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if v, err := reaper.GetParam(2, "volume"); err != nil || v != float64(float32(0.5)) {
+		t.Fatalf("track 2 volume from the surface: %v, %v", v, err)
+	}
+	if v, err := reaper.GetParam(2, "pan"); err != nil || v != float64(float32(0.25)) {
+		t.Fatalf("track 2 pan from the surface: %v, %v", v, err)
+	}
+	if _, err := reaper.GetParam(1, "volume"); err == nil {
+		t.Fatal("nothing was ever said about track 1")
 	}
 }
