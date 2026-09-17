@@ -630,6 +630,7 @@ function iconFor(tool: string): string {
         case "list_fx": return "list";
         case "find_params": return "list";
         case "search": return "list";
+        case "fetch_page": return "read";
         case "undo": return "undo";
         default: return "settings";
     }
@@ -664,6 +665,9 @@ function describeStep(tool: string, args: string, outcome: string, failed: boole
             break;
         case "search":
             said = `Searched the web for "${parsed.query ?? ""}"`;
+            break;
+        case "fetch_page":
+            said = `Read ${parsed.url ?? "a page"}`;
             break;
         case "get_fx_param":
             said = `Read ${fxTarget(outcome, parsed)} on track ${track}`;

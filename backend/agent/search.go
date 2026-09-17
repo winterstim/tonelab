@@ -66,6 +66,9 @@ func (t *Tools) searchWeb(args json.RawMessage) Result {
 	}
 
 	query := asLine(*decoded.Query, maxSnippet)
+	if t.alreadySearched(query) {
+		return failure("search_repeated", "That was already searched this turn and the results are above. Read one of them with fetch_page, or search with different words.")
+	}
 	hits, err := provider.Search(context.Background(), query, maxHits)
 	// Once, not more: a free tier allows about a request a second, and a
 	// second refusal means the monthly quota rather than the pace.
@@ -92,6 +95,7 @@ func (t *Tools) searchWeb(args json.RawMessage) Result {
 		hits[i].Title = asLine(hits[i].Title, maxNameLength)
 		hits[i].Snippet = asLine(hits[i].Snippet, maxSnippet)
 	}
+	t.offer(query, hits)
 	return Result{Value: hits}
 }
 
