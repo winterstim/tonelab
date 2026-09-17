@@ -39,8 +39,8 @@ func TestResponseCarriesOutcomeInColour(t *testing.T) {
 		t.Fatalf("a plan says what it would do and how to apply it, got %q", plan)
 	}
 	refused := renderResponse(app.AgentResponse{Error: &app.AgentError{Code: "llm_unreachable", Message: "No model at that address."}})
-	if !strings.Contains(refused, "✗ No model at that address.") || !strings.Contains(refused, "llm_unreachable") || !strings.Contains(refused, "255;107;107") {
-		t.Fatalf("a refusal is a red cross with its code, got %q", refused)
+	if !strings.Contains(refused, "✗ No model at that address.") || !strings.Contains(refused, "llm_unreachable") || !strings.Contains(refused, "255;77;255") {
+		t.Fatalf("a refusal is a cross in the error colour with its code, got %q", refused)
 	}
 	unverified := renderResponse(app.AgentResponse{Changed: []app.ParamChange{{Track: 3, Param: "send", Requested: 0.2, Note: "the DAW does not report this parameter"}}})
 	if !strings.Contains(unverified, "does not report") {
@@ -49,10 +49,10 @@ func TestResponseCarriesOutcomeInColour(t *testing.T) {
 }
 
 func TestGradientRunsSurfaceToDeep(t *testing.T) {
-	if lagoonAt(0) != lagoon[0] || lagoonAt(1) != lagoon[len(lagoon)-1] {
+	if fireAt(0) != fire[0] || fireAt(1) != fire[len(fire)-1] {
 		t.Fatal("the ends of the gradient are the ends of the palette")
 	}
-	if mid := lagoonAt(0.5); !strings.EqualFold(mid, lagoon[2]) {
+	if mid := fireAt(0.5); !strings.EqualFold(mid, fire[2]) {
 		t.Fatalf("the middle of five stops is the third, got %s", mid)
 	}
 	if mix("#000000", "#ffffff", 0.5) != "#7f7f7f" {
@@ -100,5 +100,35 @@ func TestExitCodesTellFailureFromUnverified(t *testing.T) {
 	}
 	if exitCode(app.AgentResponse{Changed: []app.ParamChange{{Track: 42, Param: "volume", Requested: 0.1, Note: "unverified"}}}) != 2 {
 		t.Fatal("an unconfirmed change exits 2")
+	}
+}
+
+func TestSettingsLinesWithKeysAreNeverEchoedOrRecalled(t *testing.T) {
+	if !secretLine("/settings key sk-abc") || !secretLine("/settings search_key BSA") {
+		t.Fatal("a key line is secret")
+	}
+	if secretLine("/settings model gpt") || secretLine("/settings key") {
+		t.Fatal("a model line, or a key line with no key, is not")
+	}
+}
+
+func TestSettingFieldsParseTheirValues(t *testing.T) {
+	var s app.Settings
+	for _, f := range settingFields {
+		switch f.name {
+		case "port":
+			if f.set(&s, "8000") != nil || s.DAWPort != 8000 || f.set(&s, "eight") == nil {
+				t.Fatal("port takes a number and refuses a word")
+			}
+		case "preview":
+			if f.set(&s, "on") != nil || !s.PreviewByDefault || f.set(&s, "maybe") == nil {
+				t.Fatal("preview is on or off")
+			}
+		case "search":
+			f.set(&s, "off")
+			if s.SearchProvider != "" || f.get(s) != "off" {
+				t.Fatal("search off is an empty provider shown as off")
+			}
+		}
 	}
 }

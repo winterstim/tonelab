@@ -96,11 +96,11 @@ func markdown(text string, width int) string {
 		style.Paragraph.BlockSuffix = ""
 		if !plain {
 			style.Document.Color = stringPtr("#E6F1FF")
-			style.Strong.Color = stringPtr("#5FF5E0")
-			style.Emph.Color = stringPtr("#2ED3D6")
+			style.Strong.Color = stringPtr("#FF1F5A")
+			style.Emph.Color = stringPtr("#FF7A1A")
 			style.Code.BackgroundColor = nil
 			style.Code.Color = stringPtr("#FFC857")
-			style.Link.Color = stringPtr("#1FA8E0")
+			style.Link.Color = stringPtr("#FFC400")
 			style.Table.CenterSeparator = stringPtr("┼")
 		}
 		options := []glamour.TermRendererOption{glamour.WithStyles(style), glamour.WithEmoji()}

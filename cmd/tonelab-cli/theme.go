@@ -7,26 +7,27 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// The palette: a lagoon, teal at the surface running to deep blue, for
-// everything that is chrome. Outcomes get their own colours so a glance
-// tells success from refusal without reading.
+// The palette: fire. Acid red with a touch of pink at one end, pure acid
+// yellow at the other, for everything that is chrome. Outcomes get their
+// own colours so a glance tells success from refusal without reading, and
+// none of them is a fire colour, so they read against it.
 var (
-	lagoon = []string{"#5FF5E0", "#2ED3D6", "#1FA8E0", "#1E78F0", "#2B4FD8"}
+	fire = []string{"#FF1F5A", "#FF3D3D", "#FF7A1A", "#FFC400", "#FFFF00"}
 
 	theme = struct {
 		Surface, Deep, Muted, Text, Success, Error, Warning lipgloss.Style
 	}{
-		Surface: lipgloss.NewStyle().Foreground(lipgloss.Color("#5FF5E0")),
-		Deep:    lipgloss.NewStyle().Foreground(lipgloss.Color("#2B4FD8")),
-		Muted:   lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7A96")),
-		Text:    lipgloss.NewStyle().Foreground(lipgloss.Color("#E6F1FF")),
+		Surface: lipgloss.NewStyle().Foreground(lipgloss.Color("#FF1F5A")),
+		Deep:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")),
+		Muted:   lipgloss.NewStyle().Foreground(lipgloss.Color("#8A8593")),
+		Text:    lipgloss.NewStyle().Foreground(lipgloss.Color("#F3F1F5")),
 		Success: lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC97")),
-		Error:   lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")),
-		Warning: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFC857")),
+		Error:   lipgloss.NewStyle().Foreground(lipgloss.Color("#FF4DFF")),
+		Warning: lipgloss.NewStyle().Foreground(lipgloss.Color("#4DD2FF")),
 	}
 )
 
-// gradient paints a string across the lagoon, one colour step per rune,
+// gradient paints a string across the fire, one colour step per rune,
 // which is how the banner and the prompt get their look without an image.
 func gradient(text string) string {
 	runes := []rune(text)
@@ -35,23 +36,23 @@ func gradient(text string) string {
 	}
 	var out strings.Builder
 	for i, r := range runes {
-		out.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(lagoonAt(float64(i) / float64(max(len(runes)-1, 1))))).Render(string(r)))
+		out.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(fireAt(float64(i) / float64(max(len(runes)-1, 1))))).Render(string(r)))
 	}
 	return out.String()
 }
 
-// lagoonAt interpolates the palette at t in 0..1.
-func lagoonAt(t float64) string {
+// fireAt interpolates the palette at t in 0..1.
+func fireAt(t float64) string {
 	if t <= 0 {
-		return lagoon[0]
+		return fire[0]
 	}
 	if t >= 1 {
-		return lagoon[len(lagoon)-1]
+		return fire[len(fire)-1]
 	}
-	scaled := t * float64(len(lagoon)-1)
+	scaled := t * float64(len(fire)-1)
 	i := int(scaled)
 	f := scaled - float64(i)
-	return mix(lagoon[i], lagoon[i+1], f)
+	return mix(fire[i], fire[i+1], f)
 }
 
 func mix(a, b string, f float64) string {

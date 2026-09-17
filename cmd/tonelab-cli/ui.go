@@ -40,6 +40,8 @@ type model struct {
 
 	menu     []command
 	menuAt   int
+	picking  []app.ConversationSummary
+	pickAt   int
 	quitting bool
 	ctrlC    time.Time
 	notice   string
@@ -54,8 +56,11 @@ var commands = []command{
 	{"/apply", "", "carry out the last plan"},
 	{"/undo", "", "ask the DAW to take back its last change"},
 	{"/new", "", "start a fresh conversation"},
+	{"/resume", "", "pick an earlier conversation"},
+	{"/rename", "<name>", "rename this conversation"},
 	{"/status", "", "is the DAW answering"},
 	{"/daw", "[name]", "which DAW, or switch to another"},
+	{"/settings", "[name value]", "show settings, or change one"},
 	{"/help", "", "this list"},
 	{"/quit", "", "leave"},
 }
@@ -150,6 +155,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.picking) > 0 {
+		return m.pickThread(msg)
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		// Twice within a moment, as the agent terminals do, so a reflex
@@ -201,7 +209,11 @@ func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.input.SetValue("")
 		m.menu = nil
-		m.history = append(m.history, text)
+		// A key typed into a setting is not something to recall with an
+		// arrow, or to echo.
+		if !secretLine(text) {
+			m.history = append(m.history, text)
+		}
 		m.recall = len(m.history)
 		return m.submit(text)
 	}
@@ -265,10 +277,14 @@ func (m model) browseHistory(up bool) model {
 // submit runs a line: slash commands go straight to the backend, since
 // undo after a bad command must not pass through the model that erred.
 func (m model) submit(text string) (tea.Model, tea.Cmd) {
-	echo := tea.Println(theme.Surface.Render("› ") + theme.Text.Render(text))
+	shown := text
+	if secretLine(text) {
+		shown = strings.Join(strings.Fields(text)[:2], " ") + " ••••••"
+	}
+	echo := tea.Println(theme.Surface.Render("› ") + theme.Text.Render(shown))
 	say := func(lines ...string) (tea.Model, tea.Cmd) {
 		// One print, so the echo and its answer cannot land out of order.
-		return m, tea.Println(theme.Surface.Render("› ") + theme.Text.Render(text) + "\n" + indent(strings.Join(lines, "\n")) + "\n")
+		return m, tea.Println(theme.Surface.Render("› ") + theme.Text.Render(shown) + "\n" + indent(strings.Join(lines, "\n")) + "\n")
 	}
 	run := func(verb string, do func() app.AgentResponse) (tea.Model, tea.Cmd) {
 		m.busy, m.started, m.verb, m.notice = true, time.Now(), verb, ""
@@ -293,7 +309,38 @@ func (m model) submit(text string) (tea.Model, tea.Cmd) {
 		if len(fields) == 1 {
 			return say(renderDAW(m.runtime, m.settings))
 		}
-		return say(switchDAW(m.runtime, fields[1]))
+		return say(applySetting(m.runtime, "daw", fields[1]))
+	case "/settings":
+		if len(fields) == 1 {
+			return say(renderSettings(m.runtime))
+		}
+		if len(fields) < 3 {
+			return say(theme.Warning.Render("/settings <name> <value>"))
+		}
+		return say(applySetting(m.runtime, fields[1], strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(text, "/settings"), " "+fields[1]))))
+	case "/resume":
+		threads, _ := m.runtime.Agent.Conversations()
+		if len(threads) == 0 {
+			return say(theme.Muted.Render("no conversations yet"))
+		}
+		m.picking, m.pickAt = threads, 0
+		for i, t := range threads {
+			if t.Active {
+				m.pickAt = i
+			}
+		}
+		return m, echo
+	case "/rename":
+		if len(fields) == 1 {
+			return say(theme.Warning.Render("/rename <name>"))
+		}
+		current, _ := m.runtime.Agent.CurrentConversation()
+		if r, _ := m.runtime.Agent.RenameConversation(current.ID, strings.TrimSpace(strings.TrimPrefix(text, "/rename"))); r.Error != nil {
+			return say(theme.Error.Render(r.Error.Message))
+		}
+		current, _ = m.runtime.Agent.CurrentConversation()
+		m.thread = current.Title
+		return say(theme.Success.Render("renamed: " + current.Title))
 	case "/undo":
 		return run("undoing", func() app.AgentResponse { r, _ := m.runtime.Agent.Undo(); return r })
 	case "/apply":
@@ -314,16 +361,65 @@ func (m model) submit(text string) (tea.Model, tea.Cmd) {
 	return run("thinking", func() app.AgentResponse { r, _ := m.runtime.Agent.SendCommand(text); return r })
 }
 
+// pickThread is the /resume list: arrows move, enter opens, esc leaves it.
+func (m model) pickThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyUp:
+		m.pickAt = (m.pickAt + len(m.picking) - 1) % len(m.picking)
+	case tea.KeyDown:
+		m.pickAt = (m.pickAt + 1) % len(m.picking)
+	case tea.KeyEsc, tea.KeyCtrlC:
+		m.picking = nil
+	case tea.KeyEnter:
+		chosen := m.picking[m.pickAt]
+		m.picking = nil
+		opened, err := m.runtime.Agent.OpenConversation(chosen.ID)
+		if err != nil {
+			return m, tea.Println(indent(theme.Error.Render(err.Error())))
+		}
+		m.thread = opened.Title
+		m.hasPlan = false
+		m.history = nil
+		var lines []string
+		for _, message := range opened.Messages {
+			if message.From == "you" {
+				m.history = append(m.history, message.Text)
+				lines = append(lines, theme.Surface.Render("› ")+theme.Text.Render(message.Text))
+			} else {
+				lines = append(lines, indent(renderTurnBody(app.AgentResponse{Message: message.Text, Changed: message.Changed, Plan: message.Plan, Error: message.Error}, m.width-4)))
+			}
+		}
+		m.recall = len(m.history)
+		return m, tea.Println(theme.Muted.Render("resumed: "+opened.Title) + "\n" + strings.Join(lines, "\n") + "\n")
+	}
+	return m, nil
+}
+
 func (m model) View() string {
 	if m.quitting {
 		return ""
 	}
 	var parts []string
+	if len(m.picking) > 0 {
+		parts = append(parts, theme.Text.Render("  which conversation?")+theme.Muted.Render("  ↑ ↓ enter, esc to stay"))
+		for i, t := range m.picking {
+			mark := "  "
+			if i == m.pickAt {
+				mark = theme.Surface.Render("▸ ")
+			}
+			title := t.Title
+			if t.Active {
+				title += theme.Muted.Render("  (open)")
+			}
+			parts = append(parts, "  "+mark+theme.Text.Render(title))
+		}
+		return strings.Join(parts, "\n")
+	}
 	if m.busy {
 		elapsed := int(time.Since(m.started).Seconds())
 		parts = append(parts, m.spinner.View()+" "+theme.Surface.Render(m.verb)+theme.Muted.Render(fmt.Sprintf("  %ds  ·  esc to stop", elapsed)))
 	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(lagoonAt(0.6))).Padding(0, 1).Width(max(m.width-2, 24))
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(fireAt(0.6))).Padding(0, 1).Width(max(m.width-2, 24))
 	parts = append(parts, box.Render(m.input.View()))
 	if len(m.menu) > 0 {
 		for i, c := range m.menu {
@@ -448,21 +544,8 @@ func renderDAW(runtime *app.Runtime, settings config.Config) string {
 	return strings.Join(lines, "\n")
 }
 
-// switchDAW writes the choice through the same settings service the window
-// uses, and says what the window says: a transport cannot be swapped under
-// a running agent, so the switch takes effect on the next start.
-func switchDAW(runtime *app.Runtime, name string) string {
-	current, err := runtime.Settings.Get()
-	if err != nil {
-		return theme.Error.Render(err.Error())
-	}
-	current.DAWBackend = name
-	result, _ := runtime.Settings.Save(current, "", "")
-	if result.Error != nil {
-		return theme.Error.Render(result.Error.Message)
-	}
-	if result.RestartNeeded {
-		return theme.Warning.Render("saved: "+name) + theme.Muted.Render("  start tonelab-cli again to use it")
-	}
-	return theme.Success.Render(result.Message)
+// secretLine is a /settings line carrying a key.
+func secretLine(text string) bool {
+	fields := strings.Fields(text)
+	return len(fields) >= 3 && fields[0] == "/settings" && isSecret(fields[1])
 }
