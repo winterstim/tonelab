@@ -1,7 +1,10 @@
-// Package midi is a virtual MIDI port for DAWs whose scripting reaches the
-// outside only through MIDI. FL Studio's Python cannot open a socket or a
-// file (measured: both return NULL), so its bridge speaks system exclusive
-// on a port this package creates and the user assigns once as a controller.
+// Package midi is a MIDI port for DAWs whose scripting reaches the outside
+// only through MIDI. FL Studio's Python cannot open a socket or a file
+// (measured: both return NULL), so its bridge speaks system exclusive on a
+// port the user assigns once as a controller. On macOS (CoreMIDI) and
+// Linux (ALSA sequencer) the port is created here; Windows has no virtual
+// port API without a driver, so there the port is one the user made in a
+// loopback driver such as loopMIDI, found by name.
 package midi
 
 import "errors"
