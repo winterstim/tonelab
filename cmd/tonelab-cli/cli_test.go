@@ -63,3 +63,42 @@ func TestGradientRunsSurfaceToDeep(t *testing.T) {
 		t.Fatalf("every rune gets its own colour, got %q", painted)
 	}
 }
+
+func TestStepsReadAsSentencesWithShortResults(t *testing.T) {
+	cases := []struct {
+		step         app.JournalStep
+		call, result string
+	}{
+		{app.JournalStep{Tool: "get_param", Arguments: `{"track_id":1,"param_name":"volume"}`, Outcome: `{"value":0.30000001192092896}`}, "Read volume on track 1", "0.30"},
+		{app.JournalStep{Tool: "list_tracks", Arguments: `{}`, Outcome: `{"value":[{"number":1,"name":"Guitar"}]}`}, "Looked up the tracks", "1 result"},
+		{app.JournalStep{Tool: "find_params", Arguments: `{"track_id":1,"query":"reverb"}`, Outcome: `{"value":{"matches":[{},{}]}}`}, `Searched track 1 for "reverb"`, "2 matches"},
+		{app.JournalStep{Tool: "set_fx_param", Arguments: `{"track_id":1,"fx_id":1,"param_id":90,"value":0.3}`, Outcome: `{"value":{"fx_name":"Amp","name":"Reverb","requested":0.3,"confirmed":0.3}}`}, "Set Amp / Reverb on track 1 to 0.30", "confirmed 0.30"},
+		{app.JournalStep{Tool: "set_param", Arguments: `{"track_id":9,"param_name":"volume","value":0.5}`, Outcome: `{"error":{"code":"value_unknown","message":"The DAW has not reported that value."}}`, Failed: true}, "Set volume on track 9 to 0.50", "The DAW has not reported that value."},
+		{app.JournalStep{Tool: "set_param", Arguments: `{"track_id":2,"param_name":"mute","value":true}`, Outcome: `{"value":{"would":"set track 2 mute to true"}}`}, "Set mute on track 2 to on", "would set track 2 mute to true"},
+	}
+	for _, tc := range cases {
+		call, result := describeStep(tc.step)
+		if call != tc.call || result != tc.result {
+			t.Errorf("%s: got (%q, %q), want (%q, %q)", tc.step.Tool, call, result, tc.call, tc.result)
+		}
+	}
+}
+
+func TestMarkdownAnswersKeepTheirShape(t *testing.T) {
+	out := markdown("Track 1 is **loud**.\n\n| n | name |\n|---|---|\n| 1 | Guitar |", 60)
+	if !strings.Contains(out, "loud") || !strings.Contains(out, "Guitar") || strings.Contains(out, "**") || strings.Contains(out, "|---") {
+		t.Fatalf("markdown should be laid out, not printed raw: %q", out)
+	}
+}
+
+func TestExitCodesTellFailureFromUnverified(t *testing.T) {
+	if exitCode(app.AgentResponse{Message: "ok"}) != 0 {
+		t.Fatal("a clean turn exits 0")
+	}
+	if exitCode(app.AgentResponse{Error: &app.AgentError{Code: "llm_unreachable"}}) != 1 {
+		t.Fatal("a failed turn exits 1")
+	}
+	if exitCode(app.AgentResponse{Changed: []app.ParamChange{{Track: 42, Param: "volume", Requested: 0.1, Note: "unverified"}}}) != 2 {
+		t.Fatal("an unconfirmed change exits 2")
+	}
+}

@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,12 +14,16 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+	"golang.org/x/term"
 
 	"tonelab/backend/app"
 	"tonelab/backend/config"
 )
 
 func main() {
+	dawName := flag.String("daw", "", "use this DAW backend for this run instead of the configured one")
 	preview := flag.Bool("preview", false, "show the plan instead of applying a one-shot command")
 	asJSON := flag.Bool("json", false, "print the one-shot result as JSON")
 	quiet := flag.Bool("quiet", false, "suppress the backend log")
@@ -39,6 +44,14 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	if *dawName != "" {
+		settings.DAW.Backend = *dawName
+	}
+	if !isTerminal() || os.Getenv("NO_COLOR") != "" {
+		// Piped or asked for plain: no colour codes in what a script reads.
+		lipgloss.SetColorProfile(termenv.Ascii)
+		plain = true
+	}
 	runtime, err := app.Assemble(settings, configPath)
 	if err != nil {
 		fail(err)
@@ -47,7 +60,10 @@ func main() {
 
 	switch {
 	case flag.NArg() == 0:
-		program := tea.NewProgram(newModel(runtime, settings), tea.WithAltScreen())
+		if !isTerminal() {
+			fail(errors.New("interactive mode needs a terminal; pass the command as arguments"))
+		}
+		program := tea.NewProgram(newModel(runtime, settings))
 		if _, err := program.Run(); err != nil {
 			fail(err)
 		}
@@ -66,11 +82,26 @@ func main() {
 			response, _ = runtime.Agent.SendCommand(text)
 		}
 		emit(*asJSON, response, func() string { return renderResponse(response) })
-		if response.Error != nil {
-			os.Exit(1)
-		}
+		os.Exit(exitCode(response))
 	}
 }
+
+// exitCode is what a script can branch on: 1 when the turn failed, 2 when
+// it ran but the DAW did not confirm a change, which is a different
+// question from whether the command was understood.
+func exitCode(response app.AgentResponse) int {
+	if response.Error != nil {
+		return 1
+	}
+	for _, change := range response.Changed {
+		if change.NewValue == nil {
+			return 2
+		}
+	}
+	return 0
+}
+
+func isTerminal() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
 
 func emit(asJSON bool, value any, render func() string) {
 	if asJSON {
@@ -95,8 +126,9 @@ func usage() {
   tonelab-cli status                  is the DAW answering
   tonelab-cli undo                    ask the DAW to take back its last change
 
-  --json    machine-readable output for one-shot commands
-  --quiet   hide the backend log
+  --daw <name>   use another DAW backend for this run
+  --json         machine-readable output for one-shot commands
+  --quiet        hide the backend log
 
 Settings come from the same config file the desktop app uses; TONELAB_CONFIG
 points at another one.`)

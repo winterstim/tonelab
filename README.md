@@ -97,13 +97,20 @@ tonelab-cli                          talk to the DAW interactively
 tonelab-cli "mute the vocals"        run one command and exit
 tonelab-cli --preview "..."          show the plan, change nothing
 tonelab-cli --json "..."             machine-readable result
+tonelab-cli --daw flstudio "..."     another DAW for this run
 tonelab-cli status                   is the DAW answering
 tonelab-cli undo                     take back the DAW's last change
 ```
 
-Inside the interactive screen, `/preview`, `/apply`, `/undo`, `/new` and
-`/status` do what the window's controls do. Binaries for each platform are
-on the Releases page beside the app.
+The interactive screen works like the agent terminals you may already
+use: each turn shows the tools it called, one line each with what came
+back, then the answer and what the DAW confirmed, all in your terminal's
+own scrollback. `/` opens the command list (`/preview`, `/apply`, `/undo`,
+`/new`, `/status`, `/daw`), arrows recall earlier commands, `esc` stops a
+turn in flight, `ctrl+c` twice quits. Piped or with `NO_COLOR` set, output
+is plain text; the exit code is 1 when a command failed and 2 when it ran
+but the DAW did not confirm the change. Binaries for each platform are on
+the Releases page beside the app.
 
 ## Configuration
 

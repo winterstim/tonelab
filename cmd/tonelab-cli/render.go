@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"strings"
+	"sync"
+
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/styles"
 
 	"tonelab/backend/app"
 )
@@ -13,7 +17,7 @@ import (
 func renderResponse(r app.AgentResponse) string {
 	var out []string
 	if r.Message != "" {
-		out = append(out, theme.Text.Render(strings.TrimSpace(r.Message)))
+		out = append(out, markdown(strings.TrimSpace(r.Message), 0))
 	}
 	for _, change := range r.Changed {
 		out = append(out, theme.Success.Render("  ✓ "+describeChange(change)))
@@ -56,3 +60,67 @@ func renderStatus(s app.DAWStatus) string {
 	}
 	return theme.Error.Render("○ DAW not answering") + theme.Muted.Render("  "+s.Detail)
 }
+
+var (
+	markdownFor map[int]*glamour.TermRenderer
+	markdownMu  sync.Mutex
+	// plain turns colour off in the markdown layout too, for a pipe or
+	// NO_COLOR; the style library is told separately.
+	plain bool
+)
+
+// markdown lays out the model's answer, which arrives as markdown, the
+// way a terminal can show it: emphasis, lists and tables, no margins of
+// its own. Width 0 means no wrapping, for a one-shot print. Falls back to
+// the text itself if rendering fails, since an answer is never withheld
+// over its formatting.
+func markdown(text string, width int) string {
+	markdownMu.Lock()
+	defer markdownMu.Unlock()
+	if markdownFor == nil {
+		markdownFor = map[int]*glamour.TermRenderer{}
+	}
+	renderer, ok := markdownFor[width]
+	if !ok {
+		style := styles.DarkStyleConfig
+		if plain {
+			// The no-terminal style keeps markdown's own markers for
+			// emphasis; a script reading a sentence wants the words.
+			style = styles.NoTTYStyleConfig
+			style.Strong.BlockPrefix, style.Strong.BlockSuffix = "", ""
+			style.Emph.BlockPrefix, style.Emph.BlockSuffix = "", ""
+		}
+		none := uint(0)
+		style.Document.Margin = &none
+		style.Document.BlockPrefix, style.Document.BlockSuffix = "", ""
+		style.Paragraph.BlockSuffix = ""
+		if !plain {
+			style.Document.Color = stringPtr("#E6F1FF")
+			style.Strong.Color = stringPtr("#5FF5E0")
+			style.Emph.Color = stringPtr("#2ED3D6")
+			style.Code.BackgroundColor = nil
+			style.Code.Color = stringPtr("#FFC857")
+			style.Link.Color = stringPtr("#1FA8E0")
+			style.Table.CenterSeparator = stringPtr("┼")
+		}
+		options := []glamour.TermRendererOption{glamour.WithStyles(style), glamour.WithEmoji()}
+		if width > 0 {
+			options = append(options, glamour.WithWordWrap(width))
+		} else {
+			options = append(options, glamour.WithWordWrap(0))
+		}
+		var err error
+		renderer, err = glamour.NewTermRenderer(options...)
+		if err != nil {
+			return theme.Text.Render(text)
+		}
+		markdownFor[width] = renderer
+	}
+	rendered, err := renderer.Render(text)
+	if err != nil {
+		return theme.Text.Render(text)
+	}
+	return strings.TrimRight(rendered, "\n")
+}
+
+func stringPtr(s string) *string { return &s }

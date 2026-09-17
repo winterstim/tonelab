@@ -1,12 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -14,55 +14,90 @@ import (
 	"tonelab/backend/config"
 )
 
-// model is the interactive screen: a banner with the DAW's state, the
-// conversation so far, and a prompt. Turns run in the background so the
-// screen keeps drawing; the backend already guards against two at once.
+// model is the interactive screen, shaped like the agent terminals people
+// already use: finished turns are printed into the terminal's own
+// scrollback, and only the turn in flight, the input box and a status line
+// are drawn live. Turns run in the background; esc stops one.
 type model struct {
 	runtime  *app.Runtime
 	settings config.Config
 
-	input    textinput.Model
-	spinner  spinner.Model
-	viewport viewport.Model
-	width    int
-	height   int
+	input   textinput.Model
+	spinner spinner.Model
+	width   int
 
-	lines    []string
-	busy     bool
-	status   app.DAWStatus
-	hasPlan  bool
+	busy    bool
+	started time.Time
+	verb    string
+	steps   []app.JournalStep
+	hasPlan bool
+	status  app.DAWStatus
+	thread  string
+
+	history []string
+	recall  int
+	draft   string
+
+	menu     []command
+	menuAt   int
 	quitting bool
+	ctrlC    time.Time
+	notice   string
 }
 
-type turnDone struct {
-	response app.AgentResponse
-	preview  bool
+type command struct {
+	name, args, help string
 }
 
+var commands = []command{
+	{"/preview", "<words>", "show the plan, change nothing"},
+	{"/apply", "", "carry out the last plan"},
+	{"/undo", "", "ask the DAW to take back its last change"},
+	{"/new", "", "start a fresh conversation"},
+	{"/status", "", "is the DAW answering"},
+	{"/daw", "[name]", "which DAW, or switch to another"},
+	{"/help", "", "this list"},
+	{"/quit", "", "leave"},
+}
+
+type turnDone struct{ response app.AgentResponse }
 type statusTick app.DAWStatus
+type clockTick time.Time
 
 func newModel(runtime *app.Runtime, settings config.Config) model {
 	input := textinput.New()
 	input.Prompt = gradient("› ")
-	input.Placeholder = "ask for a change, or /help"
+	input.Placeholder = "ask for a change, / for commands"
 	input.PlaceholderStyle = theme.Muted
 	input.Focus()
 
 	dots := spinner.New()
-	dots.Spinner = spinner.Points
+	dots.Spinner = spinner.MiniDot
 	dots.Style = theme.Surface
 
-	m := model{runtime: runtime, settings: settings, input: input, spinner: dots, viewport: viewport.New(80, 20)}
+	m := model{runtime: runtime, settings: settings, input: input, spinner: dots, width: 80}
 	if current, err := runtime.Agent.CurrentConversation(); err == nil {
+		m.thread = current.Title
 		for _, message := range current.Messages {
-			m.lines = append(m.lines, renderMessage(message)...)
+			if message.From == "you" {
+				m.history = append(m.history, message.Text)
+			}
 		}
 	}
+	m.recall = len(m.history)
 	return m
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, m.probe(), m.spinner.Tick)
+	return tea.Batch(textinput.Blink, m.probe(), m.spinner.Tick, tea.Println(banner(m.settings)))
+}
+
+func banner(settings config.Config) string {
+	return strings.Join([]string{
+		gradient("tonelab") + theme.Muted.Render("  "+settings.DAW.Backend+"  ·  "+settings.LLM.Model),
+		theme.Muted.Render("say what you want changed. / lists commands, esc stops a turn, ctrl+c twice quits."),
+		"",
+	}, "\n")
 }
 
 // probe asks the backend, not the DAW directly: the same liveness rules
@@ -77,37 +112,30 @@ func (m model) probe() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		m.viewport.Width = msg.Width
-		m.viewport.Height = max(msg.Height-6, 3)
-		m.input.Width = msg.Width - 4
-		m.refresh()
+		m.width = msg.Width
+		m.input.Width = max(msg.Width-6, 20)
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
-			m.quitting = true
-			return m, tea.Quit
-		case tea.KeyEnter:
-			text := strings.TrimSpace(m.input.Value())
-			if text == "" || m.busy {
-				return m, nil
-			}
-			m.input.SetValue("")
-			return m.submit(text)
-		}
+		return m.key(msg)
 
 	case statusTick:
 		m.status = app.DAWStatus(msg)
 		return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return m.probe()() })
 
+	case clockTick:
+		if !m.busy {
+			return m, nil
+		}
+		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return clockTick(t) })
+
 	case turnDone:
-		m.busy = false
+		m.busy, m.notice = false, ""
 		m.hasPlan = len(msg.response.Plan) > 0
-		m.lines = append(m.lines, indent(renderResponse(msg.response)), "")
-		m.refresh()
-		return m, nil
+		if current, err := m.runtime.Agent.CurrentConversation(); err == nil {
+			m.thread = current.Title
+		}
+		return m, tea.Println(renderTurn(msg.response, m.width))
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -115,12 +143,265 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Runes that arrive together, as a paste does, are fed one at a time:
-	// the text field matches keys by name, and a batch spelling "up" or
-	// "end" would be taken for the key of that name and vanish.
 	var cmd tea.Cmd
 	m.input, cmd = typeInto(m.input, msg)
+	m.refreshMenu()
 	return m, cmd
+}
+
+func (m model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyCtrlC:
+		// Twice within a moment, as the agent terminals do, so a reflex
+		// does not throw the session away.
+		if time.Since(m.ctrlC) < 2*time.Second {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		m.ctrlC = time.Now()
+		m.notice = "ctrl+c again to quit"
+		return m, nil
+	case tea.KeyEsc:
+		if m.busy {
+			m.runtime.Agent.Stop()
+			m.notice = "stopping"
+			return m, nil
+		}
+		if len(m.menu) > 0 {
+			m.input.SetValue("")
+			m.menu = nil
+		}
+		return m, nil
+	case tea.KeyUp, tea.KeyDown:
+		if len(m.menu) > 0 {
+			if msg.Type == tea.KeyUp {
+				m.menuAt = (m.menuAt + len(m.menu) - 1) % len(m.menu)
+			} else {
+				m.menuAt = (m.menuAt + 1) % len(m.menu)
+			}
+			return m, nil
+		}
+		return m.browseHistory(msg.Type == tea.KeyUp), nil
+	case tea.KeyTab:
+		if len(m.menu) > 0 {
+			m.pick()
+		}
+		return m, nil
+	case tea.KeyEnter:
+		if len(m.menu) > 0 && !strings.Contains(strings.TrimSpace(m.input.Value()), " ") {
+			chosen := m.menu[m.menuAt]
+			m.pick()
+			if strings.HasPrefix(chosen.args, "<") {
+				return m, nil // needs words after it; optional ones do not wait
+			}
+		}
+		text := strings.TrimSpace(m.input.Value())
+		if text == "" || m.busy {
+			return m, nil
+		}
+		m.input.SetValue("")
+		m.menu = nil
+		m.history = append(m.history, text)
+		m.recall = len(m.history)
+		return m.submit(text)
+	}
+	m.notice = ""
+	var cmd tea.Cmd
+	m.input, cmd = typeInto(m.input, msg)
+	m.refreshMenu()
+	return m, cmd
+}
+
+func (m *model) pick() {
+	chosen := m.menu[m.menuAt]
+	if chosen.args != "" {
+		m.input.SetValue(chosen.name + " ")
+	} else {
+		m.input.SetValue(chosen.name)
+	}
+	m.input.CursorEnd()
+	m.menu = nil
+}
+
+// refreshMenu offers the commands that start with what was typed, only
+// while the line is still a bare command.
+func (m *model) refreshMenu() {
+	value := m.input.Value()
+	m.menu = nil
+	if !strings.HasPrefix(value, "/") || strings.Contains(value, " ") {
+		return
+	}
+	for _, c := range commands {
+		if strings.HasPrefix(c.name, value) {
+			m.menu = append(m.menu, c)
+		}
+	}
+	if m.menuAt >= len(m.menu) {
+		m.menuAt = 0
+	}
+}
+
+func (m model) browseHistory(up bool) model {
+	if len(m.history) == 0 {
+		return m
+	}
+	if m.recall == len(m.history) {
+		m.draft = m.input.Value()
+	}
+	if up && m.recall > 0 {
+		m.recall--
+	} else if !up && m.recall < len(m.history) {
+		m.recall++
+	}
+	if m.recall == len(m.history) {
+		m.input.SetValue(m.draft)
+	} else {
+		m.input.SetValue(m.history[m.recall])
+	}
+	m.input.CursorEnd()
+	return m
+}
+
+// submit runs a line: slash commands go straight to the backend, since
+// undo after a bad command must not pass through the model that erred.
+func (m model) submit(text string) (tea.Model, tea.Cmd) {
+	echo := tea.Println(theme.Surface.Render("› ") + theme.Text.Render(text))
+	say := func(lines ...string) (tea.Model, tea.Cmd) {
+		// One print, so the echo and its answer cannot land out of order.
+		return m, tea.Println(theme.Surface.Render("› ") + theme.Text.Render(text) + "\n" + indent(strings.Join(lines, "\n")) + "\n")
+	}
+	run := func(verb string, do func() app.AgentResponse) (tea.Model, tea.Cmd) {
+		m.busy, m.started, m.verb, m.notice = true, time.Now(), verb, ""
+		return m, tea.Batch(echo, tea.Tick(time.Second, func(t time.Time) tea.Msg { return clockTick(t) }), func() tea.Msg { return turnDone{do()} })
+	}
+	fields := strings.Fields(text)
+	switch fields[0] {
+	case "/quit", "/exit":
+		m.quitting = true
+		return m, tea.Quit
+	case "/help":
+		return say(helpText())
+	case "/new":
+		m.runtime.Agent.StartConversation()
+		m.thread = ""
+		return say(theme.Muted.Render("new conversation"))
+	case "/status":
+		status, _ := m.runtime.Agent.GetDAWStatus()
+		m.status = status
+		return say(renderStatus(status))
+	case "/daw":
+		if len(fields) == 1 {
+			return say(renderDAW(m.runtime, m.settings))
+		}
+		return say(switchDAW(m.runtime, fields[1]))
+	case "/undo":
+		return run("undoing", func() app.AgentResponse { r, _ := m.runtime.Agent.Undo(); return r })
+	case "/apply":
+		if !m.hasPlan {
+			return say(theme.Warning.Render("nothing previewed"))
+		}
+		return run("applying", func() app.AgentResponse { r, _ := m.runtime.Agent.ApplyPlan(); return r })
+	case "/preview":
+		if len(fields) == 1 {
+			return say(theme.Warning.Render("/preview needs the words of a command"))
+		}
+		words := strings.TrimSpace(strings.TrimPrefix(text, "/preview"))
+		return run("planning", func() app.AgentResponse { r, _ := m.runtime.Agent.PreviewCommand(words); return r })
+	}
+	if strings.HasPrefix(text, "/") {
+		return say(theme.Error.Render("unknown command; / lists them"))
+	}
+	return run("thinking", func() app.AgentResponse { r, _ := m.runtime.Agent.SendCommand(text); return r })
+}
+
+func (m model) View() string {
+	if m.quitting {
+		return ""
+	}
+	var parts []string
+	if m.busy {
+		elapsed := int(time.Since(m.started).Seconds())
+		parts = append(parts, m.spinner.View()+" "+theme.Surface.Render(m.verb)+theme.Muted.Render(fmt.Sprintf("  %ds  ·  esc to stop", elapsed)))
+	}
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(lagoonAt(0.6))).Padding(0, 1).Width(max(m.width-2, 24))
+	parts = append(parts, box.Render(m.input.View()))
+	if len(m.menu) > 0 {
+		for i, c := range m.menu {
+			line := "  " + c.name
+			if c.args != "" {
+				line += " " + c.args
+			}
+			line = fmt.Sprintf("%-22s", line) + theme.Muted.Render(c.help)
+			if i == m.menuAt {
+				line = theme.Surface.Render("▸") + line[1:]
+			} else {
+				line = " " + line[1:]
+			}
+			parts = append(parts, line)
+		}
+	} else {
+		parts = append(parts, statusLine(m))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func statusLine(m model) string {
+	daw := theme.Error.Render("○ " + m.settings.DAW.Backend)
+	if m.status.Connected {
+		daw = theme.Success.Render("● " + m.settings.DAW.Backend)
+	}
+	right := m.notice
+	if right == "" && m.thread != "" {
+		right = m.thread
+	}
+	return "  " + daw + theme.Muted.Render("  ·  "+m.settings.LLM.Model+"  ·  "+right)
+}
+
+// renderTurn prints a finished turn: the tools as they were called, one
+// line each with a short result, then the answer and what the DAW
+// confirmed.
+func renderTurn(r app.AgentResponse, width int) string {
+	var out []string
+	for _, step := range r.Steps {
+		call, result := describeStep(step)
+		mark := theme.Surface.Render("⏺ ")
+		if step.Failed {
+			mark = theme.Error.Render("⏺ ")
+		}
+		out = append(out, mark+theme.Text.Render(call))
+		if result != "" {
+			out = append(out, theme.Muted.Render("  ⎿ "+result))
+		}
+	}
+	if len(out) > 0 {
+		out = append(out, "")
+	}
+	body := renderTurnBody(r, width-4)
+	if body != "" {
+		out = append(out, body)
+	}
+	return indent(strings.Join(out, "\n")) + "\n"
+}
+
+// renderTurnBody is renderResponse with the answer wrapped to the width.
+func renderTurnBody(r app.AgentResponse, width int) string {
+	message := r.Message
+	r.Message = ""
+	rest := renderResponse(r)
+	var out []string
+	if message != "" {
+		out = append(out, markdown(strings.TrimSpace(message), max(width, 20)))
+	}
+	if rest != "" {
+		out = append(out, rest)
+	}
+	return strings.Join(out, "\n")
+}
+
+const indentation = "  "
+
+func indent(text string) string {
+	return indentation + strings.ReplaceAll(text, "\n", "\n"+indentation)
 }
 
 func typeInto(input textinput.Model, msg tea.Msg) (textinput.Model, tea.Cmd) {
@@ -128,6 +409,9 @@ func typeInto(input textinput.Model, msg tea.Msg) (textinput.Model, tea.Cmd) {
 	if !ok || key.Type != tea.KeyRunes || len(key.Runes) < 2 {
 		return input.Update(msg)
 	}
+	// Runes that arrive together, as a paste does, are fed one at a time:
+	// the text field matches keys by name, and a batch spelling "up" or
+	// "end" would be taken for the key of that name and vanish.
 	var cmds []tea.Cmd
 	for _, r := range key.Runes {
 		var cmd tea.Cmd
@@ -137,117 +421,48 @@ func typeInto(input textinput.Model, msg tea.Msg) (textinput.Model, tea.Cmd) {
 	return input, tea.Batch(cmds...)
 }
 
-// submit runs a line: slash commands go straight to the backend, since
-// undo after a bad command must not pass through the model that erred.
-func (m model) submit(text string) (tea.Model, tea.Cmd) {
-	m.lines = append(m.lines, theme.Surface.Render("you ")+theme.Text.Render(text))
-	switch {
-	case text == "/quit" || text == "/exit":
-		m.quitting = true
-		return m, tea.Quit
-	case text == "/help":
-		m.lines = append(m.lines, indent(helpText()), "")
-		m.refresh()
-		return m, nil
-	case text == "/new":
-		m.runtime.Agent.StartConversation()
-		m.lines = []string{theme.Muted.Render("new conversation")}
-		m.refresh()
-		return m, nil
-	case text == "/status":
-		status, _ := m.runtime.Agent.GetDAWStatus()
-		m.status = status
-		m.lines = append(m.lines, indent(renderStatus(status)), "")
-		m.refresh()
-		return m, nil
-	case text == "/undo":
-		m.busy = true
-		return m, func() tea.Msg { r, _ := m.runtime.Agent.Undo(); return turnDone{response: r} }
-	case text == "/apply":
-		if !m.hasPlan {
-			m.lines = append(m.lines, indent(theme.Warning.Render("nothing previewed")), "")
-			m.refresh()
-			return m, nil
-		}
-		m.busy = true
-		return m, func() tea.Msg { r, _ := m.runtime.Agent.ApplyPlan(); return turnDone{response: r} }
-	case strings.HasPrefix(text, "/preview "):
-		m.busy = true
-		command := strings.TrimSpace(strings.TrimPrefix(text, "/preview "))
-		return m, func() tea.Msg {
-			r, _ := m.runtime.Agent.PreviewCommand(command)
-			return turnDone{response: r, preview: true}
-		}
-	case strings.HasPrefix(text, "/"):
-		m.lines = append(m.lines, indent(theme.Error.Render("unknown command; /help lists them")), "")
-		m.refresh()
-		return m, nil
-	}
-	m.busy = true
-	m.refresh()
-	return m, func() tea.Msg { r, _ := m.runtime.Agent.SendCommand(text); return turnDone{response: r} }
-}
-
-// refresh redraws the thread, wrapped to the width: a viewport clips, and
-// a clipped answer is an answer the user did not get.
-func (m *model) refresh() {
-	// Answers are indented; wrapping first and indenting after keeps the
-	// continuation lines under the first one.
-	width := max(m.viewport.Width-4, 20)
-	wrapped := make([]string, 0, len(m.lines))
-	for _, line := range m.lines {
-		if strings.HasPrefix(line, indentation) {
-			wrapped = append(wrapped, indent(lipgloss.NewStyle().Width(width).Render(strings.TrimPrefix(line, indentation))))
-		} else {
-			wrapped = append(wrapped, lipgloss.NewStyle().Width(width+4).Render(line))
-		}
-	}
-	m.viewport.SetContent(strings.Join(wrapped, "\n"))
-	m.viewport.GotoBottom()
-}
-
-func (m model) View() string {
-	if m.quitting {
-		return ""
-	}
-	var status string
-	if m.status.Connected {
-		status = theme.Success.Render("● " + m.settings.DAW.Backend)
-	} else {
-		status = theme.Error.Render("○ " + m.settings.DAW.Backend)
-	}
-	header := lipgloss.JoinHorizontal(lipgloss.Top, gradient("tonelab"), "  ", status, "  ", theme.Muted.Render(m.settings.LLM.Model))
-
-	prompt := m.input.View()
-	if m.busy {
-		prompt = m.spinner.View() + theme.Muted.Render(" thinking")
-	}
-	footer := theme.Muted.Render("enter send  ·  /preview  /apply  /undo  /new  /status  ·  esc quit")
-
-	return strings.Join([]string{header, rule(m.width), m.viewport.View(), rule(m.width), prompt, footer}, "\n")
-}
-
-func renderMessage(message app.ChatMessage) []string {
-	if message.From == "you" {
-		return []string{theme.Surface.Render("you ") + theme.Text.Render(message.Text)}
-	}
-	return []string{indent(renderResponse(app.AgentResponse{Message: message.Text, Changed: message.Changed, Plan: message.Plan, Error: message.Error})), ""}
-}
-
-const indentation = "    "
-
-func indent(text string) string {
-	return indentation + strings.ReplaceAll(text, "\n", "\n"+indentation)
-}
-
 func helpText() string {
-	return strings.Join([]string{
-		theme.Text.Render("Say what you want changed, in words. Then:"),
-		theme.Surface.Render("/preview <words>") + theme.Muted.Render("  show the plan without touching the project"),
-		theme.Surface.Render("/apply") + theme.Muted.Render("            carry out the last plan"),
-		theme.Surface.Render("/undo") + theme.Muted.Render("             ask the DAW to take back its last change"),
-		theme.Surface.Render("/new") + theme.Muted.Render("              start a fresh conversation"),
-		theme.Surface.Render("/status") + theme.Muted.Render("           is the DAW answering"),
-		theme.Surface.Render("/quit") + theme.Muted.Render("             leave"),
-	}, "\n")
+	var lines []string
+	for _, c := range commands {
+		name := c.name
+		if c.args != "" {
+			name += " " + c.args
+		}
+		lines = append(lines, theme.Surface.Render(fmt.Sprintf("%-18s", name))+theme.Muted.Render(c.help))
+	}
+	lines = append(lines, "", theme.Muted.Render("↑ ↓ earlier commands  ·  esc stops a turn  ·  ctrl+c twice quits"))
+	return strings.Join(lines, "\n")
+}
+
+func renderDAW(runtime *app.Runtime, settings config.Config) string {
+	current, _ := runtime.Settings.Get()
+	var lines []string
+	for _, name := range current.DAWAvailable {
+		if name == settings.DAW.Backend {
+			lines = append(lines, theme.Success.Render("● "+name)+theme.Muted.Render("  in use"))
+		} else {
+			lines = append(lines, theme.Muted.Render("○ "+name))
+		}
+	}
+	lines = append(lines, theme.Muted.Render("/daw <name> switches; the DAW itself must be set up for Tonelab as the README describes"))
+	return strings.Join(lines, "\n")
+}
+
+// switchDAW writes the choice through the same settings service the window
+// uses, and says what the window says: a transport cannot be swapped under
+// a running agent, so the switch takes effect on the next start.
+func switchDAW(runtime *app.Runtime, name string) string {
+	current, err := runtime.Settings.Get()
+	if err != nil {
+		return theme.Error.Render(err.Error())
+	}
+	current.DAWBackend = name
+	result, _ := runtime.Settings.Save(current, "", "")
+	if result.Error != nil {
+		return theme.Error.Render(result.Error.Message)
+	}
+	if result.RestartNeeded {
+		return theme.Warning.Render("saved: "+name) + theme.Muted.Render("  start tonelab-cli again to use it")
+	}
+	return theme.Success.Render(result.Message)
 }
