@@ -49,6 +49,19 @@ tasks:
     cmds:
       - go test -tags ableton -count=1 ./backend/daw
 
+  ci:
+    summary: Everything the hosted CI used to run, on this machine. Vet and the race suite, the frontend typecheck, a macOS package, a Windows cross-build and the Linux build in Docker. Green here is the bar for merging into main.
+    cmds:
+      - gofmt -l . | tee /dev/stderr | test -z "$(cat)"
+      - go vet ./...
+      - go test -race -count=1 ./backend/...
+      - GOOS=windows CGO_ENABLED=0 go vet ./backend/...
+      - GOOS=linux CGO_ENABLED=0 go vet ./backend/...
+      - task: common:build:frontend
+      - task: darwin:package
+      - task: build:windows
+      - task: build:linux
+
   build:windows:
     summary: Cross-compiles the Windows binaries from any host (no cgo on Windows)
     deps: [common:build:frontend]

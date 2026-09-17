@@ -1,10 +1,9 @@
 name: CI
 
+# Run by hand only. The suite runs on the developer's machine before every
+# merge (`task ci`); hosted minutes are kept for releases.
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
