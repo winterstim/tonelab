@@ -157,8 +157,17 @@ func TestSavedSettingsLoadBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned an error: %v", err)
 	}
+	// The first load names the install; everything else is what was saved.
+	if loaded.DeviceID == "" {
+		t.Fatal("a device id is made on first load")
+	}
+	want.DeviceID = loaded.DeviceID
 	if loaded != want {
 		t.Fatalf("expected %+v, got %+v", want, loaded)
+	}
+	again, _ := config.Load(path)
+	if again.DeviceID != loaded.DeviceID {
+		t.Fatal("the device id must survive a reload, a key is bound to it")
 	}
 }
 

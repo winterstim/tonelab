@@ -161,7 +161,7 @@ func (s *SettingsService) Save(incoming Settings, apiKey, searchKey string) (Set
 	s.previews.Reconfigure(llm)
 	if s.applySearch != nil {
 		// Validated by config.Save already, so this cannot fail here.
-		provider, _ := search.New(search.Config{Provider: updated.Search.Provider, APIKey: updated.Search.APIKey, BaseURL: updated.Search.BaseURL})
+		provider, _ := search.New(updated.SearchConfig())
 		s.applySearch(provider)
 	}
 
