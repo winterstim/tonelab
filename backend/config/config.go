@@ -68,8 +68,9 @@ type Hosted struct {
 }
 
 // DefaultHostedURL is where "Sign in with Tonelab" goes when the
-// settings do not say otherwise.
-const DefaultHostedURL = "https://api.tonelab.app"
+// settings do not say otherwise: the origin only, the API version is
+// the hosted package's to know.
+const DefaultHostedURL = "https://api.tonelab.dev"
 
 type Config struct {
 	LLM    LLM    `json:"llm"`

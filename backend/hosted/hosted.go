@@ -16,15 +16,31 @@ import (
 	"time"
 )
 
-// Client speaks to one service URL as one device.
+// Prefix is the API version this client speaks. Set once here: the
+// settings hold the origin, and every path below is relative to
+// origin + Prefix, which is also what the model and search sections are
+// pointed at.
+const Prefix = "/v2"
+
+// Client speaks to one service origin as one device.
 type Client struct {
 	base     string
 	deviceID string
 	http     *http.Client
 }
 
-func NewClient(baseURL, deviceID string) *Client {
-	return &Client{base: strings.TrimRight(baseURL, "/"), deviceID: deviceID, http: &http.Client{Timeout: 20 * time.Second}}
+func NewClient(origin, deviceID string) *Client {
+	return &Client{base: Base(origin), deviceID: deviceID, http: &http.Client{Timeout: 20 * time.Second}}
+}
+
+// Base is the versioned root under an origin, for the sections of the
+// settings that take a URL.
+func Base(origin string) string {
+	origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+	if strings.HasSuffix(origin, Prefix) {
+		return origin
+	}
+	return origin + Prefix
 }
 
 // Error is the service's own refusal, with its code and its sentence.
@@ -181,7 +197,7 @@ func (c *Client) Account(ctx context.Context, key string) (Account, error) {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := c.call(ctx, http.MethodGet, "/v1/models", key, nil, &models); err != nil {
+	if err := c.call(ctx, http.MethodGet, "/models", key, nil, &models); err != nil {
 		return Account{}, err
 	}
 	for _, m := range models.Data {
