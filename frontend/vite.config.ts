@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import wails from "@wailsio/runtime/plugins/vite";
 
+// TONELAB_FAKE=1 serves the window against the test fake instead of the
+// Wails bindings, so it can be opened in a plain browser to look at.
+const fake = process.env.TONELAB_FAKE === "1";
+
 export default defineConfig({
     server: {
         host: "127.0.0.1",
@@ -12,6 +16,9 @@ export default defineConfig({
     },
     plugins: [react(), tailwindcss(), wails("./bindings")],
     resolve: {
-        alias: { "@": path.resolve(__dirname, "./src") },
+        alias: [
+            ...(fake ? [{ find: /^@\/services$/, replacement: path.resolve(__dirname, "./src/test/fake.ts") }] : []),
+            { find: "@", replacement: path.resolve(__dirname, "./src") },
+        ],
     },
 });

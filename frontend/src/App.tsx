@@ -6,6 +6,7 @@ import { ChatView } from "@/views/ChatView";
 import { HistoryView } from "@/views/HistoryView";
 import { SettingsView } from "@/views/SettingsView";
 import { ThemeContext, useTheme } from "@/theme";
+import { StoreProvider } from "@/store";
 
 type View = "chat" | "history" | "settings";
 
@@ -25,6 +26,7 @@ export function App() {
 
     return (
         <ThemeContext.Provider value={theme}>
+            <StoreProvider>
             <main className="flex h-full flex-col overflow-hidden">
                 <header className="flex items-center justify-between gap-4 px-5 pt-4 pb-2">
                     <nav role="tablist" className="flex gap-1 rounded-full bg-secondary p-1">
@@ -63,6 +65,7 @@ export function App() {
                     <SettingsView active={view === "settings"} />
                 </div>
             </main>
+            </StoreProvider>
         </ThemeContext.Provider>
     );
 }

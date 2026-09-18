@@ -283,3 +283,10 @@ export const HostedService = {
         return { ...world.hosted };
     },
 };
+
+// Reachable from the browser console when the window is served against
+// the fake, to script the next reply while looking at it.
+declare global {
+    interface Window { world?: typeof world }
+}
+if (typeof window !== "undefined") window.world = world;
