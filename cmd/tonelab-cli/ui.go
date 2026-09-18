@@ -21,6 +21,7 @@ import (
 type model struct {
 	runtime  *app.Runtime
 	settings config.Config
+	path     string
 
 	input   textinput.Model
 	spinner spinner.Model
@@ -61,15 +62,19 @@ var commands = []command{
 	{"/status", "", "is the DAW answering"},
 	{"/daw", "[name]", "which DAW, or switch to another"},
 	{"/settings", "[name value]", "show settings, or change one"},
+	{"/login", "", "sign in with a Tonelab subscription"},
+	{"/account", "", "the subscription and what is used"},
+	{"/logout", "", "sign out of the subscription"},
 	{"/help", "", "this list"},
 	{"/quit", "", "leave"},
 }
 
 type turnDone struct{ response app.AgentResponse }
+type loginDone struct{ state app.SignInState }
 type statusTick app.DAWStatus
 type clockTick time.Time
 
-func newModel(runtime *app.Runtime, settings config.Config) model {
+func newModel(runtime *app.Runtime, settings config.Config, path string) model {
 	input := textinput.New()
 	input.Prompt = gradient("› ")
 	input.Placeholder = "ask for a change, / for commands"
@@ -80,7 +85,7 @@ func newModel(runtime *app.Runtime, settings config.Config) model {
 	dots.Spinner = spinner.MiniDot
 	dots.Style = theme.Surface
 
-	m := model{runtime: runtime, settings: settings, input: input, spinner: dots, width: 80}
+	m := model{runtime: runtime, settings: settings, path: path, input: input, spinner: dots, width: 80}
 	if current, err := runtime.Agent.CurrentConversation(); err == nil {
 		m.thread = current.Title
 		for _, message := range current.Messages {
@@ -123,6 +128,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.key(msg)
+
+	case loginDone:
+		// Signing in changed the endpoint; the status line reads it.
+		m.settings, _ = config.Load(m.path)
+		if msg.state.Error != "" {
+			return m, tea.Println(indent(theme.Error.Render(msg.state.Error)) + "\n")
+		}
+		if !msg.state.Done {
+			return m, tea.Println(indent(theme.Muted.Render("sign-in cancelled")) + "\n")
+		}
+		return m, tea.Println(indent(theme.Success.Render("signed in")+"\n"+renderAccount(m.runtime)) + "\n")
 
 	case statusTick:
 		m.status = app.DAWStatus(msg)
@@ -318,6 +334,32 @@ func (m model) submit(text string) (tea.Model, tea.Cmd) {
 			return say(theme.Warning.Render("/settings <name> <value>"))
 		}
 		return say(applySetting(m.runtime, fields[1], strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(text, "/settings"), " "+fields[1]))))
+	case "/login":
+		state, _ := m.runtime.Hosted.SignIn("")
+		if state.Error != "" {
+			return say(theme.Error.Render(state.Error))
+		}
+		// The browser leg takes as long as the person does; the answer
+		// arrives as a message so the prompt stays usable meanwhile.
+		wait := func() tea.Msg {
+			for {
+				current, _ := m.runtime.Hosted.State()
+				if !current.Running {
+					return loginDone{current}
+				}
+				time.Sleep(time.Second)
+			}
+		}
+		_, cmd := say(theme.Text.Render("Approve this device in the browser. The code shown there must be"), "", theme.Deep.Render(state.UserCode), "", theme.Muted.Render(state.VerifyURL))
+		return m, tea.Batch(cmd, wait)
+	case "/account":
+		return say(renderAccount(m.runtime))
+	case "/logout":
+		if _, err := m.runtime.Hosted.SignOut(); err != nil {
+			return say(theme.Error.Render(err.Error()))
+		}
+		m.settings, _ = config.Load(m.path)
+		return say(theme.Muted.Render("signed out; the model is the local runtime again"))
 	case "/resume":
 		threads, _ := m.runtime.Agent.Conversations()
 		if len(threads) == 0 {

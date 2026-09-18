@@ -116,6 +116,32 @@
     </section>
 
     <section class="view" id="view-settings" hidden>
+        <section class="settings account" id="account" aria-live="polite">
+            <h2 class="group">Tonelab account</h2>
+            <div id="account-out">
+                <p class="hint">Sign in to use the hosted model and web search on a subscription, with nothing to set up. Your own endpoint below stays available either way.</p>
+                <div class="settings-actions">
+                    <button class="send" type="button" id="sign-in">Sign in with Tonelab</button>
+                    <span class="hint" id="account-note"></span>
+                </div>
+            </div>
+            <div id="account-pending" hidden>
+                <p>Approve this device in the browser. The code shown there must be</p>
+                <p class="user-code" id="user-code"></p>
+                <p class="hint" id="verify-url"></p>
+                <div class="settings-actions">
+                    <button class="send secondary" type="button" id="sign-in-cancel">Cancel</button>
+                </div>
+            </div>
+            <div id="account-in" hidden>
+                <p><span id="account-email"></span> <span class="hint" id="account-plan"></span></p>
+                <div class="usage" id="usage"></div>
+                <p class="hint" id="account-reason"></p>
+                <div class="settings-actions">
+                    <button class="send secondary" type="button" id="sign-out">Sign out</button>
+                </div>
+            </div>
+        </section>
         <form class="settings" id="settings">
             <h2 class="group">Language model</h2>
             <label class="field">
@@ -125,7 +151,8 @@
             </label>
             <label class="field">
                 <span class="label">Model</span>
-                <input class="text" id="model" type="text" spellcheck="false"/>
+                <input class="text" id="model" type="text" spellcheck="false" list="models"/>
+                <datalist id="models"></datalist>
             </label>
             <label class="field">
                 <span class="label">API key</span>

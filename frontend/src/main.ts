@@ -1,5 +1,5 @@
 import { renderMarkdown } from "./markdown";
-import { AgentService, SettingsService } from "../bindings/tonelab/backend/app";
+import { AgentService, HostedService, SettingsService } from "../bindings/tonelab/backend/app";
 import type {
     AgentResponse,
     ChatMessage,
@@ -817,6 +817,117 @@ el<HTMLFormElement>("settings").addEventListener("submit", async (event) => {
     settingsTouched = false;
 });
 
+/* Account ----------------------------------------------------------- */
+
+// The account block has three faces: signed out, waiting for the browser,
+// signed in. Which one shows is the backend's answer, never a guess made
+// here, so a reload lands on the truth.
+function showAccount(face: "out" | "pending" | "in") {
+    el("account-out").hidden = face !== "out";
+    el("account-pending").hidden = face !== "pending";
+    el("account-in").hidden = face !== "in";
+}
+
+function whenResets(at: string): string {
+    const ms = new Date(at).getTime() - Date.now();
+    if (!Number.isFinite(ms) || ms <= 0) return "resets now";
+    const hours = Math.round(ms / 3600000);
+    if (hours < 48) return `resets in ${Math.max(1, hours)}h`;
+    return `resets in ${Math.round(hours / 24)}d`;
+}
+
+function meter(label: string, used: number, limit: number, resetsAt: string): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "meter";
+    const share = limit > 0 ? used / limit : 0;
+    row.dataset.level = share >= 1 ? "full" : share >= 0.8 ? "high" : "ok";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const bar = document.createElement("span");
+    bar.className = "bar";
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.min(100, Math.round(share * 100))}%`;
+    bar.append(fill);
+    const note = document.createElement("span");
+    note.className = "hint";
+    note.textContent = `${Math.round(share * 100)}%, ${whenResets(resetsAt)}`;
+    row.append(name, bar, note);
+    return row;
+}
+
+async function loadAccount() {
+    const status = await HostedService.Status();
+    const models = el<HTMLDataListElement>("models");
+    models.replaceChildren();
+    for (const name of status.Models ?? []) {
+        const option = document.createElement("option");
+        option.value = name;
+        models.append(option);
+    }
+    if (!status.SignedIn) {
+        showAccount("out");
+        el("account-note").textContent = "";
+        return;
+    }
+    showAccount("in");
+    el("account-email").textContent = status.Email || "Signed in";
+    el("account-plan").textContent = status.Plan ? `on the ${status.Plan} plan` : "";
+    el("account-reason").textContent = status.Error || (status.Active ? "" : status.Reason);
+    const usage = el("usage");
+    usage.replaceChildren();
+    if (status.Active) {
+        usage.append(
+            meter("This month", status.Month.used, status.Month.limit, status.Month.resets_at),
+            meter("Today", status.Day.used, status.Day.limit, status.Day.resets_at),
+            meter("Searches", status.Searches.used, status.Searches.limit, status.Searches.resets_at),
+        );
+    }
+}
+
+// The browser leg can take minutes; the window asks every two seconds
+// whether it is done rather than holding a call open.
+let signInTimer: number | undefined;
+
+async function watchSignIn() {
+    const state = await HostedService.State();
+    if (state.Running) {
+        showAccount("pending");
+        el("user-code").textContent = state.UserCode;
+        el("verify-url").textContent = state.VerifyURL;
+        return;
+    }
+    window.clearInterval(signInTimer);
+    signInTimer = undefined;
+    if (state.Error) {
+        showAccount("out");
+        el("account-note").textContent = state.Error;
+    } else {
+        await loadAccount();
+        if (state.Done) await loadSettings();
+    }
+}
+
+el("sign-in").addEventListener("click", async () => {
+    const state = await HostedService.SignIn("");
+    if (state.Error) {
+        el("account-note").textContent = state.Error;
+        return;
+    }
+    await watchSignIn();
+    signInTimer = window.setInterval(watchSignIn, 2000);
+});
+
+el("sign-in-cancel").addEventListener("click", async () => {
+    await HostedService.Cancel();
+    await watchSignIn();
+});
+
+el("sign-out").addEventListener("click", async () => {
+    await HostedService.SignOut();
+    await loadAccount();
+    await loadSettings();
+});
+
 /* Status ------------------------------------------------------------ */
 
 async function refreshStatus() {
@@ -834,6 +945,7 @@ async function refreshStatus() {
 refreshStatus();
 setInterval(refreshStatus, statusInterval);
 loadSettings();
+loadAccount();
 
 // The window draws what the backend already holds, so reopening it after a
 // reload shows the conversation rather than an empty room.
