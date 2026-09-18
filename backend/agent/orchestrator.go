@@ -56,6 +56,10 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	Model   string
+	// DeviceID is sent only to the hosted service, whose keys are bound to
+	// a device. Empty for any other endpoint: a stable install id is not
+	// something a third party should collect.
+	DeviceID string
 
 	// Timeout is how long one request may take. Configurable because a local
 	// model on a busy machine is far slower than a hosted one, and because a
@@ -467,6 +471,9 @@ func (o *Orchestrator) complete(ctx context.Context, conversation []message) (me
 	request.Header.Set("Content-Type", "application/json")
 	if config.APIKey != "" {
 		request.Header.Set("Authorization", "Bearer "+config.APIKey)
+	}
+	if config.DeviceID != "" {
+		request.Header.Set("X-Tonelab-Device", config.DeviceID)
 	}
 
 	response, err := o.http.Do(request)

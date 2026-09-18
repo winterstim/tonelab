@@ -58,11 +58,25 @@ type Search struct {
 	BaseURL  string `json:"base_url,omitempty"`
 }
 
+// Hosted is a Tonelab subscription, when the person signed in with one.
+// The key is the same one the LLM and search sections then carry; this
+// block is what lets the settings screen tell a subscription from a key
+// the person typed themselves.
+type Hosted struct {
+	URL    string `json:"url,omitempty"`
+	APIKey string `json:"api_key,omitempty"`
+}
+
+// DefaultHostedURL is where "Sign in with Tonelab" goes when the
+// settings do not say otherwise.
+const DefaultHostedURL = "https://api.tonelab.app"
+
 type Config struct {
 	LLM    LLM    `json:"llm"`
 	DAW    DAW    `json:"daw"`
 	UI     UI     `json:"ui"`
 	Search Search `json:"search"`
+	Hosted Hosted `json:"hosted,omitempty"`
 	// DeviceID names this install to the hosted service, which binds a
 	// key to it. Made once on first load and kept, since a key issued to
 	// one id is refused from another.
@@ -80,10 +94,42 @@ func (c Config) String() string {
 	if c.Search.APIKey != "" {
 		searchKey = "set"
 	}
-	return fmt.Sprintf("llm{base_url:%s model:%s api_key:%s} daw{backend:%s %s:%d feedback:%d} search{provider:%q api_key:%s}",
+	return fmt.Sprintf("llm{base_url:%s model:%s api_key:%s} daw{backend:%s %s:%d feedback:%d} search{provider:%q api_key:%s} hosted{signed_in:%v}",
 		c.LLM.BaseURL, c.LLM.Model, key,
 		c.DAW.Backend, c.DAW.Host, c.DAW.Port, c.DAW.FeedbackPort,
-		c.Search.Provider, searchKey)
+		c.Search.Provider, searchKey, c.SignedIn())
+}
+
+// LocalLLM is the endpoint the template starts with and what signing out
+// of the subscription falls back to: a local runtime, which needs no
+// account.
+func LocalLLM() LLM {
+	return LLM{BaseURL: "http://localhost:11434/v1", Model: "qwen2.5"}
+}
+
+// AgentConfig is what the agent needs, with the device id only when the
+// endpoint is the subscription.
+func (c Config) AgentConfig() (baseURL, apiKey, model, deviceID string) {
+	if c.SignedIn() {
+		deviceID = c.DeviceID
+	}
+	return c.LLM.BaseURL, c.LLM.APIKey, c.LLM.Model, deviceID
+}
+
+// SignedIn reports whether the model endpoint in use is the subscription.
+// The person's own endpoint stays the first choice: signing in points
+// the LLM section at the service, and editing it away is signing out of
+// using it without losing the key.
+func (c Config) SignedIn() bool {
+	return c.Hosted.APIKey != "" && c.Hosted.URL != "" && strings.HasPrefix(c.LLM.BaseURL, strings.TrimRight(c.Hosted.URL, "/"))
+}
+
+// HostedURL is the service to sign in with.
+func (c Config) HostedURL() string {
+	if c.Hosted.URL != "" {
+		return c.Hosted.URL
+	}
+	return DefaultHostedURL
 }
 
 // SearchConfig is what the search package needs, with the device id the
@@ -221,7 +267,7 @@ func writeTemplate(path string) error {
 	}
 
 	template := Config{
-		LLM: LLM{BaseURL: "http://localhost:11434/v1", APIKey: "", Model: "qwen2.5"},
+		LLM: LocalLLM(),
 		DAW: DAW{Backend: "reaper", Host: "127.0.0.1", Port: 8000, FeedbackPort: 9000},
 		UI:  UI{Theme: "system"},
 	}
