@@ -11,6 +11,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
+	goruntime "runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,7 +54,7 @@ func main() {
 		lipgloss.SetColorProfile(termenv.Ascii)
 		plain = true
 	}
-	runtime, err := app.Assemble(settings, configPath)
+	runtime, err := app.Assemble(settings, configPath, openBrowser)
 	if err != nil {
 		fail(err)
 	}
@@ -63,7 +65,7 @@ func main() {
 		if !isTerminal() {
 			fail(errors.New("interactive mode needs a terminal; pass the command as arguments"))
 		}
-		program := tea.NewProgram(newModel(runtime, settings))
+		program := tea.NewProgram(newModel(runtime, settings, configPath))
 		if _, err := program.Run(); err != nil {
 			fail(err)
 		}
@@ -132,4 +134,20 @@ func usage() {
 
 Settings come from the same config file the desktop app uses; TONELAB_CONFIG
 points at another one.`)
+}
+
+// openBrowser hands a URL to the desktop, the way a terminal tool signing
+// into a service does; on a headless machine the address is printed and
+// this simply fails quietly.
+func openBrowser(url string) error {
+	var command *exec.Cmd
+	switch goruntime.GOOS {
+	case "darwin":
+		command = exec.Command("open", url)
+	case "windows":
+		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		command = exec.Command("xdg-open", url)
+	}
+	return command.Start()
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"tonelab/backend/app"
 )
@@ -167,4 +168,51 @@ func isSecret(name string) bool {
 		}
 	}
 	return false
+}
+
+// renderAccount is the subscription as /account shows it: who, which
+// plan, and each window as a bar with when it resets.
+func renderAccount(runtime *app.Runtime) string {
+	status, _ := runtime.Hosted.Status()
+	if !status.SignedIn {
+		return theme.Muted.Render("not signed in; /login signs in with a Tonelab subscription")
+	}
+	lines := []string{theme.Text.Render(status.Email) + " " + theme.Muted.Render("on the "+status.Plan+" plan")}
+	if status.Error != "" {
+		return strings.Join(append(lines, theme.Error.Render(status.Error)), "\n")
+	}
+	if !status.Active {
+		return strings.Join(append(lines, theme.Warning.Render(status.Reason)), "\n")
+	}
+	for _, w := range []struct {
+		name        string
+		used, limit int64
+		at          time.Time
+	}{{"this month", status.Month.Used, status.Month.Limit, status.Month.ResetsAt}, {"today", status.Day.Used, status.Day.Limit, status.Day.ResetsAt}, {"searches", status.Searches.Used, status.Searches.Limit, status.Searches.ResetsAt}} {
+		share := 0.0
+		if w.limit > 0 {
+			share = float64(w.used) / float64(w.limit)
+		}
+		filled := min(20, int(share*20+0.5))
+		bar := theme.Success
+		switch {
+		case share >= 1:
+			bar = theme.Error
+		case share >= 0.8:
+			bar = theme.Warning
+		}
+		lines = append(lines, fmt.Sprintf("%-12s%s%s  %s", w.name, bar.Render(strings.Repeat("█", filled)), theme.Muted.Render(strings.Repeat("░", 20-filled)), theme.Muted.Render(fmt.Sprintf("%d%%, resets %s", int(share*100), untilReset(w.at)))))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func untilReset(at time.Time) string {
+	left := time.Until(at)
+	switch {
+	case left <= 0:
+		return "now"
+	case left < 48*time.Hour:
+		return fmt.Sprintf("in %dh", max(1, int(left.Hours()+0.5)))
+	}
+	return fmt.Sprintf("in %dd", int(left.Hours()/24+0.5))
 }
