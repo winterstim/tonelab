@@ -48,6 +48,9 @@ type Config struct {
 	Provider string
 	APIKey   string
 	BaseURL  string
+	// DeviceID is what a hosted key is bound to; only the tonelab
+	// provider sends it.
+	DeviceID string
 }
 
 var (
@@ -95,6 +98,7 @@ func Providers() []string {
 var providers = map[string]func(Config) (Provider, error){
 	"brave":   newBrave,
 	"searxng": newSearXNG,
+	"tonelab": newTonelab,
 }
 
 // fetch is the one HTTP path both providers share, so status handling is
@@ -133,9 +137,26 @@ func fetch(ctx context.Context, endpoint string, headers map[string]string) ([]b
 		}
 		return nil, RateLimited{RetryAfter: wait}
 	case response.StatusCode >= 400:
+		// The hosted service answers with a sentence for the person; a
+		// third-party provider with a status code.
+		if message := hostedMessage(body); message != "" {
+			return nil, fmt.Errorf("%w: %s", ErrUnavailable, message)
+		}
 		return nil, fmt.Errorf("%w: HTTP %d", ErrUnavailable, response.StatusCode)
 	}
 	return body, nil
+}
+
+func hostedMessage(body []byte) string {
+	var decoded struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &decoded) != nil {
+		return ""
+	}
+	return decoded.Error.Message
 }
 
 func bounded(hits []Hit, limit int) []Hit {
@@ -222,4 +243,39 @@ func (s *searxng) Search(ctx context.Context, query string, limit int) ([]Hit, e
 		hits = append(hits, Hit{Title: clean(r.Title), URL: r.URL, Snippet: clean(r.Content), Age: r.PublishedDate})
 	}
 	return bounded(hits, limit), nil
+}
+
+// tonelab is the hosted service: the same hits as brave, behind the
+// subscription key and the device it was issued to.
+type tonelab struct {
+	key      string
+	base     string
+	deviceID string
+}
+
+func newTonelab(cfg Config) (Provider, error) {
+	switch {
+	case cfg.APIKey == "":
+		return nil, errors.New("search: tonelab needs the subscription key")
+	case cfg.BaseURL == "":
+		return nil, errors.New("search: tonelab needs the service url")
+	case cfg.DeviceID == "":
+		return nil, errors.New("search: tonelab needs the device id the key was issued to")
+	}
+	return &tonelab{key: cfg.APIKey, base: strings.TrimRight(cfg.BaseURL, "/"), deviceID: cfg.DeviceID}, nil
+}
+
+func (t *tonelab) Search(ctx context.Context, query string, limit int) ([]Hit, error) {
+	endpoint := fmt.Sprintf("%s/search?q=%s&limit=%d", t.base, url.QueryEscape(query), limit)
+	body, err := fetch(ctx, endpoint, map[string]string{"Authorization": "Bearer " + t.key, "X-Tonelab-Device": t.deviceID})
+	if err != nil {
+		return nil, err
+	}
+	var decoded struct {
+		Hits []Hit `json:"hits"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil, fmt.Errorf("%w: unreadable answer", ErrUnavailable)
+	}
+	return bounded(decoded.Hits, limit), nil
 }

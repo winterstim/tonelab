@@ -4,12 +4,15 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"tonelab/backend/daw"
 	"tonelab/backend/search"
@@ -60,6 +63,10 @@ type Config struct {
 	DAW    DAW    `json:"daw"`
 	UI     UI     `json:"ui"`
 	Search Search `json:"search"`
+	// DeviceID names this install to the hosted service, which binds a
+	// key to it. Made once on first load and kept, since a key issued to
+	// one id is refused from another.
+	DeviceID string `json:"device_id,omitempty"`
 }
 
 // String masks the key. The likeliest way to leak a secret is a log line
@@ -77,6 +84,12 @@ func (c Config) String() string {
 		c.LLM.BaseURL, c.LLM.Model, key,
 		c.DAW.Backend, c.DAW.Host, c.DAW.Port, c.DAW.FeedbackPort,
 		c.Search.Provider, searchKey)
+}
+
+// SearchConfig is what the search package needs, with the device id the
+// hosted provider sends.
+func (c Config) SearchConfig() search.Config {
+	return search.Config{Provider: c.Search.Provider, APIKey: c.Search.APIKey, BaseURL: c.Search.BaseURL, DeviceID: c.DeviceID}
 }
 
 // Path is where the file lives when the user has not said otherwise.
@@ -113,10 +126,26 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(body, &loaded); err != nil {
 		return Config{}, fmt.Errorf("config: %s is not valid JSON: %w", path, err)
 	}
+	if loaded.DeviceID == "" {
+		// Written back at once rather than on the next save, so the id
+		// the service sees during sign-in is the one that persists.
+		loaded.DeviceID = newDeviceID()
+		if err := Save(path, loaded); err != nil {
+			return Config{}, err
+		}
+	}
 	if err := loaded.validate(); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	return loaded, nil
+}
+
+func newDeviceID() string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("t%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(raw[:])
 }
 
 // validate reports the first thing to fix, naming the JSON field rather than
@@ -139,7 +168,7 @@ func (c Config) validate() error {
 		return fmt.Errorf("ui.theme %q is not one of: light, dark, system", c.UI.Theme)
 	}
 	if c.Search.Provider != "" {
-		if _, err := search.New(search.Config{Provider: c.Search.Provider, APIKey: c.Search.APIKey, BaseURL: c.Search.BaseURL}); err != nil {
+		if _, err := search.New(c.SearchConfig()); err != nil {
 			return err
 		}
 	}

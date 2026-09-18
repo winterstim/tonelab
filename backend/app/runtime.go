@@ -58,7 +58,7 @@ func Assemble(settings config.Config, configPath string) (*Runtime, error) {
 		tools.EnableSearch(provider)
 		previewTools.EnableSearch(provider)
 	}
-	if provider, err := search.New(search.Config{Provider: settings.Search.Provider, APIKey: settings.Search.APIKey, BaseURL: settings.Search.BaseURL}); err != nil {
+	if provider, err := search.New(settings.SearchConfig()); err != nil {
 		log.Printf("[tonelab] search disabled: %v", err)
 	} else {
 		applySearch(provider)

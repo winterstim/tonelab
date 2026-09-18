@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"tonelab/backend/search"
@@ -20,6 +21,7 @@ func TestProvidersAnswerAlike(t *testing.T) {
 	}{
 		{"brave", `{"web":{"results":[{"title":"Amp settings","url":"https://a.example","description":"Turn the <strong>gain</strong> down.","page_age":"2012-09-11T18:58:15"}]}}`, "X-Subscription-Token"},
 		{"searxng", `{"results":[{"title":"Amp settings","url":"https://a.example","content":"Turn the gain down.","publishedDate":"2012-09-11T18:58:15"}]}`, ""},
+		{"tonelab", `{"hits":[{"title":"Amp settings","url":"https://a.example","snippet":"Turn the gain down.","age":"2012-09-11T18:58:15"}],"cached":false}`, "Authorization"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.provider, func(t *testing.T) {
@@ -31,7 +33,7 @@ func TestProvidersAnswerAlike(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider, err := search.New(search.Config{Provider: tc.provider, APIKey: "k", BaseURL: server.URL})
+			provider, err := search.New(search.Config{Provider: tc.provider, APIKey: "k", BaseURL: server.URL, DeviceID: "dev-1"})
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -45,7 +47,11 @@ func TestProvidersAnswerAlike(t *testing.T) {
 			if got.URL.Query().Get("q") != "amp gain" {
 				t.Errorf("query not sent: %s", got.URL.RawQuery)
 			}
-			if tc.wantKey != "" && got.Header.Get(tc.wantKey) != "k" {
+			if tc.wantKey == "Authorization" {
+				if got.Header.Get("Authorization") != "Bearer k" || got.Header.Get("X-Tonelab-Device") != "dev-1" {
+					t.Errorf("the hosted service needs the key and the device: %v", got.Header)
+				}
+			} else if tc.wantKey != "" && got.Header.Get(tc.wantKey) != "k" {
 				t.Errorf("key not sent in %s", tc.wantKey)
 			}
 			if tc.wantKey == "" && got.Header.Get("Authorization") != "" {
@@ -104,5 +110,23 @@ func TestLimitIsHonoured(t *testing.T) {
 	hits, err := provider.Search(context.Background(), "x", 2)
 	if err != nil || len(hits) != 2 {
 		t.Fatalf("expected two hits, got %v, %v", hits, err)
+	}
+}
+
+// The hosted service refuses with a sentence for the person; it must reach
+// them rather than be flattened to a status code.
+func TestHostedRefusalKeepsItsSentence(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"error":{"code":"no_active_plan","message":"No subscription yet. Choose a plan to start."}}`))
+	}))
+	defer server.Close()
+	provider, _ := search.New(search.Config{Provider: "tonelab", APIKey: "k", BaseURL: server.URL, DeviceID: "d"})
+	_, err := provider.Search(context.Background(), "x", 3)
+	if !errors.Is(err, search.ErrUnavailable) || !strings.Contains(err.Error(), "Choose a plan") {
+		t.Fatalf("%v", err)
+	}
+	if _, err := search.New(search.Config{Provider: "tonelab", APIKey: "k", BaseURL: server.URL}); err == nil {
+		t.Fatal("a hosted key without its device cannot be used")
 	}
 }
