@@ -20,7 +20,7 @@ func fakeService(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var polls atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /device/code", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v2/device/code", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
 		json.NewDecoder(r.Body).Decode(&body)
 		if body["device_id"] != "dev-1" || body["name"] == "" || r.Header.Get("X-Tonelab-Device") != "dev-1" {
@@ -28,7 +28,7 @@ func fakeService(t *testing.T) (*httptest.Server, *atomic.Int32) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"device_code": "dc", "user_code": "ABCD-EFGH", "verification_uri": "http://x/device", "verification_uri_complete": "http://x/device?code=ABCD-EFGH", "expires_in": 900, "interval": 1})
 	})
-	mux.HandleFunc("POST /device/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v2/device/token", func(w http.ResponseWriter, r *http.Request) {
 		n := polls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -52,16 +52,16 @@ func fakeService(t *testing.T) (*httptest.Server, *atomic.Int32) {
 			next(w, r)
 		}
 	}
-	mux.HandleFunc("GET /account", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v2/account", keyed(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"account_id":1,"email":"ann@example.com","plan":{"code":"solo","active":true,"status":"active"},"keys":[{"id":7,"this_device":true},{"id":8,"this_device":false}]}`))
 	}))
-	mux.HandleFunc("GET /usage", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v2/usage", keyed(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"plan":"solo","usage":{"month":{"kind":"month","used":220,"limit":1500000,"resets_at":"2026-10-01T00:00:00Z"},"day":{"kind":"day","used":220,"limit":150000,"resets_at":"2026-09-19T00:00:00Z"},"searches_used":1,"searches_limit":200}}`))
 	}))
-	mux.HandleFunc("GET /v1/models", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v2/models", keyed(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"object":"list","data":[{"id":"tonelab","object":"model"}]}`))
 	}))
-	mux.HandleFunc("DELETE /account/keys/{id}", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /v2/account/keys/{id}", keyed(func(w http.ResponseWriter, r *http.Request) {
 		if r.PathValue("id") != "7" {
 			t.Errorf("revoked key %s, this device is 7", r.PathValue("id"))
 		}

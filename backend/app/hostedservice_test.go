@@ -20,10 +20,10 @@ func fakeHosted(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var polls, revoked atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /device/code", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v2/device/code", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"device_code": "dc", "user_code": "ABCD-EFGH", "verification_uri": "http://x/device", "verification_uri_complete": "http://x/device?code=ABCD-EFGH", "expires_in": 900, "interval": 1})
 	})
-	mux.HandleFunc("POST /device/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /v2/device/token", func(w http.ResponseWriter, r *http.Request) {
 		if polls.Add(1) < 2 {
 			w.WriteHeader(400)
 			w.Write([]byte(`{"error":{"code":"authorization_pending","message":"Waiting."}}`))
@@ -41,16 +41,16 @@ func fakeHosted(t *testing.T) (*httptest.Server, *atomic.Int32) {
 			next(w, r)
 		}
 	}
-	mux.HandleFunc("GET /account", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v2/account", keyed(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"email":"ann@example.com","plan":{"code":"solo","active":true},"keys":[{"id":7,"this_device":true}]}`))
 	}))
-	mux.HandleFunc("GET /usage", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v2/usage", keyed(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"usage":{"month":{"used":220,"limit":1500000,"resets_at":"2026-10-01T00:00:00Z"},"day":{"used":220,"limit":150000,"resets_at":"2026-09-19T00:00:00Z"},"searches_used":1,"searches_limit":200}}`))
 	}))
-	mux.HandleFunc("GET /v1/models", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v2/models", keyed(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"data":[{"id":"tonelab"}]}`))
 	}))
-	mux.HandleFunc("DELETE /account/keys/7", keyed(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /v2/account/keys/7", keyed(func(w http.ResponseWriter, r *http.Request) {
 		revoked.Add(1)
 		w.Write([]byte(`{"status":"revoked"}`))
 	}))
@@ -94,7 +94,7 @@ func TestSignInWithTonelabPointsEverythingAtTheSubscriptionAndSignOutUndoesIt(t 
 	}
 
 	saved, _ := config.Load(path)
-	if !saved.SignedIn() || saved.LLM.BaseURL != server.URL+"/v1" || saved.LLM.APIKey != "tl_secret" || saved.LLM.Model != "tonelab" || saved.Search.Provider != "tonelab" || saved.Hosted.URL != server.URL {
+	if !saved.SignedIn() || saved.LLM.BaseURL != server.URL+"/v2" || saved.LLM.APIKey != "tl_secret" || saved.LLM.Model != "tonelab" || saved.Search.Provider != "tonelab" || saved.Hosted.URL != server.URL {
 		t.Fatalf("saved: %+v", saved)
 	}
 	if applied == nil {
@@ -109,7 +109,7 @@ func TestSignInWithTonelabPointsEverythingAtTheSubscriptionAndSignOutUndoesIt(t 
 		t.Fatal(err)
 	}
 	after, _ := config.Load(path)
-	if after.SignedIn() || after.Hosted.APIKey != "" || after.LLM.APIKey != "" || after.LLM.BaseURL == server.URL+"/v1" || after.Search.Provider != "" || after.Hosted.URL != server.URL || revoked.Load() != 1 {
+	if after.SignedIn() || after.Hosted.APIKey != "" || after.LLM.APIKey != "" || after.LLM.BaseURL == server.URL+"/v2" || after.Search.Provider != "" || after.Hosted.URL != server.URL || revoked.Load() != 1 {
 		t.Fatalf("after sign out: %+v revoked %d", after, revoked.Load())
 	}
 }

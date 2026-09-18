@@ -160,10 +160,10 @@ func (h *HostedService) adopt(url, key string) error {
 	if err != nil {
 		return err
 	}
-	base := strings.TrimRight(url, "/")
-	settings.Hosted = config.Hosted{URL: base, APIKey: key}
-	settings.LLM = config.LLM{BaseURL: base + "/v1", APIKey: key, Model: "tonelab"}
-	settings.Search = config.Search{Provider: "tonelab", APIKey: key, BaseURL: base}
+	origin := strings.TrimRight(url, "/")
+	settings.Hosted = config.Hosted{URL: origin, APIKey: key}
+	settings.LLM = config.LLM{BaseURL: hosted.Base(origin), APIKey: key, Model: "tonelab"}
+	settings.Search = config.Search{Provider: "tonelab", APIKey: key, BaseURL: hosted.Base(origin)}
 	if err := config.Save(h.path, settings); err != nil {
 		return err
 	}
