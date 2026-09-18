@@ -32,19 +32,21 @@ func main() {
 
 	// Everything above the DAW is assembled once, the same way the command
 	// line assembles it, so the window is only a view on it.
-	runtime, err := app.Assemble(settings, configPath)
+	var desktop *application.App
+	runtime, err := app.Assemble(settings, configPath, func(url string) error { return desktop.Browser.OpenURL(url) })
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer runtime.Close()
 	agentService, settingsService := runtime.Agent, runtime.Settings
 
-	desktop := application.New(application.Options{
+	desktop = application.New(application.Options{
 		Name:        "Tonelab",
 		Description: "DAW companion with a natural-language, tool-calling agent layer",
 		Services: []application.Service{
 			application.NewService(agentService),
 			application.NewService(settingsService),
+			application.NewService(runtime.Hosted),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

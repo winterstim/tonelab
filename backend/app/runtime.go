@@ -16,13 +16,16 @@ import (
 type Runtime struct {
 	Agent    *AgentService
 	Settings *SettingsService
+	Hosted   *HostedService
 	DAW      daw.Client
 	release  func()
 }
 
 // Assemble opens the DAW, builds the live and preview agents over one
 // chain cache and one search provider, and the services above them.
-func Assemble(settings config.Config, configPath string) (*Runtime, error) {
+// openURL is how the interface opens a browser for sign-in; nil leaves
+// the person the address to open themselves.
+func Assemble(settings config.Config, configPath string, openURL func(string) error) (*Runtime, error) {
 	client, release, err := OpenDAW(settings)
 	if err != nil {
 		return nil, err
@@ -37,7 +40,8 @@ func Assemble(settings config.Config, configPath string) (*Runtime, error) {
 		}
 	}
 
-	llm := agent.Config{BaseURL: settings.LLM.BaseURL, APIKey: settings.LLM.APIKey, Model: settings.LLM.Model}
+	base, key, model, device := settings.AgentConfig()
+	llm := agent.Config{BaseURL: base, APIKey: key, Model: model, DeviceID: device}
 	tools := agent.NewTools(client)
 	live := agent.NewOrchestrator(llm, tools)
 	// A separate agent whose changing tools are disarmed, so a preview
@@ -67,6 +71,7 @@ func Assemble(settings config.Config, configPath string) (*Runtime, error) {
 	return &Runtime{
 		Agent:    BuildAgentService(live, previews, client, filepath.Join(dir, "conversations.json")),
 		Settings: NewSettingsService(configPath, live, previews, applySearch),
+		Hosted:   NewHostedService(configPath, live, previews, applySearch, openURL),
 		DAW:      client,
 		release:  release,
 	}, nil

@@ -136,6 +136,10 @@ func (s *SettingsService) Save(incoming Settings, apiKey, searchKey string) (Set
 			BaseURL:  strings.TrimSpace(incoming.SearchURL),
 			APIKey:   existing.Search.APIKey,
 		},
+		// Not on the screen, so carried over: the install's name and the
+		// subscription, which the sign-in service edits, not this form.
+		Hosted:   existing.Hosted,
+		DeviceID: existing.DeviceID,
 	}
 	if key := strings.TrimSpace(apiKey); key != "" {
 		updated.LLM.APIKey = key
@@ -156,7 +160,8 @@ func (s *SettingsService) Save(incoming Settings, apiKey, searchKey string) (Set
 
 	// The endpoint applies immediately, because a user correcting a key
 	// should find out at once whether that was the problem.
-	llm := agent.Config{BaseURL: updated.LLM.BaseURL, APIKey: updated.LLM.APIKey, Model: updated.LLM.Model}
+	base, key, model, device := updated.AgentConfig()
+	llm := agent.Config{BaseURL: base, APIKey: key, Model: model, DeviceID: device}
 	s.agent.Reconfigure(llm)
 	s.previews.Reconfigure(llm)
 	if s.applySearch != nil {
