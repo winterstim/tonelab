@@ -177,7 +177,11 @@ func renderAccount(runtime *app.Runtime) string {
 	if !status.SignedIn {
 		return theme.Muted.Render("not signed in; /login signs in with a Tonelab subscription")
 	}
-	lines := []string{theme.Text.Render(status.Email) + " " + theme.Muted.Render("on the "+status.Plan+" plan")}
+	plan := "no plan yet"
+	if status.Plan != "" {
+		plan = "on the " + status.Plan + " plan"
+	}
+	lines := []string{theme.Text.Render(status.Email) + " " + theme.Muted.Render(plan)}
 	if status.Error != "" {
 		return strings.Join(append(lines, theme.Error.Render(status.Error)), "\n")
 	}
