@@ -1,18 +1,17 @@
 # frontend/src
 
-Three views (chat, history, settings), shown and hidden rather than routed.
-Plain TypeScript calling the generated bindings directly; everything worth
-deciding lives in Go.
+The window, on React with Tailwind v4 and shadcn/ui components owned here
+(`components/ui`). Three views (chat, history, settings) kept mounted and
+shown one at a time; everything worth deciding lives in Go, reached through
+`services.ts`, the one door to the Wails bindings.
 
-Monochrome, light by default, dark and system offered and stored with the
-settings. Failure is weight and a heavier edge, not a colour.
+Light by default, dark on the site's palette. Failure is weight and the
+colour of text, never a hue on the chrome; green for what the DAW
+confirmed, amber for an offer not yet taken.
 
-- A turn belongs to the conversation that asked it; the reply is drawn only
-  if that thread is still on screen.
-- Stop replaces Send while a turn runs. Enter sends, Shift+Enter breaks.
-- Settings are not reloaded over half-typed edits.
-- The API key never comes from the backend, only goes to it.
-- Undo goes straight to the DAW, not through the model.
-
-`npm run typecheck` is part of `npm run build`; `wails3 build` regenerates
-the bindings with `-clean`, so run it for itself.
+- Tests swap `@/services` for `test/fake.ts`, a stand-in shaped like the
+  backend: asynchronous, null where a Go slice is empty, refusing what the
+  backend refuses.
+- `markdown.ts` lays out the model's markdown from escaped text.
+- `npm run ci` is typecheck, lint and tests; `wails3 build` regenerates
+  the bindings with `-clean`, so run it for itself.

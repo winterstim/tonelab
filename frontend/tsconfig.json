@@ -1,31 +1,26 @@
 {
   "compilerOptions": {
-    // Set explicitly because the default is ES3, which forbids iterating a
-    // NodeList and made the check pass only by never being run.
     "target": "ES2022",
-    "allowJs": true,
-
-    "noEmit": true,
-    "skipLibCheck": true,
-
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node", "vite/client"],
+    "paths": { "@/*": ["./src/*"] },
+
+    "allowJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "moduleDetection": "force",
     "verbatimModuleSyntax": true,
-
-    "lib": [
-      "DOM",
-      "DOM.Iterable",
-      "ESNext",
-    ],
 
     "strict": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": false,
-    "noImplicitAny": false,
+    "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "bindings"]
+  "include": ["src", "bindings", "vite.config.ts", "vitest.config.ts"]
 }
