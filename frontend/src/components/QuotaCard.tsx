@@ -6,7 +6,7 @@
 import { Progress } from "@/components/ui/progress";
 import { whenResets } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { AgentError, UsageWindow } from "@/services";
+import { HostedService, type AgentError, type UsageWindow } from "@/services";
 
 export function isQuotaRefusal(error: AgentError): boolean {
     return error.Code === "no_active_plan" || (error.Usage !== null && error.Usage !== undefined
@@ -33,9 +33,16 @@ export function QuotaCard({ error, onAccount }: { error: AgentError; onAccount: 
                 </div>
             )}
             <p className="text-[13px] text-muted-foreground">{error.Message}</p>
-            <button type="button" onClick={onAccount} className="self-start text-[13px] underline underline-offset-4 hover:text-foreground">
-                {error.Code === "no_active_plan" ? "Choose a plan" : "Open the account"}
-            </button>
+            {/* A plan is chosen on the site; the account is here in the app. */}
+            {error.Code === "no_active_plan" || error.Code === "quota_exceeded" ? (
+                <button type="button" onClick={() => HostedService.OpenSite("/pricing")} className="self-start text-[13px] underline underline-offset-4 hover:text-foreground">
+                    {error.Code === "no_active_plan" ? "Choose a plan" : "See the plans"}
+                </button>
+            ) : (
+                <button type="button" onClick={onAccount} className="self-start text-[13px] underline underline-offset-4 hover:text-foreground">
+                    Open the account
+                </button>
+            )}
         </div>
     );
 }

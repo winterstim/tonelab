@@ -72,6 +72,10 @@ type Hosted struct {
 // the hosted package's to know.
 const DefaultHostedURL = "https://api.tonelab.dev"
 
+// DefaultSiteURL is where the window sends a person for anything the
+// app itself does not do: plans, downloads, the account in full.
+const DefaultSiteURL = "https://tonelab.dev"
+
 type Config struct {
 	LLM    LLM    `json:"llm"`
 	DAW    DAW    `json:"daw"`

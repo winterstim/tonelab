@@ -2,6 +2,10 @@ version: '3'
 
 vars:
   APP_NAME: "tonelab"
+  # What the binary reports as its version and compares against the
+  # latest release: the tag when on one, the commit otherwise.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   BIN_DIR: "bin"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
@@ -67,22 +71,22 @@ tasks:
   build:cli:
     summary: Builds the command line for this machine, Windows and Linux. The Linux one needs ALSA headers, so it is built in Docker like the app.
     cmds:
-      - go build -trimpath -ldflags="-w -s" -o {{.BIN_DIR}}/tonelab-cli ./cmd/tonelab-cli
+      - go build -trimpath -ldflags="-w -s -X tonelab/backend/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/tonelab-cli ./cmd/tonelab-cli
       - for: ["amd64", "arm64"]
-        cmd: GOOS=windows GOARCH={{.ITEM}} CGO_ENABLED=0 go build -trimpath -ldflags="-w -s" -o {{.BIN_DIR}}/tonelab-cli-windows-{{.ITEM}}.exe ./cmd/tonelab-cli
+        cmd: GOOS=windows GOARCH={{.ITEM}} CGO_ENABLED=0 go build -trimpath -ldflags="-w -s -X tonelab/backend/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/tonelab-cli-windows-{{.ITEM}}.exe ./cmd/tonelab-cli
       - for: ["amd64", "arm64"]
         cmd: >-
           docker run --rm --platform linux/{{.ITEM}} -v "$PWD":/src -w /src -e GOFLAGS=-buildvcs=false -e HOME=/tmp golang:1.26-bookworm bash -c
           'apt-get update -qq >/dev/null && apt-get install -y -qq libasound2-dev >/dev/null 2>&1
-          && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -trimpath -ldflags="-w -s"
+          && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -trimpath -ldflags="-w -s -X tonelab/backend/version.Version={{.VERSION}}"
           -o {{.BIN_DIR}}/tonelab-cli-linux-{{.ITEM}} ./cmd/tonelab-cli'
 
   build:windows:
     summary: Cross-compiles the Windows binaries from any host (no cgo on Windows)
     deps: [common:build:frontend]
     cmds:
-      - GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui" -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.exe .
-      - GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui" -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-arm64.exe .
+      - GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui -X tonelab/backend/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.exe .
+      - GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -tags production -trimpath -ldflags="-w -s -H windowsgui -X tonelab/backend/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-arm64.exe .
 
   build:linux:
     summary: Builds the Linux binaries in Docker, since they need GTK and WebKitGTK headers
@@ -92,5 +96,5 @@ tasks:
         cmd: >-
           docker run --rm --platform linux/{{.ITEM}} -v "$PWD":/src -w /src -e GOFLAGS=-buildvcs=false -e HOME=/tmp golang:1.26-bookworm bash -c
           'apt-get update -qq >/dev/null && apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev libasound2-dev >/dev/null 2>&1
-          && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -tags "production gtk3" -trimpath -ldflags="-w -s"
+          && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -tags "production gtk3" -trimpath -ldflags="-w -s -X tonelab/backend/version.Version={{.VERSION}}"
           -o {{.BIN_DIR}}/{{.APP_NAME}}-linux-{{.ITEM}} .'

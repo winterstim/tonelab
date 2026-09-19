@@ -206,7 +206,7 @@ export function ChatView({ active, onAccount }: { active: boolean; onAccount: ()
                 <div className="flex items-center gap-1 px-3 pb-2.5 text-[13px] whitespace-nowrap text-muted-foreground">
                     {/* Not wrapped in the label: a label forwards its click to
                         the control inside it, which toggled the switch twice. */}
-                    <div className="flex items-center gap-2 rounded-full px-2 py-1">
+                    <div className="flex items-center gap-2 px-2 py-1">
                         <Switch id="preview-mode" aria-label="Show me the plan first" checked={preview} onCheckedChange={setPreview} />
                         <label htmlFor="preview-mode" className="cursor-pointer"><span className="@max-lg:hidden">Show me the plan first</span><span className="@lg:hidden">Plan first</span></label>
                     </div>
@@ -235,7 +235,7 @@ function Quiet({ className, ...props }: React.ComponentProps<"button">) {
     return (
         <button
             type="button"
-            className={cn("flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors hover:bg-secondary hover:text-foreground", className)}
+            className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 transition-colors hover:bg-secondary hover:text-foreground", className)}
             {...props}
         />
     );

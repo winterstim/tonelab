@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { AccountBlock } from "@/views/AccountBlock";
+import { AboutBlock } from "@/views/AboutBlock";
 
 // What the form holds, apart from the two keys, which go out only.
 interface Draft {
@@ -170,7 +171,7 @@ export function SettingsView({ active }: { active: boolean }) {
                     <Group title="Appearance">
                         <Field label="Theme">
                             {/* A row of options rather than a dropdown: three choices, worth seeing without opening anything. */}
-                            <div role="group" aria-label="Theme" className="flex gap-1 self-start rounded-full bg-secondary p-1">
+                            <div role="group" aria-label="Theme" className="flex gap-1 self-start rounded-lg bg-secondary p-1">
                                 {(["light", "dark", "system"] as Theme[]).map((name) => (
                                     <button
                                         key={name}
@@ -178,7 +179,7 @@ export function SettingsView({ active }: { active: boolean }) {
                                         aria-pressed={draft.theme === name}
                                         onClick={() => chooseTheme(name)}
                                         className={cn(
-                                            "rounded-full px-3 py-1 text-sm capitalize transition-colors",
+                                            "rounded-md px-3 py-1 text-sm capitalize transition-colors",
                                             draft.theme === name ? "bg-background text-foreground shadow-lift" : "text-muted-foreground hover:text-foreground",
                                         )}
                                     >
@@ -202,6 +203,8 @@ export function SettingsView({ active }: { active: boolean }) {
                         <span role="status" className={cn("text-[12.5px]", note.bad ? "text-destructive" : "text-faint")}>{note.text}</span>
                     </div>
                 </form>
+
+                <AboutBlock active={active} />
             </div>
         </section>
     );

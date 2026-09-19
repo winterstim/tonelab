@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"tonelab/backend/version"
 
 	"tonelab/backend/agent"
 	"tonelab/backend/config"
@@ -46,6 +48,18 @@ type SignInState struct {
 	Error     string
 }
 
+// Update is what the window shows about versions: this one, the latest
+// the service knows, and whether they differ. Available is false for a
+// dev build, which has no tag to be behind.
+type Update struct {
+	Current   string
+	Latest    string
+	Available bool
+	// Error is set when the service could not be asked; the window says
+	// nothing rather than "up to date".
+	Error string
+}
+
 // HostedService is "Sign in with Tonelab": one device flow at a time,
 // run in the background so the window stays live while the browser
 // does the rest, and a status read for the settings screen.
@@ -63,6 +77,82 @@ type HostedService struct {
 
 func NewHostedService(path string, live, previews *agent.Orchestrator, applySearch func(search.Provider), open func(string) error) *HostedService {
 	return &HostedService{path: path, agent: live, previews: previews, apply: applySearch, open: open}
+}
+
+// OpenSite opens a page of the site in the browser: the plans, the
+// downloads. Only a path is taken, so the window cannot be made to open
+// somewhere else.
+func (h *HostedService) OpenSite(path string) error {
+	if h.open == nil {
+		return nil
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return h.open(config.DefaultSiteURL + path)
+}
+
+// CheckUpdate compares this build with the latest release the service
+// reports. A dev build is never behind; a service that cannot be reached
+// is reported, not guessed about.
+func (h *HostedService) CheckUpdate() (Update, error) {
+	update := Update{Current: version.Version}
+	if version.Version == "dev" {
+		return update, nil
+	}
+	settings, err := config.Load(h.path)
+	url := config.DefaultHostedURL
+	if err == nil {
+		url = settings.HostedURL()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	release, err := hosted.NewClient(url, "").Latest(ctx)
+	if err != nil {
+		update.Error = explain(err)
+		return update, nil
+	}
+	update.Latest = release.Tag
+	update.Available = newer(release.Tag, version.Version)
+	return update, nil
+}
+
+// newer says whether tag is a later release than current, comparing the
+// numbers in order. Anything unparseable is not newer: a wrong "update
+// available" nags forever, a missed one costs a day.
+func newer(tag, current string) bool {
+	a, okA := parts(tag)
+	b, okB := parts(current)
+	if !okA || !okB {
+		return false
+	}
+	for i := 0; i < 3; i++ {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return false
+}
+
+func parts(tag string) ([3]int, bool) {
+	var out [3]int
+	tag = strings.TrimPrefix(tag, "v")
+	// A dirty or untagged build carries a suffix; only the numbers count.
+	if i := strings.IndexAny(tag, "-+"); i >= 0 {
+		tag = tag[:i]
+	}
+	fields := strings.Split(tag, ".")
+	if len(fields) != 3 {
+		return out, false
+	}
+	for i, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
 }
 
 // Status reads the account when signed in. A service that does not
