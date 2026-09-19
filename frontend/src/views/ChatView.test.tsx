@@ -9,6 +9,9 @@ async function open() {
     return await screen.findByRole("textbox", { name: "Command" });
 }
 
+// Only the view on screen; the others stay mounted but hidden.
+const panel = () => within(screen.getByRole("tabpanel"));
+
 test("a command is sent, and the DAW's confirmation is shown apart from the answer", async () => {
     const user = userEvent.setup();
     const input = await open();
@@ -20,7 +23,7 @@ test("a command is sent, and the DAW's confirmation is shown apart from the answ
 
     expect(await screen.findByText("a quarter")).toBeInTheDocument();
     expect(screen.getByText("track 1 volume: 0.25")).toHaveClass("text-success");
-    expect(screen.getByText("Set track 1 volume to a quarter")).toBeInTheDocument();
+    expect(panel().getByText("Set track 1 volume to a quarter")).toBeInTheDocument();
     expect(input).toHaveValue("");
 });
 
@@ -89,7 +92,7 @@ test("a reply that finishes after switching conversations is not drawn in the wr
     await screen.findByText("Working…");
 
     await user.click(screen.getByRole("button", { name: "New conversation" }));
-    await waitFor(() => expect(screen.queryByText("First question")).not.toBeInTheDocument());
+    await waitFor(() => expect(panel().queryByText("First question")).not.toBeInTheDocument());
     release();
     await waitFor(() => expect(screen.queryByText("Working…")).not.toBeInTheDocument());
     expect(screen.queryByText("Belongs to the first.")).not.toBeInTheDocument();

@@ -55,13 +55,13 @@ export function App() {
                 {/* Kept mounted rather than routed: a view holds half-typed
                     settings and a scrolled thread, and both should survive a
                     look at another tab. */}
-                <div className="min-h-0 flex-1" hidden={view !== "chat"}>
+                <div role="tabpanel" aria-label="Chat" className="min-h-0 flex-1" hidden={view !== "chat"}>
                     <ChatView active={view === "chat"} />
                 </div>
-                <div className="min-h-0 flex-1" hidden={view !== "history"}>
+                <div role="tabpanel" aria-label="History" className="min-h-0 flex-1" hidden={view !== "history"}>
                     <HistoryView active={view === "history"} />
                 </div>
-                <div className="min-h-0 flex-1" hidden={view !== "settings"}>
+                <div role="tabpanel" aria-label="Settings" className="min-h-0 flex-1" hidden={view !== "settings"}>
                     <SettingsView active={view === "settings"} />
                 </div>
             </main>
