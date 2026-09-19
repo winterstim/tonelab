@@ -130,6 +130,13 @@ type Tools struct {
 	readPage func(ctx context.Context, address string, limit int) (string, error)
 	daw      daw.Client
 
+	// known is the track list as last read, handed to the model in the
+	// prompt so the usual turn does not spend a whole completion asking
+	// for it again. Names are project data and stale is possible, which
+	// the prompt says.
+	knownMu sync.Mutex
+	known   []daw.Track
+
 	// dryRun makes the changing tools describe themselves instead of acting.
 	// Reads still run: seeing the plan is worth nothing if the agent could
 	// not look at the project to make one.
@@ -159,7 +166,7 @@ func (t *Tools) Definitions() []Tool {
 		{
 			Name: "get_param",
 			Description: fmt.Sprintf(
-				"Read the current value of a named track parameter. Valid names right now: %s.",
+				"Read a track parameter. Names: %s.",
 				known),
 			InputSchema: map[string]any{
 				"type": "object",
@@ -173,8 +180,7 @@ func (t *Tools) Definitions() []Tool {
 		{
 			Name: "set_param",
 			Description: fmt.Sprintf(
-				"Set a named track parameter. Numeric values are normalized 0.0 to 1.0, "+
-					"never dB or Hz; on/off parameters take true or false. Valid names right now: %s.",
+				"Set a track parameter. Numbers are 0.0 to 1.0, never dB or Hz; on/off ones take true or false. Names: %s.",
 				known),
 			InputSchema: map[string]any{
 				"type": "object",
@@ -190,7 +196,7 @@ func (t *Tools) Definitions() []Tool {
 						"type":        []string{"number", "boolean"},
 						"minimum":     0,
 						"maximum":     1,
-						"description": "A number from 0.0 to 1.0 for continuous parameters, or true/false for on-off parameters.",
+						"description": "0.0 to 1.0, or true/false for on-off.",
 					},
 				},
 				"required": []string{"track_id", "param_name", "value"},
@@ -203,9 +209,8 @@ func (t *Tools) Definitions() []Tool {
 	// this, and a tool that always fails is worse than one that is absent.
 	if _, ok := t.daw.(reverser); ok {
 		definitions = append(definitions, Tool{
-			Name: "undo",
-			Description: "Reverse the DAW's last change. Use this when the user asks to undo, " +
-				"take something back, or revert what was just done.",
+			Name:        "undo",
+			Description: "Reverse the DAW's last change.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -215,9 +220,8 @@ func (t *Tools) Definitions() []Tool {
 
 	if _, ok := t.daw.(lister); ok {
 		definitions = append(definitions, Tool{
-			Name: "list_tracks",
-			Description: "List the project's tracks with their numbers and names. " +
-				"Use this to turn a track the user named, such as \"the vocals\", into a track number.",
+			Name:        "list_tracks",
+			Description: "List the project's tracks by number and name.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -330,7 +334,26 @@ func (t *Tools) listTracks() Result {
 	for i := range tracks {
 		tracks[i].Name = asName(tracks[i].Name)
 	}
+	t.knownMu.Lock()
+	t.known = append([]daw.Track(nil), tracks...)
+	t.knownMu.Unlock()
 	return Result{Value: tracks}
+}
+
+// KnownTracks is the track list as last read, one line, or empty when it
+// has never been read. A follow-up turn that names a track can then be
+// answered without listing again.
+func (t *Tools) KnownTracks() string {
+	t.knownMu.Lock()
+	defer t.knownMu.Unlock()
+	if len(t.known) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(t.known))
+	for _, track := range t.known {
+		parts = append(parts, fmt.Sprintf("%d %s", track.Number, track.Name))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // maxNameLength bounds text that comes from the project rather than from the

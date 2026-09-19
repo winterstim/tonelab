@@ -137,9 +137,8 @@ func (t *Tools) fxDefinitions() []Tool {
 	track := map[string]any{"type": "integer", "minimum": 1}
 	return []Tool{
 		{
-			Name: "list_fx",
-			Description: "List the effects (plugins) on a track by number and name, with how many " +
-				"parameters each has. Does not list the parameters: use find_params for that.",
+			Name:        "list_fx",
+			Description: "List the effects on a track by number and name. For parameters use find_params.",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{"track_id": track},
@@ -148,11 +147,9 @@ func (t *Tools) fxDefinitions() []Tool {
 		},
 		{
 			Name: "find_params",
-			Description: "Search the parameters of every effect on a track by words, such as " +
-				"\"reverb mix\" or \"gain\". Returns the best matches with their fx_id and param_id, " +
-				"which set_fx_param and get_fx_param take. Use this instead of guessing indices. " +
-				"A match with kind \"switch\" takes 0 or 1; \"list\" with N steps takes (position-1)/(N-1); " +
-				"no kind means a continuous 0.0 to 1.0 control.",
+			Description: "Find effect parameters on a track by words (\"reverb mix\"). Returns fx_id and param_id for " +
+				"set_fx_param/get_fx_param. kind \"switch\" takes 0 or 1; \"list\" with N steps takes (position-1)/(N-1); " +
+				"no kind is continuous 0.0 to 1.0.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -164,7 +161,7 @@ func (t *Tools) fxDefinitions() []Tool {
 		},
 		{
 			Name:        "get_fx_param",
-			Description: "Read an effect parameter by position, as found by find_params. Values are normalized 0.0 to 1.0.",
+			Description: "Read an effect parameter found by find_params. 0.0 to 1.0.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -177,9 +174,8 @@ func (t *Tools) fxDefinitions() []Tool {
 		},
 		{
 			Name: "set_fx_param",
-			Description: "Set an effect parameter by position, as found by find_params. " +
-				"Values are normalized 0.0 to 1.0, never dB, Hz or percent; a switch takes 0 or 1. " +
-				"Returns what the DAW reports the value became, which the plugin may have rounded.",
+			Description: "Set an effect parameter found by find_params. 0.0 to 1.0, never dB, Hz or percent; " +
+				"a switch takes 0 or 1. Returns what the DAW reports, which the plugin may round.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

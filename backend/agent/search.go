@@ -40,9 +40,8 @@ func (t *Tools) searcher() search.Provider {
 func (t *Tools) searchDefinition() Tool {
 	return Tool{
 		Name: "search",
-		Description: "Search the web for advice that is not in the project, such as how a kind of " +
-			"tone or mix is usually set up, or what a plugin's control does. Returns a few results " +
-			"with their source. Web advice is current, not necessarily correct: say where it came from.",
+		Description: "Search the web for advice not in the project (how a tone is set up, what a plugin control does). " +
+			"Say where the advice came from.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
