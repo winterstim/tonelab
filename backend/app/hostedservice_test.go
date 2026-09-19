@@ -123,3 +123,26 @@ func TestSignInAgainstNothingSaysSo(t *testing.T) {
 		t.Fatalf("%+v", state)
 	}
 }
+
+// A release is newer only when its numbers say so; a suffix from a dirty
+// or untagged build never makes one.
+func TestNewerRelease(t *testing.T) {
+	cases := []struct {
+		tag, current string
+		want         bool
+	}{
+		{"v0.2.0", "v0.1.0", true},
+		{"v0.1.0", "v0.1.0", false},
+		{"v0.1.0", "v0.2.0", false},
+		{"v1.0.0", "v0.9.9", true},
+		{"v0.1.1", "v0.1.0-3-gabc123", true},
+		{"v0.1.0", "v0.1.0-3-gabc123", false},
+		{"garbage", "v0.1.0", false},
+		{"v0.2.0", "dev", false},
+	}
+	for _, c := range cases {
+		if got := newer(c.tag, c.current); got != c.want {
+			t.Errorf("newer(%q, %q) = %v, want %v", c.tag, c.current, got, c.want)
+		}
+	}
+}

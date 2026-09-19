@@ -16,6 +16,14 @@ import (
 	"time"
 )
 
+// Release is the latest build the service points at; only what the
+// window needs to say whether this one is behind.
+type Release struct {
+	Tag         string    `json:"tag"`
+	PublishedAt time.Time `json:"published_at"`
+	Notes       string    `json:"notes,omitempty"`
+}
+
 // Prefix is the API version this client speaks. Set once here: the
 // settings hold the origin, and every path below is relative to
 // origin + Prefix, which is also what the model and search sections are
@@ -213,6 +221,14 @@ func (c *Client) SignOut(ctx context.Context, key string, keyID int64) error {
 		return nil
 	}
 	return c.call(ctx, http.MethodDelete, fmt.Sprintf("/account/keys/%d", keyID), key, nil, nil)
+}
+
+// Latest asks which release is current. No key: the download page asks
+// the same without one.
+func (c *Client) Latest(ctx context.Context) (Release, error) {
+	var release Release
+	err := c.call(ctx, http.MethodGet, "/releases/latest", "", nil, &release)
+	return release, err
 }
 
 func (c *Client) call(ctx context.Context, method, path, key string, body any, out any) error {

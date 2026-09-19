@@ -16,6 +16,7 @@ import type {
     Settings,
     SettingsResult,
     SignInState,
+    Update,
 } from "../../bindings/tonelab/backend/app/models";
 
 type Thread = Conversation & { Messages: ChatMessage[] };
@@ -46,6 +47,8 @@ export const world = {
     stopped: 0,
     undone: 0,
     plan: null as PlannedCall[] | null,
+    opened: [] as string[],
+    update: { Current: "v0.1.0", Latest: "v0.1.0", Available: false, Error: "" } as Update,
 };
 
 let ids = 0;
@@ -93,6 +96,8 @@ export function reset() {
     world.stopped = 0;
     world.undone = 0;
     world.plan = null;
+    world.opened = [];
+    world.update = { Current: "v0.1.0", Latest: "v0.1.0", Available: false, Error: "" };
 }
 
 reset();
@@ -279,6 +284,14 @@ export const HostedService = {
     async Cancel(): Promise<void> {
         await tick();
         world.signIn = { Running: false, Done: false, UserCode: "", VerifyURL: "", Error: "" };
+    },
+    async OpenSite(path: string): Promise<void> {
+        await tick();
+        world.opened.push(path);
+    },
+    async CheckUpdate(): Promise<Update> {
+        await tick();
+        return { ...world.update };
     },
     async SignOut(): Promise<HostedStatus> {
         await tick();

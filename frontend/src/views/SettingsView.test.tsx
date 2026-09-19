@@ -129,3 +129,10 @@ test("the sidebar's account row starts signing in when signed out", async () => 
     await user.click(await sidebar.findByRole("button", { name: /^Sign in with Tonelab/ }));
     expect(await screen.findByText("ABCD-EFGH")).toBeInTheDocument();
 });
+
+test("a newer release is offered as a download on the site", async () => {
+    world.update = { Current: "v0.1.0", Latest: "v0.2.0", Available: true, Error: "" };
+    const user = await openSettings();
+    await user.click(await screen.findByRole("button", { name: "v0.2.0 is available, download" }));
+    expect(world.opened).toEqual(["/download"]);
+});

@@ -151,3 +151,12 @@ test("without a plan the card offers one; on the person's own endpoint the plain
     await user.type(input, "Again{Enter}");
     expect(await screen.findByText("The endpoint is rate limiting requests.")).toHaveClass("text-destructive");
 });
+
+test("choosing a plan opens the site's pricing", async () => {
+    const user = userEvent.setup();
+    const input = await open();
+    world.next = { error: { Code: "no_active_plan", Message: "No subscription yet.", Usage: null } };
+    await user.type(input, "Hello{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Choose a plan" }));
+    expect(world.opened).toEqual(["/pricing"]);
+});
