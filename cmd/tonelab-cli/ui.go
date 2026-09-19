@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ type model struct {
 	input   textinput.Model
 	spinner spinner.Model
 	width   int
+	sized   bool
 
 	busy    bool
 	started time.Time
@@ -38,6 +40,10 @@ type model struct {
 	history []string
 	recall  int
 	draft   string
+
+	// Everything printed above the prompt this session, as a way to draw
+	// it again at another width: a resize starts the terminal over.
+	log []func(width int) string
 
 	menu     []command
 	menuAt   int
@@ -85,6 +91,7 @@ func newModel(runtime *app.Runtime, settings config.Config, path string) model {
 
 	m := model{runtime: runtime, settings: settings, path: path, input: input, spinner: dots, width: 80}
 	m.repaint()
+	m.log = append(m.log, func(int) string { return banner(settings) })
 	if current, err := runtime.Agent.CurrentConversation(); err == nil {
 		m.thread = current.Title
 		for _, message := range current.Messages {
@@ -107,6 +114,20 @@ func (m *model) repaint() {
 	// fainter than its own help line.
 	m.input.TextStyle = theme.Text
 	m.spinner.Style = theme.Surface
+}
+
+// fitPlaceholder keeps the hint inside the box: the text field draws
+// its placeholder whole, and a box narrower than it would wrap the row.
+func (m *model) fitPlaceholder() {
+	const hint = "ask for a change, / for commands"
+	if m.input.Width >= len(hint) {
+		m.input.Placeholder = hint
+		return
+	}
+	m.input.Placeholder = "ask for a change"
+	if m.input.Width < len(m.input.Placeholder) {
+		m.input.Placeholder = strings.TrimSpace(hint[:max(m.input.Width-1, 0)]) + "…"
+	}
 }
 
 func (m model) Init() tea.Cmd {
@@ -133,8 +154,21 @@ func (m model) probe() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		// The prompt is drawn inline, and a terminal that changes width
+		// (a zoom, a resize) rewraps the rows under it, so the repaint
+		// lands on the wrong rows and old frames pile up, on screen and
+		// in the scrollback the overflow was pushed into. The one clean
+		// cure is to start the terminal over: wipe it, scrollback
+		// included, and print the conversation again at the new width
+		// from the backend's copy, which is the source anyway.
+		changed := m.sized && msg.Width != m.width
+		m.sized = true
 		m.width = msg.Width
-		m.input.Width = max(msg.Width-6, 20)
+		m.input.Width = max(msg.Width-6, 4)
+		m.fitPlaceholder()
+		if changed {
+			return m, m.redraw()
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -144,12 +178,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Signing in changed the endpoint; the status line reads it.
 		m.settings, _ = config.Load(m.path)
 		if msg.state.Error != "" {
-			return m, tea.Println(indent(theme.Error.Render(msg.state.Error)) + "\n")
+			return m, m.print(func(int) string { return indent(theme.Error.Render(msg.state.Error)) + "\n" })
 		}
 		if !msg.state.Done {
-			return m, tea.Println(indent(theme.Muted.Render("sign-in cancelled")) + "\n")
+			return m, m.print(func(int) string { return indent(theme.Muted.Render("sign-in cancelled")) + "\n" })
 		}
-		return m, tea.Println(indent(theme.Success.Render("signed in")+"\n"+renderAccount(m.runtime)) + "\n")
+		account := renderAccount(m.runtime)
+		return m, m.print(func(int) string { return indent(theme.Success.Render("signed in")+"\n"+account) + "\n" })
 
 	case statusTick:
 		m.status = app.DAWStatus(msg)
@@ -167,7 +202,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if current, err := m.runtime.Agent.CurrentConversation(); err == nil {
 			m.thread = current.Title
 		}
-		return m, tea.Println(renderTurn(msg.response, m.width))
+		response := msg.response
+		return m, m.print(func(width int) string { return renderTurn(response, width) })
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -308,13 +344,16 @@ func (m model) submit(text string) (tea.Model, tea.Cmd) {
 	if secretLine(text) {
 		shown = strings.Join(strings.Fields(text)[:2], " ") + " ••••••"
 	}
-	echo := tea.Println(theme.Surface.Render("› ") + theme.Text.Render(shown))
+	echoLine := func() string { return theme.Surface.Render("› ") + theme.Text.Render(shown) }
 	say := func(lines ...string) (tea.Model, tea.Cmd) {
 		// One print, so the echo and its answer cannot land out of order.
-		return m, tea.Println(theme.Surface.Render("› ") + theme.Text.Render(shown) + "\n" + indent(strings.Join(lines, "\n")) + "\n")
+		answer := indent(strings.Join(lines, "\n"))
+		cmd := m.print(func(int) string { return echoLine() + "\n" + answer + "\n" })
+		return m, cmd
 	}
 	run := func(verb string, do func() app.AgentResponse) (tea.Model, tea.Cmd) {
 		m.busy, m.started, m.verb, m.notice = true, time.Now(), verb, ""
+		echo := m.print(func(int) string { return echoLine() })
 		return m, tea.Batch(echo, tea.Tick(time.Second, func(t time.Time) tea.Msg { return clockTick(t) }), func() tea.Msg { return turnDone{do()} })
 	}
 	fields := strings.Fields(text)
@@ -397,6 +436,7 @@ func (m model) submit(text string) (tea.Model, tea.Cmd) {
 				m.pickAt = i
 			}
 		}
+		echo := m.print(func(int) string { return echoLine() })
 		return m, echo
 	case "/rename":
 		if len(fields) == 1 {
@@ -443,24 +483,68 @@ func (m model) pickThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.picking = nil
 		opened, err := m.runtime.Agent.OpenConversation(chosen.ID)
 		if err != nil {
-			return m, tea.Println(indent(theme.Error.Render(err.Error())))
+			return m, m.print(func(int) string { return indent(theme.Error.Render(err.Error())) })
 		}
 		m.thread = opened.Title
 		m.hasPlan = false
 		m.history = nil
-		var lines []string
 		for _, message := range opened.Messages {
 			if message.From == "you" {
 				m.history = append(m.history, message.Text)
-				lines = append(lines, theme.Surface.Render("› ")+theme.Text.Render(message.Text))
-			} else {
-				lines = append(lines, indent(renderTurnBody(app.AgentResponse{Message: message.Text, Changed: message.Changed, Plan: message.Plan, Error: message.Error}, m.width-4)))
 			}
 		}
 		m.recall = len(m.history)
-		return m, tea.Println(theme.Muted.Render("resumed: "+opened.Title) + "\n" + strings.Join(lines, "\n") + "\n")
+		return m, m.print(func(width int) string {
+			return theme.Muted.Render("resumed: "+opened.Title) + "\n" + transcript(opened, width) + "\n"
+		})
 	}
 	return m, nil
+}
+
+// transcript is the conversation as the prompt would have printed it,
+// laid out for the given width.
+func transcript(thread app.Conversation, width int) string {
+	var lines []string
+	for _, message := range thread.Messages {
+		if message.From == "you" {
+			lines = append(lines, theme.Surface.Render("› ")+theme.Text.Render(message.Text))
+		} else {
+			lines = append(lines, indent(renderTurnBody(app.AgentResponse{Message: message.Text, Changed: message.Changed, Plan: message.Plan, Error: message.Error}, width-4)))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// print shows text above the prompt and keeps how to draw it again.
+// Kept bounded: a session that ran for days should not redraw all of it.
+func (m *model) print(render func(width int) string) tea.Cmd {
+	m.log = append(m.log, render)
+	if len(m.log) > 200 {
+		m.log = m.log[len(m.log)-200:]
+	}
+	return tea.Println(render(m.width))
+}
+
+// redraw wipes the terminal, scrollback included, and prints this
+// session's output again at the new width. Only what was on screen comes
+// back, laid out afresh, so the terminal reads as it did before the
+// resize rather than as a replay of the whole thread.
+func (m model) redraw() tea.Cmd {
+	var body strings.Builder
+	for _, render := range m.log {
+		body.WriteString(render(m.width))
+		body.WriteString("\n")
+	}
+	// The wipe is written directly, screen then scrollback then home,
+	// because the rows a resize rewrapped have already scrolled off by
+	// the time the renderer would act. Not tea.ClearScreen after it:
+	// Terminal.app treats a screen clear as a push into the scrollback,
+	// so a second one would leave a screenful of blank rows above. The
+	// print that follows makes the renderer draw the prompt again.
+	return tea.Sequence(
+		func() tea.Msg { os.Stdout.WriteString("\x1b[2J\x1b[3J\x1b[H"); return nil },
+		tea.Println(strings.TrimRight(body.String(), "\n")),
+	)
 }
 
 func (m model) View() string {
@@ -481,13 +565,13 @@ func (m model) View() string {
 			}
 			parts = append(parts, "  "+mark+theme.Text.Render(title))
 		}
-		return strings.Join(parts, "\n")
+		return m.fit(parts)
 	}
 	if m.busy {
 		elapsed := int(time.Since(m.started).Seconds())
 		parts = append(parts, m.spinner.View()+" "+theme.Surface.Render(m.verb)+theme.Muted.Render(fmt.Sprintf("  %ds  ·  esc to stop", elapsed)))
 	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(paletteAt(0.6))).Padding(0, 1).Width(max(m.width-2, 24))
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(paletteAt(0.6))).Padding(0, 1).Width(max(m.width-2, 8))
 	parts = append(parts, box.Render(m.input.View()))
 	if len(m.menu) > 0 {
 		for i, c := range m.menu {
@@ -504,7 +588,19 @@ func (m model) View() string {
 	} else {
 		parts = append(parts, statusLine(m))
 	}
-	return strings.Join(parts, "\n")
+	return m.fit(parts)
+}
+
+// fit truncates every row to the terminal's width. The prompt is drawn
+// inline, and a row the terminal has to wrap makes the frame one row
+// taller than the renderer believes, so each repaint drifts down and
+// leaves a copy of the frame behind.
+func (m model) fit(rows []string) string {
+	cut := lipgloss.NewStyle().MaxWidth(max(m.width, 1))
+	for i, row := range rows {
+		rows[i] = cut.Render(row)
+	}
+	return strings.Join(rows, "\n")
 }
 
 func statusLine(m model) string {

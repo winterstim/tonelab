@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -165,10 +166,17 @@ func collect(cmd tea.Cmd) []tea.Msg {
 		return nil
 	}
 	msg := cmd()
-	if batch, ok := msg.(tea.BatchMsg); ok {
+	if msg == nil {
+		return nil
+	}
+	// A batch or a sequence is a slice of commands; the sequence type is
+	// unexported, so both are walked by shape.
+	if v := reflect.ValueOf(msg); v.Kind() == reflect.Slice && v.Type().Elem() == reflect.TypeOf(tea.Cmd(nil)) {
 		var out []tea.Msg
-		for _, c := range batch {
-			out = append(out, collect(c)...)
+		for i := 0; i < v.Len(); i++ {
+			if c, ok := v.Index(i).Interface().(tea.Cmd); ok {
+				out = append(out, collect(c)...)
+			}
 		}
 		return out
 	}
@@ -327,5 +335,64 @@ func TestThemesSwitchRememberAndRefuseUnknownNames(t *testing.T) {
 	loadTheme(path)
 	if theme.Name != "lagoon" || background != "light" || !dark(theme.Text) {
 		t.Fatalf("the word survives a restart, got %s %q", theme.Name, background)
+	}
+}
+
+func TestFrameNeverWiderThanTheTerminal(t *testing.T) {
+	runtime, path, _ := hostedRuntime(t)
+	settings, _ := config.Load(path)
+	m := newModel(runtime, settings, path)
+	m.thread = strings.Repeat("a long conversation title ", 8)
+	for _, width := range []int{40, 35, 24} {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 20})
+		m = next.(model)
+		rows := strings.Split(m.View(), "\n")
+		if len(rows) != 4 {
+			t.Fatalf("%d columns: the frame is box (3 rows) plus status, got %d rows:\n%s", width, len(rows), m.View())
+		}
+		for _, row := range rows {
+			if w := lipgloss.Width(row); w > width {
+				t.Fatalf("row of %d columns in a %d-column terminal: %q", w, width, row)
+			}
+		}
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = next.(model)
+	for _, row := range strings.Split(m.View(), "\n") {
+		if w := lipgloss.Width(row); w > 40 {
+			t.Fatalf("menu row of %d columns: %q", w, row)
+		}
+	}
+}
+
+// A resize redraws what this session printed, at the new width, and
+// nothing that was never on screen.
+func TestResizeRedrawsThisSessionsOutputOnly(t *testing.T) {
+	runtime, path, _ := hostedRuntime(t)
+	settings, _ := config.Load(path)
+	m := newModel(runtime, settings, path)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = next.(model)
+
+	next, _ = m.submit("/theme")
+	m = next.(model)
+	next, _ = m.Update(turnDone{app.AgentResponse{Message: strings.Repeat("a long answer ", 12)}})
+	m = next.(model)
+
+	next, cmd := m.Update(tea.WindowSizeMsg{Width: 40, Height: 30})
+	m = next.(model)
+	out := printed(collect(cmd))
+	if !strings.Contains(out, "tonelab") || !strings.Contains(out, "› /theme") || !strings.Contains(out, "fire") || !strings.Contains(out, "a long answer") {
+		t.Fatalf("the banner, the command, its answer and the turn come back, got %q", out)
+	}
+	if strings.Contains(out, "Turn the guitar") {
+		t.Fatal("what was never printed this session stays out")
+	}
+	for _, row := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(row); w > 40 && strings.Contains(row, "a long answer") {
+			t.Fatalf("the turn is laid out for the new width, got %d columns", w)
+		}
 	}
 }
