@@ -1,8 +1,8 @@
 import * as React from "react"
 
-// A desktop window is never a phone: the sidebar folds to its rail when
-// narrow instead of turning into a sheet.
-const MOBILE_BREAKPOINT = 0
+// Below this the sidebar becomes a drawer over the thread: a rail plus a
+// thread plus a bar is more than a narrow window can seat.
+const MOBILE_BREAKPOINT = 768
 
 export function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)

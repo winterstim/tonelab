@@ -43,26 +43,18 @@ function Frame() {
     const title = conversations.find((c) => c.Active)?.Title ?? "New conversation";
     // With the sidebar folded to its icon rail, the macOS traffic lights
     // reach past it into this bar; the toggle moves out from under them.
-    const { state: sidebar, setOpen } = useSidebar();
-
-    // A narrow window folds the sidebar on its own; the person can still
-    // open it, and it stays open once the window is wide again.
-    useEffect(() => {
-        const media = window.matchMedia("(max-width: 760px)");
-        const fold = () => { if (media.matches) setOpen(false); };
-        fold();
-        media.addEventListener("change", fold);
-        return () => media.removeEventListener("change", fold);
-    }, [setOpen]);
+    const { state: sidebar, isMobile } = useSidebar();
 
     return (
         <>
             <AppSidebar screen={screen} onScreen={setScreen} />
             <SidebarInset className="@container h-svh max-h-svh min-w-0 overflow-hidden bg-background">
                 {/* The bar is the drag region under a hidden title bar. */}
-                <header className={cn("flex h-[52px] flex-none items-center gap-2 px-3 [-webkit-app-region:drag]", sidebar === "collapsed" && "pl-[42px]")}>
+                <header className={cn("flex h-[52px] flex-none items-center gap-2 px-3 [-webkit-app-region:drag]", isMobile ? "pl-[84px]" : sidebar === "collapsed" && "pl-[42px]")}>
                     <SidebarTrigger className="[-webkit-app-region:no-drag]" />
-                    <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {/* Centred once the sidebar is a drawer: with nothing to the
+                        left, a title hugging the toggle reads as off-balance. */}
+                    <h1 className={cn("min-w-0 flex-1 truncate text-sm font-medium", isMobile && "text-center")}>
                         {screen === "settings" ? "Settings" : title}
                     </h1>
                     <DAWLight />

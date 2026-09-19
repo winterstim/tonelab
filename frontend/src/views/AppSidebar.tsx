@@ -5,15 +5,18 @@ import { useStore } from "@/store";
 import { cn } from "@/lib/utils";
 import {
     Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-    SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem,
+    SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { Screen } from "@/App";
 
 // Conversations are always in view rather than behind a menu: switching
 // is frequent, and a list one glance away costs nothing while typing.
-export function AppSidebar({ screen, onScreen }: { screen: Screen; onScreen: (screen: Screen) => void }) {
+export function AppSidebar({ screen, onScreen: go }: { screen: Screen; onScreen: (screen: Screen) => void }) {
     const { conversations, startConversation, askSignIn } = useStore();
+    // As a drawer, choosing anything is also the reason to close it.
+    const { setOpenMobile } = useSidebar();
+    const onScreen = (next: Screen) => { go(next); setOpenMobile(false); };
 
     return (
         // Folded, the rail drops its tint and edge: a tinted strip under the
