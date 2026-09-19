@@ -4,7 +4,7 @@ Natural-language control for your DAW. Say what you want changed, and an
 agent finds the track, the plugin and the parameter, changes it, and reports
 back what the DAW says the value became.
 
-![Tonelab controlling a guitar track and an amp simulator in REAPER](.github/screenshot.png)
+![Tonelab: a conversation that reads the tracks, then lowers the vocals and widens the guitar, each change confirmed by the DAW](.github/screenshot.png)
 
 > "Turn the guitar down to a quarter and pan it a little to the left."
 > "Now push the reverb on its amp sim up to about 60%."
@@ -40,11 +40,37 @@ back what the DAW says the value became.
 Adding a DAW means one backend file behind the same interface; everything
 above it, including the agent and the window, stays as is.
 
+### Other DAWs
+
+Tonelab adds a DAW only when the DAW can report names and values back:
+"confirmed by the DAW" is a promise, not a hope, so a host that only takes
+commands is not enough. Where the others stand:
+
+**Could be added.** The host exposes enough; nobody has written it yet.
+- **Bitwig Studio**: the Controller API reads and writes tracks, mixer and
+  device parameters by name. The most complete of the lot.
+- **Cubase / Nuendo**: the MIDI Remote API covers the mixer; plugin
+  parameters only as far as they are mapped by hand. It would land as Live
+  does, mixer first.
+
+**Unlikely.** Nothing public reports the project back.
+- **Logic Pro**: control surfaces (Mackie, HUI, OSC) carry faders, not
+  plugin names or values; what remains is Accessibility scripting, which
+  breaks with releases.
+- **Studio One**: surface emulation only, no scripting API.
+- **Pro Tools**: the scripting SDK is licensed by Avid, not open to a
+  client like this one.
+
+**Not possible.** No external control at all: GarageBand, mobile and
+browser DAWs.
+
+If you know a route this misses, open an issue.
+
 ## Requirements
 
 - macOS 12+, Windows 10+ (WebView2 runtime; present on Windows 11 and on an
   updated Windows 10), or Linux with `libwebkit2gtk-4.1`.
-- A supported DAW, set up to send OSC feedback (below).
+- A supported DAW, set up to report back (below).
 - An OpenAI-compatible model endpoint with tool calling. Tested with
   `openai/gpt-oss-20b` on Groq and a local 27B model on Ollama.
 
@@ -66,8 +92,8 @@ off by default, and without it nothing can be read back.
 
 **Ableton Live:** copy AbletonOSC into
 `~/Music/Ableton/User Library/Remote Scripts/AbletonOSC`, restart Live, and
-pick AbletonOSC as a control surface under Link, Tempo & MIDI. Live's
-status bar confirms it is listening on port 11000.
+pick AbletonOSC as a control surface under Link, Tempo & MIDI. It listens
+on 11000 and answers on 11001; set `port` and `feedback_port` to those.
 
 **FL Studio:** set the backend to `flstudio` and start Tonelab first; it
 creates a MIDI port named Tonelab and puts its controller script under
@@ -104,20 +130,18 @@ tonelab-cli status                   is the DAW answering
 tonelab-cli undo                     take back the DAW's last change
 ```
 
-The interactive screen works like the agent terminals you may already
-use: each turn shows the tools it called, one line each with what came
-back, then the answer and what the DAW confirmed, all in your terminal's
-own scrollback. `/` opens the command list: `/preview`, `/apply`, `/undo`,
-`/new`, `/resume` (pick an earlier conversation), `/rename`, `/status`,
-`/daw`, and `/settings`, which shows every setting the window has and
-changes one with `/settings <name> <value>`; keys are never echoed or
-recalled. `/login`, `/account` and `/logout` handle a Tonelab subscription
-the same way the window does. `/theme` picks the look (`fire`, `lagoon`,
-`emerald`, plain `white` or `black`, or `adaptive`, which is white or black by the terminal background) and remembers it; `/theme dark` or `/theme light` says which background the text sits on when the terminal reports it wrong or changes its look mid-run. Arrows recall earlier commands, `esc` stops a turn in flight,
-`ctrl+c` twice quits. Piped or with `NO_COLOR` set, output
-is plain text; the exit code is 1 when a command failed and 2 when it ran
-but the DAW did not confirm the change. Binaries for each platform are on
-the Releases page beside the app.
+Interactively, each turn shows the tools it called with what came back,
+then the answer and what the DAW confirmed, in the terminal's own
+scrollback. `/` lists the commands: `/preview`, `/apply`, `/undo`, `/new`,
+`/resume`, `/rename`, `/status`, `/daw`, `/settings` (every setting the
+window has; `/settings <name> <value>` changes one, `/settings key off`
+removes a key; keys are never echoed or recalled), `/login`, `/account`,
+`/logout`, and `/theme` (`fire`, `lagoon`, `emerald`, `white`, `black` or
+`adaptive`; add `light` or `dark` if the text reads wrong for your
+terminal). Arrows recall earlier commands, `esc` stops a turn, `ctrl+c`
+twice quits. Piped or with `NO_COLOR` set, output is plain text; the exit
+code is 1 when a command failed and 2 when it ran but the DAW did not
+confirm the change.
 
 ## Configuration
 
@@ -135,7 +159,7 @@ the Releases page beside the app.
 
 ## Development
 
-Requires Go 1.25+, Node, and the [Wails v3 CLI](https://v3.wails.io/getting-started/installation/).
+Requires Go 1.26+, Node, and the [Wails v3 CLI](https://v3.wails.io/getting-started/installation/).
 
 ```
 wails3 dev                     # run with hot reload
@@ -151,6 +175,7 @@ Tests run at three levels. The first needs nothing installed.
 go test ./...                                   # fakes held to the real backends' contract
 go test -tags reaper -count=1 -p 1 ./...        # against a running REAPER
 go test -tags ableton -count=1 ./backend/daw    # against a running Live
+go test -tags flstudio -count=1 ./backend/daw   # against a running FL Studio
 go test -tags "llm reaper" -p 1 ./backend/app   # the whole thing, with a real model
 ```
 
@@ -166,6 +191,8 @@ backend/search   web search providers
 backend/config   the user's settings file
 backend/app      the services the window calls, and the runtime both interfaces stand on
 backend/midi     a MIDI port for DAWs whose scripting has nothing else
+backend/hosted   the client of the Tonelab service: device sign-in, account, releases
+backend/version  the build's version, stamped at link time
 cmd/tonelab-cli  the command line, a second view on the same backend
 frontend/src     the window
 ```
