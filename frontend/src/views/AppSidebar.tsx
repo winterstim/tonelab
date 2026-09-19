@@ -16,7 +16,10 @@ export function AppSidebar({ screen, onScreen }: { screen: Screen; onScreen: (sc
     const { conversations, startConversation } = useStore();
 
     return (
-        <Sidebar collapsible="icon" className="border-r-0">
+        // Folded, the rail drops its tint and edge: a tinted strip under the
+        // traffic lights cut them in half, and a bare column of icons on the
+        // window's own background does not.
+        <Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
             {/* Room for the macOS traffic lights; the whole strip drags. */}
             <SidebarHeader className="h-[52px] justify-center px-3 [-webkit-app-region:drag] group-data-[collapsible=icon]:px-2">
                 <span className="truncate pl-[72px] text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">Tonelab</span>
