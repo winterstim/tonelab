@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUp, Square, Undo2, Plus, MessageSquare, ChevronDown } from "lucide-react";
+import { ArrowUp, Square, Undo2 } from "lucide-react";
 import { AgentService, type AgentError, type AgentResponse, type ParamChange, type PlannedCall } from "@/services";
 import { isQuotaRefusal, QuotaCard } from "@/components/QuotaCard";
 import { useStore } from "@/store";
@@ -8,7 +8,9 @@ import { explain, format } from "@/lib/format";
 import { Markdown } from "@/components/Markdown";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { MessageScroller, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport, MessageScrollerButton } from "@/components/ui/message-scroller";
+import { Message, MessageContent } from "@/components/ui/message";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
 
 type Tone = "answer" | "problem" | "working";
 
@@ -49,7 +51,7 @@ function problem(error: AgentError): Item {
 }
 
 export function ChatView({ active, onAccount }: { active: boolean; onAccount: () => void }) {
-    const { settings, thread, generation, conversations, refreshConversations, openConversation, startConversation } = useStore();
+    const { settings, thread, generation, refreshConversations } = useStore();
     // The thread lives in the backend; what is drawn is that thread plus
     // whatever this view has added since the store last handed one over
     // (a command just sent, a "Working…" line, a plan). The additions are
@@ -81,16 +83,10 @@ export function ChatView({ active, onAccount }: { active: boolean; onAccount: ()
     const setPreview = (value: boolean) => setChosen({ of: settings, value });
     const [text, setText] = useState("");
     const input = useRef<HTMLTextAreaElement>(null);
-    const scroller = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (active) input.current?.focus();
     }, [active]);
-
-    useEffect(() => {
-        const box = scroller.current;
-        if (box) box.scrollTop = box.scrollHeight;
-    }, [items.length]);
 
     const append = useCallback((item: Omit<Item, "key">): number => {
         const key = ++keys;
@@ -169,21 +165,34 @@ export function ChatView({ active, onAccount }: { active: boolean; onAccount: ()
         report(await AgentService.ApplyPlan());
     };
 
-    const activeTitle = conversations.find((c) => c.Active)?.Title ?? "New conversation";
-
     return (
-        <section className="flex h-full flex-col px-5 pb-4">
-            <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto py-4" data-thread={thread.id}>
-                {items.length === 0 ? (
-                    <div className="settle m-auto max-w-[22ch] text-center">
-                        <p className="text-3xl font-semibold leading-tight tracking-tight">{greeting}</p>
-                    </div>
-                ) : items.map((item) => (
-                    <Message key={item.key} item={item} onApply={() => applyPlan(item.key)} onAccount={onAccount} />
-                ))}
-            </div>
+        <section className="flex h-full flex-col">
+            {items.length === 0 ? (
+                <div className="settle m-auto max-w-[22ch] text-center">
+                    <p className="text-3xl font-semibold leading-tight tracking-tight">{greeting}</p>
+                </div>
+            ) : (
+                // Keyed on the thread so a switch starts at the end of the
+                // new one rather than wherever the old one was scrolled to.
+                <MessageScrollerProvider key={thread.id} autoScroll>
+                    <MessageScroller className="flex-1">
+                        <MessageScrollerViewport className="px-6">
+                            <MessageScrollerContent className="mx-auto w-full max-w-3xl gap-6 py-4">
+                                {items.map((item) => (
+                                    <MessageScrollerItem key={item.key} messageId={String(item.key)} scrollAnchor={item.from === "you"}>
+                                        <Row item={item} onApply={() => applyPlan(item.key)} onAccount={onAccount} />
+                                    </MessageScrollerItem>
+                                ))}
+                            </MessageScrollerContent>
+                        </MessageScrollerViewport>
+                        <MessageScrollerButton />
+                    </MessageScroller>
+                </MessageScrollerProvider>
+            )}
 
-            <form onSubmit={onSubmit} className="flex items-end gap-2 rounded-[26px] bg-background py-1.5 pr-1.5 pl-4 shadow-lift dark:bg-card">
+            {/* The composer carries its own controls under the text: what
+                is typed and how it will be treated sit in one place. */}
+            <form onSubmit={onSubmit} className="mx-auto mb-5 w-[calc(100%-3rem)] max-w-3xl rounded-3xl bg-background shadow-lift dark:bg-card">
                 <textarea
                     ref={input}
                     rows={1}
@@ -192,58 +201,32 @@ export function ChatView({ active, onAccount }: { active: boolean; onAccount: ()
                     onKeyDown={onKey}
                     placeholder="Ask for a change"
                     aria-label="Command"
-                    className="max-h-40 flex-1 resize-none bg-transparent py-1.5 text-[14.5px] leading-6 placeholder:text-faint"
+                    className="max-h-40 w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[14.5px] leading-6 placeholder:text-faint"
                 />
-                {/* Stop replaces Send while a turn runs, so the button under
-                    the cursor is always the one that applies. */}
-                {running ? (
-                    <Button type="button" size="icon" className="rounded-full" aria-label="Stop the agent" onClick={() => AgentService.Stop()}>
-                        <Square />
-                    </Button>
-                ) : (
-                    <Button type="submit" size="icon" className="rounded-full" aria-label="Send">
-                        <ArrowUp />
-                    </Button>
-                )}
-            </form>
-
-            <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-1 text-[13px] text-muted-foreground">
-                {/* Not wrapped in the label: a label forwards its click to
-                    the control inside it, which toggled the switch twice. */}
-                <div className="flex items-center gap-2 rounded-full px-2.5 py-1 hover:text-foreground">
-                    <Switch id="preview-mode" checked={preview} onCheckedChange={setPreview} />
-                    <label htmlFor="preview-mode" className="cursor-pointer">Show me the plan first</label>
+                <div className="flex items-center gap-1 px-3 pb-2.5 text-[13px] text-muted-foreground">
+                    {/* Not wrapped in the label: a label forwards its click to
+                        the control inside it, which toggled the switch twice. */}
+                    <div className="flex items-center gap-2 rounded-full px-2 py-1">
+                        <Switch id="preview-mode" checked={preview} onCheckedChange={setPreview} />
+                        <label htmlFor="preview-mode" className="cursor-pointer">Show me the plan first</label>
+                    </div>
+                    <Quiet onClick={async () => report(await AgentService.Undo())}>
+                        <Undo2 className="size-3.5" /> Undo last change
+                    </Quiet>
+                    <span className="flex-1" />
+                    {/* Stop replaces Send while a turn runs, so the button under
+                        the cursor is always the one that applies. */}
+                    {running ? (
+                        <Button type="button" size="icon-sm" className="rounded-full" aria-label="Stop the agent" onClick={() => AgentService.Stop()}>
+                            <Square />
+                        </Button>
+                    ) : (
+                        <Button type="submit" size="icon-sm" className="rounded-full" aria-label="Send" disabled={text.trim() === ""}>
+                            <ArrowUp />
+                        </Button>
+                    )}
                 </div>
-                <Quiet onClick={async () => report(await AgentService.Undo())}>
-                    <Undo2 className="size-3.5" /> Undo last change
-                </Quiet>
-
-                {/* Switching lives here rather than in a strip above the
-                    thread: frequent enough that leaving the chat for it
-                    would be a tax, rare enough not to deserve a row. */}
-                {conversations.length >= 2 && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Quiet>
-                                <MessageSquare className="size-3.5" />
-                                <span className="max-w-48 truncate">{activeTitle}</span>
-                                <ChevronDown className="size-3.5" />
-                            </Quiet>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent side="top" align="start">
-                            {conversations.map((summary) => (
-                                <DropdownMenuItem key={summary.ID} aria-pressed={summary.Active} onSelect={() => openConversation(summary.ID)}>
-                                    {summary.Title}
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
-
-                <Quiet onClick={async () => { await startConversation(); input.current?.focus(); }}>
-                    <Plus className="size-3.5" /> New conversation
-                </Quiet>
-            </div>
+            </form>
         </section>
     );
 }
@@ -258,34 +241,42 @@ function Quiet({ className, ...props }: React.ComponentProps<"button">) {
     );
 }
 
-function Message({ item, onApply, onAccount }: { item: Item; onApply: () => void; onAccount: () => void }) {
+function Row({ item, onApply, onAccount }: { item: Item; onApply: () => void; onAccount: () => void }) {
     const you = item.from === "you";
     return (
-        <div className={cn("rise flex max-w-[64ch] flex-col gap-2", you && "items-end self-end")}>
-            {item.quota ? (
-                <QuotaCard error={item.quota} onAccount={onAccount} />
-            ) : you ? (
-                <div className="whitespace-pre-wrap rounded-[20px_20px_7px_20px] bg-primary px-4 py-2.5 text-primary-foreground shadow-lift">{item.text}</div>
-            ) : item.tone === "answer" ? (
-                <Markdown text={item.text} />
-            ) : (
-                // Failure is a colour, nothing else: the same shape as an
-                // answer, read differently at a glance.
-                <div className={cn("whitespace-pre-wrap", item.tone === "problem" ? "text-destructive" : "text-faint")}>{item.text}</div>
-            )}
-            <Changes changed={item.changed} />
-            {item.plan && item.plan.length > 0 && (
-                // A plan is offered for acceptance: nothing has happened yet,
-                // and the steps applied are the ones shown rather than a
-                // second answer to the same question.
-                <div className="flex flex-col items-start gap-2">
-                    <ul className="text-[13px] text-warning">
-                        {item.plan.map((step, i) => <li key={i} className="py-0.5">{step.Description}</li>)}
-                    </ul>
-                    <Button type="button" size="sm" className="rounded-full" onClick={onApply}>Do it</Button>
-                </div>
-            )}
-        </div>
+        <Message align={you ? "end" : "start"} className="rise text-[14.5px]">
+            <MessageContent>
+                {item.quota ? (
+                    <QuotaCard error={item.quota} onAccount={onAccount} />
+                ) : you ? (
+                    <Bubble align="end" className="max-w-[70%]">
+                        <BubbleContent className="whitespace-pre-wrap rounded-[20px_20px_7px_20px] px-4 py-2.5 text-[14.5px] shadow-lift">{item.text}</BubbleContent>
+                    </Bubble>
+                ) : (
+                    <Bubble variant="ghost" className="max-w-[64ch]">
+                        <BubbleContent className="text-[14.5px]">
+                            {item.tone === "answer"
+                                ? <Markdown text={item.text} />
+                                // Failure is a colour, nothing else: the same shape as an
+                                // answer, read differently at a glance.
+                                : <span className={cn("whitespace-pre-wrap", item.tone === "problem" ? "text-destructive" : "text-faint")}>{item.text}</span>}
+                        </BubbleContent>
+                    </Bubble>
+                )}
+                <Changes changed={item.changed} />
+                {item.plan && item.plan.length > 0 && (
+                    // A plan is offered for acceptance: nothing has happened yet,
+                    // and the steps applied are the ones shown rather than a
+                    // second answer to the same question.
+                    <div className="flex flex-col items-start gap-2">
+                        <ul className="text-[13px] text-warning">
+                            {item.plan.map((step, i) => <li key={i} className="py-0.5">{step.Description}</li>)}
+                        </ul>
+                        <Button type="button" size="sm" className="rounded-full" onClick={onApply}>Do it</Button>
+                    </div>
+                )}
+            </MessageContent>
+        </Message>
     );
 }
 

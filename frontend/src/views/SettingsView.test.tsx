@@ -9,7 +9,7 @@ async function openSettings() {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByRole("textbox", { name: "Command" });
-    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     await screen.findByRole("button", { name: "Save" });
     return user;
 }
@@ -40,11 +40,11 @@ test("a refused save shows the reason and keeps the edits", async () => {
     expect(screen.getByLabelText(/^Endpoint/)).toHaveValue("");
 });
 
-test("half-typed edits survive a look at another tab", async () => {
+test("half-typed edits survive a look at the chat", async () => {
     const user = await openSettings();
     await user.type(screen.getByLabelText("Host"), "9");
-    await user.click(screen.getByRole("tab", { name: "Chat" }));
-    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Start a new conversation" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByLabelText("Host")).toHaveValue("127.0.0.19");
 });
 
