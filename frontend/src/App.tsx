@@ -56,7 +56,7 @@ export function App() {
                     settings and a scrolled thread, and both should survive a
                     look at another tab. */}
                 <div role="tabpanel" aria-label="Chat" className="min-h-0 flex-1" hidden={view !== "chat"}>
-                    <ChatView active={view === "chat"} />
+                    <ChatView active={view === "chat"} onAccount={() => setView("settings")} />
                 </div>
                 <div role="tabpanel" aria-label="History" className="min-h-0 flex-1" hidden={view !== "history"}>
                     <HistoryView active={view === "history"} />

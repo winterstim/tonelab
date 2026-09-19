@@ -26,3 +26,13 @@ export function parseJSON(text: string): Record<string, any> { // eslint-disable
         return {};
     }
 }
+
+// When a quota window refills, said the way a person would: hours while
+// it is today or tomorrow, a date after that.
+export function whenResets(at: string, now = Date.now()): string {
+    const ms = new Date(at).getTime() - now;
+    if (!Number.isFinite(ms) || ms <= 0) return "resets now";
+    const hours = Math.round(ms / 3600000);
+    if (hours < 48) return `resets in ${Math.max(1, hours)} h`;
+    return `resets on ${new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`;
+}

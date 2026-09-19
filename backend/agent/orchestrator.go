@@ -219,7 +219,17 @@ type apiError struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 		Code    any    `json:"code"`
+		Usage   *Usage `json:"usage"`
 	} `json:"error"`
+}
+
+// hostedRefusals are the hosted service's own codes for an account that
+// cannot be served right now. Passed through under their own names because
+// the window answers each differently: a reset time, or a link to a plan.
+var hostedRefusals = map[string]bool{
+	"quota_exceeded":      true,
+	"daily_limit_reached": true,
+	"no_active_plan":      true,
 }
 
 // Send runs one user command to completion.
@@ -524,6 +534,10 @@ func httpFailure(status int, payload []byte) *Error {
 	var decoded apiError
 	_ = json.Unmarshal(payload, &decoded)
 	detail := decoded.Error.Message
+
+	if code, ok := decoded.Error.Code.(string); ok && hostedRefusals[code] {
+		return &Error{Code: code, Message: detail, Usage: decoded.Error.Usage}
+	}
 
 	// Told apart from other rejections because the model can correct it,
 	// which nothing else in this list can be.

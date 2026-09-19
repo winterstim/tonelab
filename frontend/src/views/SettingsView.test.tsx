@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { App } from "@/App";
 import { world } from "@/test/fake";
-import { whenResets } from "@/views/AccountBlock";
+import { whenResets } from "@/lib/format";
 
 async function openSettings() {
     const user = userEvent.setup();

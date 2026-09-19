@@ -56,6 +56,26 @@ func (t Tool) InputSchemaJSON() string {
 type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+
+	// Usage is set only when the hosted service refused for want of quota,
+	// so the window can show which allowance ran out and when it resets
+	// rather than only that it did.
+	Usage *Usage `json:"usage,omitempty"`
+}
+
+// Usage is the hosted service's account of both windows at the moment it
+// refused, in its own shape so the window shows what the service said.
+type Usage struct {
+	Month         Window `json:"month"`
+	Day           Window `json:"day"`
+	SearchesUsed  int64  `json:"searches_used"`
+	SearchesLimit int64  `json:"searches_limit"`
+}
+
+type Window struct {
+	Used     int64     `json:"used"`
+	Limit    int64     `json:"limit"`
+	ResetsAt time.Time `json:"resets_at"`
 }
 
 // Result carries either a value or an Error, so a caller never has to decide

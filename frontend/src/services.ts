@@ -4,3 +4,4 @@
 export { AgentService, HostedService, SettingsService } from "../bindings/tonelab/backend/app";
 export type * from "../bindings/tonelab/backend/app/models";
 export type { Window as UsageWindow } from "../bindings/tonelab/backend/hosted/models";
+export type { Usage } from "../bindings/tonelab/backend/agent/models";

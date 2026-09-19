@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ArrowUp, Square, Undo2, Plus, MessageSquare, ChevronDown } from "lucide-react";
-import { AgentService, type AgentResponse, type ParamChange, type PlannedCall } from "@/services";
+import { AgentService, type AgentError, type AgentResponse, type ParamChange, type PlannedCall } from "@/services";
+import { isQuotaRefusal, QuotaCard } from "@/components/QuotaCard";
 import { useStore } from "@/store";
 import { cn } from "@/lib/utils";
 import { explain, format } from "@/lib/format";
@@ -18,6 +19,7 @@ interface Item {
     tone: Tone;
     changed?: ParamChange[] | null;
     plan?: PlannedCall[] | null;
+    quota?: AgentError;
 }
 
 // An empty screen is the one place with room for a sentence rather than
@@ -39,7 +41,14 @@ function greet(): string {
 
 let keys = 0;
 
-export function ChatView({ active }: { active: boolean }) {
+// A refusal for want of quota becomes a card with the reset time; any
+// other failure is a line saying what to do next.
+function problem(error: AgentError): Item {
+    if (isQuotaRefusal(error)) return { key: ++keys, from: "tonelab", text: "", tone: "problem", quota: error };
+    return { key: ++keys, from: "tonelab", text: explain(error.Code, error.Message), tone: "problem" };
+}
+
+export function ChatView({ active, onAccount }: { active: boolean; onAccount: () => void }) {
     const { settings, thread, generation, conversations, refreshConversations, openConversation, startConversation } = useStore();
     // The thread lives in the backend; what is drawn is that thread plus
     // whatever this view has added since the store last handed one over
@@ -49,7 +58,7 @@ export function ChatView({ active }: { active: boolean }) {
         const drawn: Item[] = [];
         for (const message of thread.messages) {
             if (message.Error) {
-                drawn.push({ key: ++keys, from: "tonelab", text: explain(message.Error.Code, message.Error.Message), tone: "problem" });
+                drawn.push(problem(message.Error));
                 continue;
             }
             // Plans are not redrawn: a plan is an offer made once, and one
@@ -95,7 +104,7 @@ export function ChatView({ active }: { active: boolean }) {
 
     const report = useCallback((response: AgentResponse) => {
         if (response.Error) {
-            append({ from: "tonelab", text: explain(response.Error.Code, response.Error.Message), tone: "problem" });
+            append(problem(response.Error));
             return;
         }
         append({ from: "tonelab", text: response.Message || "Done.", tone: "answer", changed: response.Changed, plan: response.Plan });
@@ -170,7 +179,7 @@ export function ChatView({ active }: { active: boolean }) {
                         <p className="text-3xl font-semibold leading-tight tracking-tight">{greeting}</p>
                     </div>
                 ) : items.map((item) => (
-                    <Message key={item.key} item={item} onApply={() => applyPlan(item.key)} />
+                    <Message key={item.key} item={item} onApply={() => applyPlan(item.key)} onAccount={onAccount} />
                 ))}
             </div>
 
@@ -249,11 +258,13 @@ function Quiet({ className, ...props }: React.ComponentProps<"button">) {
     );
 }
 
-function Message({ item, onApply }: { item: Item; onApply: () => void }) {
+function Message({ item, onApply, onAccount }: { item: Item; onApply: () => void; onAccount: () => void }) {
     const you = item.from === "you";
     return (
         <div className={cn("rise flex max-w-[64ch] flex-col gap-2", you && "items-end self-end")}>
-            {you ? (
+            {item.quota ? (
+                <QuotaCard error={item.quota} onAccount={onAccount} />
+            ) : you ? (
                 <div className="whitespace-pre-wrap rounded-[20px_20px_7px_20px] bg-primary px-4 py-2.5 text-primary-foreground shadow-lift">{item.text}</div>
             ) : item.tone === "answer" ? (
                 <Markdown text={item.text} />

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HostedService, type HostedStatus, type SignInState, type UsageWindow } from "@/services";
 import { cn } from "@/lib/utils";
+import { whenResets } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Group, Hint } from "@/views/SettingsView";
@@ -115,14 +116,6 @@ export function AccountBlock({ active, onModels, onChanged }: {
             </div>
         </Group>
     );
-}
-
-export function whenResets(at: string, now = Date.now()): string {
-    const ms = new Date(at).getTime() - now;
-    if (!Number.isFinite(ms) || ms <= 0) return "resets now";
-    const hours = Math.round(ms / 3600000);
-    if (hours < 48) return `resets in ${Math.max(1, hours)} h`;
-    return `resets on ${new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "long" })}`;
 }
 
 // The bar changes colour with how full it is, since the number alone is

@@ -58,6 +58,9 @@ type ParamChange struct {
 type AgentError struct {
 	Code    string
 	Message string
+	// Usage is set only when the hosted service refused for want of
+	// quota; the chat then shows which window ran out and when it resets.
+	Usage *agent.Usage
 }
 
 type DAWStatus struct {
@@ -491,7 +494,7 @@ func convert(response agent.Response) AgentResponse {
 
 	converted := AgentResponse{Message: response.Message}
 	if response.Error != nil {
-		converted.Error = &AgentError{Code: response.Error.Code, Message: response.Error.Message}
+		converted.Error = &AgentError{Code: response.Error.Code, Message: response.Error.Message, Usage: response.Error.Usage}
 	}
 
 	// Taken from what the tools confirmed rather than from the model's

@@ -38,7 +38,7 @@ test("an unconfirmed change is not shown as done", async () => {
 test("a failed turn reads as a problem with what to do next", async () => {
     const user = userEvent.setup();
     const input = await open();
-    world.next = { error: { Code: "llm_unauthorized", Message: "The endpoint refused the key." } };
+    world.next = { error: { Code: "llm_unauthorized", Message: "The endpoint refused the key.", Usage: null } };
     await user.type(input, "Mute the vocals{Enter}");
     expect(await screen.findByText("The endpoint refused the key. Check the API key in Settings.")).toHaveClass("text-destructive");
 });
@@ -113,4 +113,33 @@ test("the conversation menu appears only with something to switch to", async () 
     expect(screen.queryByRole("button", { name: /^One$/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "New conversation" }));
     await waitFor(() => expect(screen.getAllByRole("button", { name: /New conversation/ })).toHaveLength(2));
+});
+
+test("a hosted refusal for want of quota is a card with the reset time", async () => {
+    const user = userEvent.setup();
+    const input = await open();
+    const resets = new Date(Date.now() + 6 * 3600e3).toISOString();
+    world.next = { error: {
+        Code: "daily_limit_reached",
+        Message: "Today's share of the plan is used up.",
+        Usage: { month: { used: 1, limit: 100, resets_at: resets }, day: { used: 5, limit: 5, resets_at: resets }, searches_used: 0, searches_limit: 300 },
+    } };
+    await user.type(input, "Mute the vocals{Enter}");
+    expect(await screen.findByText("Today's share is used up")).toBeInTheDocument();
+    expect(screen.getByText("Today: 100%, resets in 6 h")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Today" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open the account" }));
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("without a plan the card offers one; on the person's own endpoint the plain line shows", async () => {
+    const user = userEvent.setup();
+    const input = await open();
+    world.next = { error: { Code: "no_active_plan", Message: "No subscription yet. Choose a plan to start.", Usage: null } };
+    await user.type(input, "Hello{Enter}");
+    expect(await screen.findByRole("button", { name: "Choose a plan" })).toBeInTheDocument();
+
+    world.next = { error: { Code: "llm_rate_limited", Message: "The endpoint is rate limiting requests.", Usage: null } };
+    await user.type(input, "Again{Enter}");
+    expect(await screen.findByText("The endpoint is rate limiting requests.")).toHaveClass("text-destructive");
 });

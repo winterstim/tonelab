@@ -4,6 +4,7 @@
 // it refuses what the backend refuses. A fake kinder than the backend is
 // worse than none, so each behaviour here mirrors one in backend/app.
 import type {
+    AgentError,
     AgentResponse,
     ChatMessage,
     Conversation,
@@ -24,7 +25,7 @@ export interface Scripted {
     reply?: string;
     plan?: PlannedCall[];
     changed?: AgentResponse["Changed"];
-    error?: { Code: string; Message: string };
+    error?: AgentError;
     // Held open until the test releases it, for anything that watches a
     // turn in flight.
     hold?: Promise<void>;
@@ -164,7 +165,7 @@ export const AgentService = {
         await tick();
         const thread = current();
         if (!world.plan) {
-            return { Message: "", Conversation: thread.ID, Steps: null, Plan: null, Changed: null, Error: { Code: "no_plan", Message: "There is no plan to apply." } };
+            return { Message: "", Conversation: thread.ID, Steps: null, Plan: null, Changed: null, Error: { Code: "no_plan", Message: "There is no plan to apply.", Usage: null } };
         }
         world.plan = null;
         const response: AgentResponse = { Message: "Applied.", Conversation: thread.ID, Steps: null, Plan: null, Changed: world.next.changed ?? null, Error: null };
@@ -240,7 +241,7 @@ export const SettingsService = {
         await tick();
         world.saves.push({ settings: incoming, apiKey, searchKey });
         if (incoming.BaseURL.trim() === "") {
-            return { Saved: false, RestartNeeded: false, Message: "", Error: { Code: "invalid_settings", Message: "The endpoint cannot be empty." } };
+            return { Saved: false, RestartNeeded: false, Message: "", Error: { Code: "invalid_settings", Message: "The endpoint cannot be empty.", Usage: null } };
         }
         const restart = incoming.DAWBackend !== world.settings.DAWBackend
             || incoming.DAWHost !== world.settings.DAWHost
