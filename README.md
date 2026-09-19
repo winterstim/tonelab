@@ -51,7 +51,7 @@ above it, including the agent and the window, stays as is.
 ## Install
 
 Download the build for your platform from [tonelab.dev/download](https://tonelab.dev/download)
-or from [Releases](https://github.com/winterstim/tonelab-v2/releases).
+or from [Releases](https://github.com/winterstim/tonelab/releases).
 
 **macOS:** the app is not signed with an Apple Developer ID. On first launch
 Control-click the app and choose Open, or after the first refusal open
