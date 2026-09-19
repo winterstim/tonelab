@@ -248,7 +248,7 @@ func TestThemesSwitchRememberAndRefuseUnknownNames(t *testing.T) {
 
 	next, cmd := m.submit("/theme")
 	m = next.(model)
-	if out := printed(collect(cmd)); !strings.Contains(out, "fire") || !strings.Contains(out, "lagoon") || !strings.Contains(out, "emerald") || !strings.Contains(out, "white") {
+	if out := printed(collect(cmd)); !strings.Contains(out, "fire") || !strings.Contains(out, "lagoon") || !strings.Contains(out, "emerald") || !strings.Contains(out, "white") || !strings.Contains(out, "black") || !strings.Contains(out, "adaptive") {
 		t.Fatalf("the list names every theme, got %q", out)
 	}
 
@@ -283,5 +283,49 @@ func TestThemesSwitchRememberAndRefuseUnknownNames(t *testing.T) {
 	}
 	if !strings.Contains(theme.Success.Render("ok"), "60;220;151") || !strings.Contains(theme.Error.Render("no"), "255;77;255") {
 		t.Fatal("outcome colours are the same in every theme")
+	}
+
+	t.Cleanup(func() { detectedDark, background = true, ""; lipgloss.SetHasDarkBackground(true) })
+	light := func(s lipgloss.Style) bool { return strings.Contains(s.Render("t"), "243;241;245") }
+	dark := func(s lipgloss.Style) bool { return strings.Contains(s.Render("t"), "22;22;22") }
+
+	detectedDark = true
+	useTheme("adaptive")
+	if theme.Name != "adaptive" || paletteAt(0.5) != "#FFFFFF" || !light(theme.Text) {
+		t.Fatalf("adaptive on a dark terminal is white with light text, got %s %s", theme.Name, paletteAt(0.5))
+	}
+	detectedDark = false
+	useTheme("adaptive")
+	if paletteAt(0.5) != "#000000" || !dark(theme.Text) {
+		t.Fatalf("adaptive on a light terminal is black with dark text, got %s", paletteAt(0.5))
+	}
+	useTheme("fire")
+	if !dark(theme.Text) || !strings.Contains(theme.Muted.Render("m"), "110;105;117") {
+		t.Fatal("body text follows the terminal under every theme, not the palette")
+	}
+	useTheme("white")
+	if !light(theme.Text) {
+		t.Fatal("white is for a dark terminal whatever was detected")
+	}
+	useTheme("black")
+	if !dark(theme.Text) {
+		t.Fatal("black is for a light terminal whatever was detected")
+	}
+
+	// The person's word beats the detection, and is kept with the theme.
+	if err := saveTheme(path, "lagoon", "dark"); err != nil || !light(theme.Text) || background != "dark" {
+		t.Fatalf("said dark: %v %q", err, background)
+	}
+	if err := saveTheme(path, "", "light"); err != nil || theme.Name != "lagoon" || !dark(theme.Text) {
+		t.Fatalf("background alone keeps the theme: %v %s", err, theme.Name)
+	}
+	if err := saveTheme(path, "", "plaid"); err == nil {
+		t.Fatal("a background is light or dark")
+	}
+	background = ""
+	detectedDark = true
+	loadTheme(path)
+	if theme.Name != "lagoon" || background != "light" || !dark(theme.Text) {
+		t.Fatalf("the word survives a restart, got %s %q", theme.Name, background)
 	}
 }
