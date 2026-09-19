@@ -120,3 +120,12 @@ test("reset times read as hours soon and as a date later", () => {
     expect(whenResets(new Date(Date.UTC(2026, 9, 1, 12)).toISOString(), now)).toMatch(/^resets on /);
     expect(whenResets("", now)).toBe("resets now");
 });
+
+test("the sidebar's account row starts signing in when signed out", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("textbox", { name: "Command" });
+    const sidebar = within(screen.getByRole("complementary", { name: "Sidebar" }));
+    await user.click(await sidebar.findByRole("button", { name: /^Sign in with Tonelab/ }));
+    expect(await screen.findByText("ABCD-EFGH")).toBeInTheDocument();
+});

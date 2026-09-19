@@ -24,6 +24,10 @@ interface Store {
     startConversation: () => Promise<void>;
     deleteConversation: (id: string) => Promise<void>;
     renameConversation: (id: string, name: string) => Promise<void>;
+    // A request to begin signing in from somewhere other than the account
+    // block; the block starts the flow when the number changes.
+    signInAsked: number;
+    askSignIn: () => void;
 }
 
 const StoreContext = createContext<Store | null>(null);
@@ -33,6 +37,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [thread, setThread] = useState<Thread>({ id: "", messages: [] });
     const [generation, setGeneration] = useState(0);
+    const [signInAsked, setSignInAsked] = useState(0);
+    const askSignIn = useCallback(() => setSignInAsked((n) => n + 1), []);
 
     const reloadSettings = useCallback(async () => {
         const loaded = await SettingsService.Get();
@@ -94,7 +100,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         conversations, refreshConversations,
         thread, generation,
         openConversation, startConversation, deleteConversation, renameConversation,
-    }), [settings, reloadSettings, conversations, refreshConversations, thread, generation, openConversation, startConversation, deleteConversation, renameConversation]);
+        signInAsked, askSignIn,
+    }), [settings, reloadSettings, conversations, refreshConversations, thread, generation, openConversation, startConversation, deleteConversation, renameConversation, signInAsked, askSignIn]);
 
     return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

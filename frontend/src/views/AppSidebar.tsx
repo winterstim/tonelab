@@ -13,7 +13,7 @@ import type { Screen } from "@/App";
 // Conversations are always in view rather than behind a menu: switching
 // is frequent, and a list one glance away costs nothing while typing.
 export function AppSidebar({ screen, onScreen }: { screen: Screen; onScreen: (screen: Screen) => void }) {
-    const { conversations, startConversation } = useStore();
+    const { conversations, startConversation, askSignIn } = useStore();
 
     return (
         // Folded, the rail drops its tint and edge: a tinted strip under the
@@ -51,7 +51,7 @@ export function AppSidebar({ screen, onScreen }: { screen: Screen; onScreen: (sc
             <SidebarFooter>
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <AccountRow onClick={() => onScreen("settings")} />
+                        <AccountRow onClick={(signedIn) => { onScreen("settings"); if (!signedIn) askSignIn(); }} />
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                         <SidebarMenuButton tooltip="Settings" isActive={screen === "settings"} onClick={() => onScreen("settings")}>
@@ -143,7 +143,9 @@ function Chat({ summary, current, onOpen }: { summary: ConversationSummary; curr
 
 // One line about the account, kept in view: who is signed in and on what,
 // or an invitation to. Read once and again whenever settings change.
-function AccountRow({ onClick }: { onClick: () => void }) {
+// Signed out, the row starts signing in rather than only showing where
+// the button is.
+function AccountRow({ onClick }: { onClick: (signedIn: boolean) => void }) {
     const { settings } = useStore();
     const [status, setStatus] = useState<HostedStatus | null>(null);
 
@@ -161,7 +163,7 @@ function AccountRow({ onClick }: { onClick: () => void }) {
         // A plain icon like the row below it, so the two line up in both the
         // open sidebar and the rail; the folded row keeps its padding for the
         // same reason, and hides its text.
-        <SidebarMenuButton size="lg" tooltip={line} onClick={onClick} className={cn("group-data-[collapsible=icon]:p-2!", !signedIn && "text-muted-foreground")}>
+        <SidebarMenuButton size="lg" tooltip={line} onClick={() => onClick(signedIn)} className={cn("group-data-[collapsible=icon]:p-2!", !signedIn && "text-muted-foreground")}>
             <UserRound />
             <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
                 <span className="truncate text-sm">{line}</span>

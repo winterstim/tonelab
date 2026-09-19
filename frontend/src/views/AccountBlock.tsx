@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HostedService, type HostedStatus, type SignInState, type UsageWindow } from "@/services";
+import { useStore } from "@/store";
 import { cn } from "@/lib/utils";
 import { whenResets } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,7 @@ export function AccountBlock({ active, onModels, onChanged }: {
 
     useEffect(() => () => window.clearInterval(timer.current), []);
 
-    const signIn = async () => {
+    const signIn = useCallback(async () => {
         setNote("");
         const state = await HostedService.SignIn("");
         if (state.Error) {
@@ -63,7 +64,17 @@ export function AccountBlock({ active, onModels, onChanged }: {
         }
         await watch();
         timer.current = window.setInterval(watch, 2000);
-    };
+    }, [watch]);
+
+    // The sidebar's account row asks from outside; the first render is
+    // not a request.
+    const { signInAsked } = useStore();
+    const asked = useRef(signInAsked);
+    useEffect(() => {
+        if (signInAsked === asked.current) return;
+        asked.current = signInAsked;
+        signIn();
+    }, [signInAsked, signIn]);
 
     const cancel = async () => {
         await HostedService.Cancel();
