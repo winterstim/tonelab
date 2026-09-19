@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { PanelRight } from "lucide-react";
 import { AgentService } from "@/services";
 import { cn } from "@/lib/utils";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { AppSidebar } from "@/views/AppSidebar";
@@ -41,13 +41,16 @@ function Frame() {
     const [actions, setActions] = useState(false);
     const { conversations } = useStore();
     const title = conversations.find((c) => c.Active)?.Title ?? "New conversation";
+    // With the sidebar folded to its icon rail, the macOS traffic lights
+    // reach past it into this bar; the toggle moves out from under them.
+    const { state: sidebar } = useSidebar();
 
     return (
         <>
             <AppSidebar screen={screen} onScreen={setScreen} />
             <SidebarInset className="h-svh max-h-svh min-w-0 overflow-hidden bg-background">
                 {/* The bar is the drag region under a hidden title bar. */}
-                <header className="flex h-[52px] flex-none items-center gap-2 px-3 [-webkit-app-region:drag]">
+                <header className={cn("flex h-[52px] flex-none items-center gap-2 px-3 [-webkit-app-region:drag]", sidebar === "collapsed" && "pl-[42px]")}>
                     <SidebarTrigger className="[-webkit-app-region:no-drag]" />
                     <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
                         {screen === "settings" ? "Settings" : title}
