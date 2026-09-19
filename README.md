@@ -22,8 +22,10 @@ back what the DAW says the value became.
   the model.
 - **Preview first, if you want.** See the planned changes and apply them
   exactly as shown, or let the agent get on with it.
-- **Your model, your key.** Any OpenAI-compatible endpoint: a hosted API or
-  a local runtime such as Ollama. Keys never leave the backend.
+- **Your model, your key, or none.** Any OpenAI-compatible endpoint: a
+  hosted API or a local runtime such as Ollama. Keys never leave the
+  backend. Or sign in with Tonelab for a hosted model and web search on a
+  plan, with nothing to set up.
 - **Optional web search** for advice that is not in the project, with
   sources cited.
 
@@ -48,8 +50,8 @@ above it, including the agent and the window, stays as is.
 
 ## Install
 
-Download the build for your platform from
-[Releases](https://github.com/winterstim/tonelab-v2/releases).
+Download the build for your platform from [tonelab.dev/download](https://tonelab.dev/download)
+or from [Releases](https://github.com/winterstim/tonelab-v2/releases).
 
 **macOS:** the app is not signed with an Apple Developer ID. On first launch
 Control-click the app and choose Open, or after the first refusal open
