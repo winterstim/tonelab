@@ -158,10 +158,11 @@ function AccountRow({ onClick }: { onClick: () => void }) {
     const sub = signedIn ? (status?.Plan ? `${status.Plan} plan` : "no plan yet") : "Hosted model, nothing to set up";
 
     return (
-        <SidebarMenuButton size="lg" tooltip={line} onClick={onClick} className={cn(!signedIn && "text-muted-foreground")}>
-            {/* The rail keeps only the avatar; a folded row still laid its text
-                out and showed the first letters beside the icon. */}
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary group-data-[collapsible=icon]:bg-transparent"><UserRound className="size-4" /></span>
+        // A plain icon like the row below it, so the two line up in both the
+        // open sidebar and the rail; the folded row keeps its padding for the
+        // same reason, and hides its text.
+        <SidebarMenuButton size="lg" tooltip={line} onClick={onClick} className={cn("group-data-[collapsible=icon]:p-2!", !signedIn && "text-muted-foreground")}>
+            <UserRound />
             <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
                 <span className="truncate text-sm">{line}</span>
                 <span className="truncate text-xs text-faint">{sub}</span>
