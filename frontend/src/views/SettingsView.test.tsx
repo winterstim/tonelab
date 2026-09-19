@@ -32,6 +32,26 @@ test("saving sends the form and never a key it did not type", async () => {
     expect(world.apiKey).toBe("tl_secret");
 });
 
+test("a saved key can be removed on purpose, and the choice taken back", async () => {
+    world.apiKey = "tl_secret";
+    const user = await openSettings();
+    await screen.findByText(/A key is saved/);
+    await user.click(screen.getByRole("button", { name: "Remove the saved API key" }));
+    expect(screen.getByText(/will be removed when you save/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^API key/)).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Keep the saved API key" }));
+    expect(screen.getByText(/A key is saved/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove the saved API key" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+    expect(world.saves[0].settings.DropAPIKey).toBe(true);
+    expect(world.apiKey).toBe("");
+    expect(await screen.findByText(/No key saved/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /saved API key/ })).not.toBeInTheDocument();
+});
+
 test("a refused save shows the reason and keeps the edits", async () => {
     const user = await openSettings();
     await user.clear(screen.getByLabelText(/^Endpoint/));

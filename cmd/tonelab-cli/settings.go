@@ -26,7 +26,7 @@ var settingFields = []settingField{
 	{name: "model", help: "model name at that endpoint",
 		get: func(s app.Settings) string { return s.Model },
 		set: func(s *app.Settings, v string) error { s.Model = v; return nil }},
-	{name: "key", help: "api key for the endpoint", secret: true,
+	{name: "key", help: "api key for the endpoint; off removes it", secret: true,
 		get: func(s app.Settings) string { return setOrNot(s.APIKeySet) }},
 	{name: "daw", help: "which DAW backend",
 		get: func(s app.Settings) string { return s.DAWBackend },
@@ -55,7 +55,7 @@ var settingFields = []settingField{
 	{name: "search_url", help: "the search provider's address, for a local one",
 		get: func(s app.Settings) string { return s.SearchURL },
 		set: func(s *app.Settings, v string) error { s.SearchURL = v; return nil }},
-	{name: "search_key", help: "api key for the search provider", secret: true,
+	{name: "search_key", help: "api key for the search provider; off removes it and turns search off", secret: true,
 		get: func(s app.Settings) string { return setOrNot(s.SearchKeySet) }},
 }
 
@@ -137,9 +137,15 @@ func applySetting(runtime *app.Runtime, name, value string) string {
 			continue
 		}
 		found = true
+		// "off" is how a key is removed from a prompt: an empty value would
+		// read as "keep", and the key itself is never shown to be cleared.
 		switch {
+		case f.name == "key" && value == "off":
+			current.DropAPIKey = true
 		case f.name == "key":
 			apiKey = value
+		case f.name == "search_key" && value == "off":
+			current.DropSearchKey = true
 		case f.name == "search_key":
 			searchKey = value
 		default:

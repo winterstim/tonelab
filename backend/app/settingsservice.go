@@ -19,6 +19,11 @@ type Settings struct {
 	BaseURL   string
 	Model     string
 	APIKeySet bool
+	// DropAPIKey asks for the saved key to be forgotten. An empty key on
+	// save means "keep", so removing one has to be said on purpose: a
+	// key that leaked, or a key the person can no longer replace, should
+	// not have to be overwritten with a fake to be gone.
+	DropAPIKey bool
 
 	DAWBackend   string
 	DAWHost      string
@@ -38,6 +43,7 @@ type Settings struct {
 	// Web search is optional; empty provider means off. The key stays in
 	// the backend for the same reason the model's does.
 	SearchProvider  string
+	DropSearchKey   bool
 	SearchURL       string
 	SearchKeySet    bool
 	SearchAvailable []string
@@ -141,11 +147,22 @@ func (s *SettingsService) Save(incoming Settings, apiKey, searchKey string) (Set
 		Hosted:   existing.Hosted,
 		DeviceID: existing.DeviceID,
 	}
+	if incoming.DropAPIKey {
+		updated.LLM.APIKey = ""
+	}
 	if key := strings.TrimSpace(apiKey); key != "" {
 		updated.LLM.APIKey = key
 	}
+	if incoming.DropSearchKey {
+		updated.Search.APIKey = ""
+	}
 	if key := strings.TrimSpace(searchKey); key != "" {
 		updated.Search.APIKey = key
+	}
+	// A hosted search provider cannot run without its key, so dropping
+	// the key turns search off rather than saving a setting that refuses.
+	if updated.Search.APIKey == "" && updated.Search.Provider != "" && updated.Search.Provider != "tonelab" && updated.Search.BaseURL == "" {
+		updated.Search.Provider = ""
 	}
 	if updated.Search.Provider == "" {
 		updated.Search = config.Search{}

@@ -234,3 +234,35 @@ func TestSearchSettingsKeepTheKeyAndApply(t *testing.T) {
 		t.Fatal("turning search off should apply no provider")
 	}
 }
+
+// A saved key can be removed without being replaced, since a person whose
+// key was revoked, or who cannot make another, must still be able to get
+// rid of it. Typing a new key at the same time wins over dropping.
+func TestSaveCanDropAKeyOnPurpose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := config.Save(path, config.Config{
+		LLM:    config.LLM{BaseURL: "http://localhost:11434/v1", APIKey: "secret-key", Model: "m"},
+		DAW:    config.DAW{Backend: "reaper", Host: "127.0.0.1", Port: 8000, FeedbackPort: 9000},
+		Search: config.Search{Provider: "brave", APIKey: "search-key"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewSettingsService(path, agent.NewOrchestrator(agent.Config{}, nil), agent.NewOrchestrator(agent.Config{}, nil), nil)
+	current, _ := svc.Get()
+	current.DropAPIKey, current.DropSearchKey = true, true
+	if r, _ := svc.Save(current, "", ""); r.Error != nil {
+		t.Fatal(r.Error.Message)
+	}
+	saved, _ := config.Load(path)
+	if saved.LLM.APIKey != "" || saved.Search.APIKey != "" {
+		t.Fatalf("keys still there: %q %q", saved.LLM.APIKey, saved.Search.APIKey)
+	}
+	if after, _ := svc.Get(); after.APIKeySet || after.SearchKeySet || after.SearchProvider != "" {
+		t.Fatalf("the screen still believes a key is set, or search stayed on without one: %+v", after)
+	}
+	current.DropAPIKey = true
+	svc.Save(current, "fresh-key", "")
+	if saved, _ := config.Load(path); saved.LLM.APIKey != "fresh-key" {
+		t.Fatalf("a new key typed alongside wins, got %q", saved.LLM.APIKey)
+	}
+}

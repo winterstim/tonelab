@@ -16,6 +16,7 @@ interface Draft {
     baseURL: string;
     model: string;
     apiKey: string;
+    dropApiKey: boolean;
     dawBackend: string;
     dawHost: string;
     dawPort: string;
@@ -23,6 +24,7 @@ interface Draft {
     searchProvider: string;
     searchURL: string;
     searchKey: string;
+    dropSearchKey: boolean;
     theme: Theme;
     previewDefault: boolean;
 }
@@ -32,6 +34,7 @@ function draftOf(settings: Settings): Draft {
         baseURL: settings.BaseURL,
         model: settings.Model,
         apiKey: "",
+        dropApiKey: false,
         dawBackend: settings.DAWBackend,
         dawHost: settings.DAWHost,
         dawPort: String(settings.DAWPort),
@@ -39,6 +42,7 @@ function draftOf(settings: Settings): Draft {
         searchProvider: settings.SearchProvider ?? "",
         searchURL: settings.SearchURL ?? "",
         searchKey: "",
+        dropSearchKey: false,
         theme: (settings.Theme || "system") as Theme,
         previewDefault: settings.PreviewByDefault,
     };
@@ -80,6 +84,7 @@ export function SettingsView({ active }: { active: boolean }) {
             BaseURL: draft.baseURL,
             Model: draft.model,
             APIKeySet: false,
+            DropAPIKey: draft.dropApiKey,
             DAWBackend: draft.dawBackend,
             DAWHost: draft.dawHost,
             DAWPort: Number(draft.dawPort),
@@ -90,6 +95,7 @@ export function SettingsView({ active }: { active: boolean }) {
             SearchProvider: draft.searchProvider,
             SearchURL: draft.searchURL,
             SearchKeySet: false,
+            DropSearchKey: draft.dropSearchKey,
             SearchAvailable: [],
         };
         const result = await SettingsService.Save(outgoing, draft.apiKey, draft.searchKey);
@@ -118,11 +124,20 @@ export function SettingsView({ active }: { active: boolean }) {
                             <Input value={draft.model} spellCheck={false} list="models" onChange={(e) => edit({ model: e.target.value })} />
                             <datalist id="models">{models.map((name) => <option key={name} value={name} />)}</datalist>
                         </Field>
-                        <Field label="API key" hint={settings.APIKeySet
-                            ? "A key is saved. Leave this empty to keep it, or type a new one to replace it."
-                            : "No key saved. A local model usually needs none."}>
+                        <Field label="API key" hint={draft.dropApiKey
+                            ? "The saved key will be removed when you save."
+                            : settings.APIKeySet
+                                ? "A key is saved. Leave this empty to keep it, or type a new one to replace it."
+                                : "No key saved. A local model usually needs none."}>
                             {/* Never filled from the backend: a key that never crosses cannot be read off a screen. */}
-                            <Input type="password" value={draft.apiKey} spellCheck={false} autoComplete="off" onChange={(e) => edit({ apiKey: e.target.value })} />
+                            <KeyRow
+                                value={draft.apiKey}
+                                saved={settings.APIKeySet}
+                                dropping={draft.dropApiKey}
+                                onChange={(apiKey) => edit({ apiKey, dropApiKey: false })}
+                                onDrop={(dropApiKey) => edit({ dropApiKey, apiKey: "" })}
+                                label="API key"
+                            />
                         </Field>
                     </Group>
 
@@ -155,10 +170,19 @@ export function SettingsView({ active }: { active: boolean }) {
                         </Field>
                         {searchOn && (
                             <>
-                                <Field label="Search API key" hint={settings.SearchKeySet
-                                    ? "A key is saved. Leave this empty to keep it, or type a new one to replace it."
-                                    : "No key saved."}>
-                                    <Input type="password" value={draft.searchKey} spellCheck={false} autoComplete="off" onChange={(e) => edit({ searchKey: e.target.value })} />
+                                <Field label="Search API key" hint={draft.dropSearchKey
+                                    ? "The saved key will be removed when you save, and search turned off."
+                                    : settings.SearchKeySet
+                                        ? "A key is saved. Leave this empty to keep it, or type a new one to replace it."
+                                        : "No key saved."}>
+                                    <KeyRow
+                                        value={draft.searchKey}
+                                        saved={settings.SearchKeySet}
+                                        dropping={draft.dropSearchKey}
+                                        onChange={(searchKey) => edit({ searchKey, dropSearchKey: false })}
+                                        onDrop={(dropSearchKey) => edit({ dropSearchKey, searchKey: "" })}
+                                        label="Search API key"
+                                    />
                                 </Field>
                                 <Field label="Instance URL">
                                     <Input value={draft.searchURL} spellCheck={false} placeholder="Only for a local instance" onChange={(e) => edit({ searchURL: e.target.value })} />
@@ -231,4 +255,35 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 
 export function Hint({ children, className }: { children: React.ReactNode; className?: string }) {
     return <p className={cn("text-[12.5px] text-faint", className)}>{children}</p>;
+}
+
+// A key field with a way to remove the saved key: an empty field keeps
+// it, so removal has to be a deliberate act, and one the person can
+// take back before saving.
+function KeyRow({ value, saved, dropping, onChange, onDrop, label }: {
+    value: string;
+    saved: boolean;
+    dropping: boolean;
+    onChange: (value: string) => void;
+    onDrop: (drop: boolean) => void;
+    label: string;
+}) {
+    return (
+        <div className="flex gap-2">
+            <Input
+                type="password"
+                value={value}
+                spellCheck={false}
+                autoComplete="off"
+                disabled={dropping}
+                placeholder={dropping ? "Removed on save" : undefined}
+                onChange={(e) => onChange(e.target.value)}
+            />
+            {saved && (
+                <Button type="button" variant="outline" onClick={() => onDrop(!dropping)} aria-label={dropping ? `Keep the saved ${label}` : `Remove the saved ${label}`}>
+                    {dropping ? "Keep" : "Remove"}
+                </Button>
+            )}
+        </div>
+    );
 }

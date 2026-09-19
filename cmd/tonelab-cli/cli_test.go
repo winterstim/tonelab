@@ -396,3 +396,25 @@ func TestResizeRedrawsThisSessionsOutputOnly(t *testing.T) {
 		}
 	}
 }
+
+// "/settings key off" is the only way to remove a key from the prompt,
+// since an empty value keeps the key and the key is never shown.
+func TestSettingsKeyOffRemovesTheKey(t *testing.T) {
+	runtime, path, _ := hostedRuntime(t)
+	settings, _ := config.Load(path)
+	m := newModel(runtime, settings, path)
+	if before, _ := runtime.Settings.Get(); !before.APIKeySet {
+		t.Fatal("the fixture starts with a key")
+	}
+	_, cmd := m.submit("/settings key off")
+	if out := printed(collect(cmd)); strings.Contains(out, "gsk_mine") {
+		t.Fatalf("the key is never echoed, got %q", out)
+	}
+	after, _ := runtime.Settings.Get()
+	if after.APIKeySet {
+		t.Fatal("the key is still set")
+	}
+	if saved, _ := config.Load(path); saved.LLM.APIKey != "" {
+		t.Fatalf("still on disk: %q", saved.LLM.APIKey)
+	}
+}

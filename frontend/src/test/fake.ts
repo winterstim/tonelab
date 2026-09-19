@@ -62,6 +62,7 @@ export function reset() {
         BaseURL: "http://localhost:11434/v1",
         Model: "bonsai-tonelab:latest",
         APIKeySet: false,
+        DropAPIKey: false,
         DAWBackend: "reaper",
         DAWHost: "127.0.0.1",
         DAWPort: 8000,
@@ -72,6 +73,7 @@ export function reset() {
         SearchProvider: "",
         SearchURL: "",
         SearchKeySet: false,
+        DropSearchKey: false,
         SearchAvailable: ["brave", "searxng", "tonelab"],
     };
     world.apiKey = "";
@@ -255,8 +257,13 @@ export const SettingsService = {
             || incoming.DAWPort !== world.settings.DAWPort
             || incoming.DAWFeedback !== world.settings.DAWFeedback;
         world.settings = { ...world.settings, ...incoming };
+        if (incoming.DropAPIKey) world.apiKey = "";
         if (apiKey !== "") world.apiKey = apiKey;
+        if (incoming.DropSearchKey) world.searchKey = "";
         if (searchKey !== "") world.searchKey = searchKey;
+        if (world.searchKey === "" && world.settings.SearchProvider !== "" && world.settings.SearchProvider !== "tonelab" && !world.settings.SearchURL) {
+            world.settings.SearchProvider = "";
+        }
         return {
             Saved: true,
             RestartNeeded: restart,
