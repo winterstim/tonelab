@@ -112,6 +112,5 @@ test("the conversation menu appears only with something to switch to", async () 
     await screen.findByText("Done.");
     expect(screen.queryByRole("button", { name: /^One$/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "New conversation" }));
-    expect(await screen.findByRole("button", { name: /New conversation/ })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /New conversation/ })).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /New conversation/ })).toHaveLength(2));
 });

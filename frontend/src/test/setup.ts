@@ -19,3 +19,7 @@ window.matchMedia = (query: string) => ({
     removeListener: () => {},
     dispatchEvent: () => false,
 });
+
+// Radix's switch inside a form watches its own size; jsdom has no observer.
+class Still { observe() {} unobserve() {} disconnect() {} }
+window.ResizeObserver = Still as unknown as typeof ResizeObserver;
