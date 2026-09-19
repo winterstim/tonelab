@@ -105,6 +105,7 @@ func TestConversationsAreBounded(t *testing.T) {
 
 	for i := 0; i < conversationLimit+5; i++ {
 		service.StartConversation()
+		service.SendCommand("fill it")
 	}
 
 	threads, _ := service.Conversations()
@@ -345,5 +346,26 @@ func TestAnAnswerToADeletedConversationIsDropped(t *testing.T) {
 		if message.Text == "Muted." {
 			t.Fatal("the answer was moved into a conversation it was not part of")
 		}
+	}
+}
+
+// Pressing "new conversation" twice must not leave two empty rooms: an
+// empty thread is already the new conversation, and is reused.
+func TestStartingAgainReusesTheEmptyConversation(t *testing.T) {
+	service := NewAgentService(&stubBrain{}, nil, &stubLiveness{}, nil, "")
+
+	first, _ := service.StartConversation()
+	second, _ := service.StartConversation()
+	if first.ID != second.ID {
+		t.Fatalf("a second start opened another empty thread: %s then %s", first.ID, second.ID)
+	}
+
+	service.SendCommand("Mute the vocals")
+	third, _ := service.StartConversation()
+	if third.ID == first.ID {
+		t.Fatal("a thread with something said in it was reused as the new one")
+	}
+	if threads, _ := service.Conversations(); len(threads) != 2 {
+		t.Fatalf("expected 2 conversations, got %d", len(threads))
 	}
 }

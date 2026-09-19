@@ -192,6 +192,15 @@ func (c *conversations) start() *Conversation {
 }
 
 func (c *conversations) startLocked() *Conversation {
+	// A thread nothing has been said in is already a new conversation;
+	// starting another beside it would only stack empty rooms.
+	for _, thread := range c.threads {
+		if len(thread.Messages) == 0 {
+			c.active = thread.ID
+			c.saveLocked()
+			return thread
+		}
+	}
 	c.created++
 	thread := &Conversation{
 		ID:      fmt.Sprintf("c%d-%d", time.Now().UnixNano(), c.created),

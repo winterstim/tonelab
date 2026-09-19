@@ -102,6 +102,16 @@ test("a reply that finishes after switching conversations is not drawn in the wr
     expect(await screen.findByText("Belongs to the first.")).toBeInTheDocument();
 });
 
+test("starting again with nothing said does not stack empty conversations", async () => {
+    const user = userEvent.setup();
+    await open();
+    const sidebar = () => within(screen.getByRole("complementary", { name: "Sidebar" }));
+    await user.click(sidebar().getByRole("button", { name: "Start a new conversation" }));
+    await user.click(sidebar().getByRole("button", { name: "Start a new conversation" }));
+    await waitFor(() => expect(world.threads).toHaveLength(1));
+    expect(sidebar().getAllByRole("button", { name: "More for New conversation" })).toHaveLength(1);
+});
+
 test("conversations are listed in the sidebar, titled from the first thing asked", async () => {
     const user = userEvent.setup();
     const input = await open();

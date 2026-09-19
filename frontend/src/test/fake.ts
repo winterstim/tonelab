@@ -208,7 +208,9 @@ export const AgentService = {
     },
     async StartConversation(): Promise<Conversation> {
         await tick();
-        world.active = "";
+        // As the backend: an empty thread is already the new conversation.
+        const empty = world.threads.find((t) => t.Messages.length === 0);
+        world.active = empty ? empty.ID : "";
         return outward(current());
     },
     async OpenConversation(id: string): Promise<Conversation> {
