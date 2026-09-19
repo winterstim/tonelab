@@ -1,6 +1,8 @@
 import * as React from "react"
 
-const MOBILE_BREAKPOINT = 768
+// A desktop window is never a phone: the sidebar folds to its rail when
+// narrow instead of turning into a sheet.
+const MOBILE_BREAKPOINT = 0
 
 export function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)

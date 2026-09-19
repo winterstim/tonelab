@@ -43,12 +43,22 @@ function Frame() {
     const title = conversations.find((c) => c.Active)?.Title ?? "New conversation";
     // With the sidebar folded to its icon rail, the macOS traffic lights
     // reach past it into this bar; the toggle moves out from under them.
-    const { state: sidebar } = useSidebar();
+    const { state: sidebar, setOpen } = useSidebar();
+
+    // A narrow window folds the sidebar on its own; the person can still
+    // open it, and it stays open once the window is wide again.
+    useEffect(() => {
+        const media = window.matchMedia("(max-width: 760px)");
+        const fold = () => { if (media.matches) setOpen(false); };
+        fold();
+        media.addEventListener("change", fold);
+        return () => media.removeEventListener("change", fold);
+    }, [setOpen]);
 
     return (
         <>
             <AppSidebar screen={screen} onScreen={setScreen} />
-            <SidebarInset className="h-svh max-h-svh min-w-0 overflow-hidden bg-background">
+            <SidebarInset className="@container h-svh max-h-svh min-w-0 overflow-hidden bg-background">
                 {/* The bar is the drag region under a hidden title bar. */}
                 <header className={cn("flex h-[52px] flex-none items-center gap-2 px-3 [-webkit-app-region:drag]", sidebar === "collapsed" && "pl-[42px]")}>
                     <SidebarTrigger className="[-webkit-app-region:no-drag]" />
@@ -69,7 +79,7 @@ function Frame() {
                         </Button>
                     )}
                 </header>
-                <div className="flex min-h-0 flex-1">
+                <div className="relative flex min-h-0 flex-1">
                     <div role="tabpanel" aria-label="Chat" className="min-w-0 flex-1" hidden={screen !== "chat"}>
                         <ChatView active={screen === "chat"} onAccount={() => setScreen("settings")} />
                     </div>
@@ -111,9 +121,9 @@ function DAWLight() {
     }, []);
 
     return (
-        <span className="flex items-center gap-2 px-2 text-[13px] text-muted-foreground" title={state.detail} data-connected={state.connected}>
+        <span className="flex items-center gap-2 px-2 text-[13px] whitespace-nowrap text-muted-foreground" title={state.detail || state.text} data-connected={state.connected}>
             <span aria-hidden className={cn("size-2 rounded-full", state.connected ? "bg-success" : "bg-faint")} />
-            {state.text}
+            <span className="@max-md:sr-only">{state.text}</span>
         </span>
     );
 }

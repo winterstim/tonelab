@@ -24,7 +24,9 @@ export function ActionsPanel({ onClose }: { onClose: () => void }) {
     }, [thread]);
 
     return (
-        <aside aria-label="Recent actions" className="settle flex w-[22rem] flex-none flex-col border-l border-border">
+        // Beside the thread when there is room, over it when there is not:
+        // squeezing both into a narrow window left neither readable.
+        <aside aria-label="Recent actions" className="settle flex w-[22rem] max-w-full flex-none flex-col border-l border-border bg-background @max-3xl:absolute @max-3xl:inset-y-0 @max-3xl:right-0 @max-3xl:z-20 @max-3xl:shadow-lift">
             <div className="flex h-10 flex-none items-center justify-between pr-1 pl-4">
                 <h2 className="text-sm font-medium">Recent actions</h2>
                 <Button variant="ghost" size="icon-sm" aria-label="Close recent actions" onClick={onClose}><X /></Button>

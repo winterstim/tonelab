@@ -176,7 +176,7 @@ export function ChatView({ active, onAccount }: { active: boolean; onAccount: ()
                 // new one rather than wherever the old one was scrolled to.
                 <MessageScrollerProvider key={thread.id} autoScroll>
                     <MessageScroller className="flex-1">
-                        <MessageScrollerViewport className="px-6">
+                        <MessageScrollerViewport className="px-6 @max-md:px-3">
                             <MessageScrollerContent className="mx-auto w-full max-w-3xl gap-6 py-4">
                                 {items.map((item) => (
                                     <MessageScrollerItem key={item.key} messageId={String(item.key)} scrollAnchor={item.from === "you"}>
@@ -192,7 +192,7 @@ export function ChatView({ active, onAccount }: { active: boolean; onAccount: ()
 
             {/* The composer carries its own controls under the text: what
                 is typed and how it will be treated sit in one place. */}
-            <form onSubmit={onSubmit} className="mx-auto mb-5 w-[calc(100%-3rem)] max-w-3xl rounded-3xl bg-background shadow-lift dark:bg-card">
+            <form onSubmit={onSubmit} className="mx-auto mb-5 w-[calc(100%-3rem)] max-w-3xl rounded-3xl @max-md:mb-3 @max-md:w-[calc(100%-1.5rem)] bg-background shadow-lift dark:bg-card">
                 <textarea
                     ref={input}
                     rows={1}
@@ -203,15 +203,15 @@ export function ChatView({ active, onAccount }: { active: boolean; onAccount: ()
                     aria-label="Command"
                     className="max-h-40 w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[14.5px] leading-6 placeholder:text-faint"
                 />
-                <div className="flex items-center gap-1 px-3 pb-2.5 text-[13px] text-muted-foreground">
+                <div className="flex items-center gap-1 px-3 pb-2.5 text-[13px] whitespace-nowrap text-muted-foreground">
                     {/* Not wrapped in the label: a label forwards its click to
                         the control inside it, which toggled the switch twice. */}
                     <div className="flex items-center gap-2 rounded-full px-2 py-1">
-                        <Switch id="preview-mode" checked={preview} onCheckedChange={setPreview} />
-                        <label htmlFor="preview-mode" className="cursor-pointer">Show me the plan first</label>
+                        <Switch id="preview-mode" aria-label="Show me the plan first" checked={preview} onCheckedChange={setPreview} />
+                        <label htmlFor="preview-mode" className="cursor-pointer"><span className="@max-lg:hidden">Show me the plan first</span><span className="@lg:hidden">Plan first</span></label>
                     </div>
-                    <Quiet onClick={async () => report(await AgentService.Undo())}>
-                        <Undo2 className="size-3.5" /> Undo last change
+                    <Quiet onClick={async () => report(await AgentService.Undo())} aria-label="Undo last change">
+                        <Undo2 className="size-3.5" /> <span className="@max-lg:hidden">Undo last change</span>
                     </Quiet>
                     <span className="flex-1" />
                     {/* Stop replaces Send while a turn runs, so the button under
