@@ -19,7 +19,7 @@ export function AppSidebar({ screen, onScreen }: { screen: Screen; onScreen: (sc
         <Sidebar collapsible="icon" className="border-r-0">
             {/* Room for the macOS traffic lights; the whole strip drags. */}
             <SidebarHeader className="h-[52px] justify-center px-3 [-webkit-app-region:drag] group-data-[collapsible=icon]:px-2">
-                <span className="truncate pl-[62px] text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">Tonelab</span>
+                <span className="truncate pl-[72px] text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden">Tonelab</span>
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>

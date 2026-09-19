@@ -45,7 +45,7 @@ function Frame() {
     return (
         <>
             <AppSidebar screen={screen} onScreen={setScreen} />
-            <SidebarInset className="min-w-0 bg-background">
+            <SidebarInset className="h-svh max-h-svh min-w-0 overflow-hidden bg-background">
                 {/* The bar is the drag region under a hidden title bar. */}
                 <header className="flex h-[52px] flex-none items-center gap-2 px-3 [-webkit-app-region:drag]">
                     <SidebarTrigger className="[-webkit-app-region:no-drag]" />
