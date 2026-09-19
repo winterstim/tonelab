@@ -28,8 +28,11 @@ export function App() {
         <ThemeContext.Provider value={theme}>
             <StoreProvider>
             <main className="flex h-full flex-col overflow-hidden">
-                <header className="flex items-center justify-between gap-4 px-5 pt-4 pb-2">
-                    <nav role="tablist" className="flex gap-1 rounded-full bg-secondary p-1">
+                {/* The bar is the drag region under a hidden title bar. Tabs are
+                    centred on the window rather than on what is left beside the
+                    macOS traffic lights; the light sits on the right. */}
+                <header className="relative flex h-[58px] flex-none items-center justify-end px-5 [-webkit-app-region:drag]">
+                    <nav role="tablist" className="absolute left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-secondary p-1 [-webkit-app-region:no-drag]">
                         {tabs.map(({ id, label, Icon }) => (
                             <button
                                 key={id}
