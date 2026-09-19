@@ -91,28 +91,26 @@ test("a reply that finishes after switching conversations is not drawn in the wr
     await user.type(input, "First question{Enter}");
     await screen.findByText("Working…");
 
-    await user.click(screen.getByRole("button", { name: "New conversation" }));
+    await user.click(screen.getByRole("button", { name: "Start a new conversation" }));
     await waitFor(() => expect(panel().queryByText("First question")).not.toBeInTheDocument());
     release();
     await waitFor(() => expect(screen.queryByText("Working…")).not.toBeInTheDocument());
     expect(screen.queryByText("Belongs to the first.")).not.toBeInTheDocument();
 
     // And it is waiting in the thread it was asked in.
-    const trigger = screen.getAllByRole("button", { name: /New conversation/ }).find((b) => b.getAttribute("aria-haspopup") === "menu")!;
-    await user.click(trigger);
-    await user.click(within(await screen.findByRole("menu")).getByText("First question"));
+    await user.click(within(screen.getByRole("complementary", { name: "Sidebar" })).getByText("First question"));
     expect(await screen.findByText("Belongs to the first.")).toBeInTheDocument();
 });
 
-test("the conversation menu appears only with something to switch to", async () => {
+test("conversations are listed in the sidebar, titled from the first thing asked", async () => {
     const user = userEvent.setup();
     const input = await open();
-    expect(screen.queryByRole("button", { name: /New conversation/ })).toBeInTheDocument();
-    await user.type(input, "One{Enter}");
-    await screen.findByText("Done.");
-    expect(screen.queryByRole("button", { name: /^One$/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "New conversation" }));
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /New conversation/ })).toHaveLength(2));
+    const sidebar = () => within(screen.getByRole("complementary", { name: "Sidebar" }));
+    await user.type(input, "Louder drums{Enter}");
+    expect(await sidebar().findByText("Louder drums")).toBeInTheDocument();
+    await user.click(sidebar().getByRole("button", { name: "Start a new conversation" }));
+    await waitFor(() => expect(panel().queryByText("Louder drums")).not.toBeInTheDocument());
+    expect(sidebar().getByText("Louder drums")).toBeInTheDocument();
 });
 
 test("a hosted refusal for want of quota is a card with the reset time", async () => {
@@ -129,7 +127,7 @@ test("a hosted refusal for want of quota is a card with the reset time", async (
     expect(screen.getByText("Today: 100%, resets in 6 h")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Today" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open the account" }));
-    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
 });
 
 test("without a plan the card offers one; on the person's own endpoint the plain line shows", async () => {
