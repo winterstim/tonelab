@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -9,7 +12,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"tonelab/backend/agent"
 	"tonelab/backend/app"
+	"tonelab/backend/app/apptest"
+	"tonelab/backend/config"
+	"tonelab/backend/search"
 )
 
 func init() {
@@ -49,10 +56,10 @@ func TestResponseCarriesOutcomeInColour(t *testing.T) {
 }
 
 func TestGradientRunsSurfaceToDeep(t *testing.T) {
-	if fireAt(0) != fire[0] || fireAt(1) != fire[len(fire)-1] {
+	if paletteAt(0) != fire[0] || paletteAt(1) != fire[len(fire)-1] {
 		t.Fatal("the ends of the gradient are the ends of the palette")
 	}
-	if mid := fireAt(0.5); !strings.EqualFold(mid, fire[2]) {
+	if mid := paletteAt(0.5); !strings.EqualFold(mid, fire[2]) {
 		t.Fatalf("the middle of five stops is the third, got %s", mid)
 	}
 	if mix("#000000", "#ffffff", 0.5) != "#7f7f7f" {
@@ -130,5 +137,151 @@ func TestSettingFieldsParseTheirValues(t *testing.T) {
 				t.Fatal("search off is an empty provider shown as off")
 			}
 		}
+	}
+}
+
+// hostedRuntime is the runtime a signed-out CLI stands on, pointed at the
+// fake service: no DAW, since none of the account commands needs one.
+func hostedRuntime(t *testing.T) (*app.Runtime, string, *string) {
+	t.Helper()
+	server, _ := apptest.FakeHosted(t)
+	path := filepath.Join(t.TempDir(), "config.json")
+	own := config.Config{LLM: config.LLM{BaseURL: "https://api.groq.com/openai/v1", APIKey: "gsk_mine", Model: "openai/gpt-oss-20b"}, DAW: config.DAW{Backend: "reaper", Host: "127.0.0.1", Port: 8000, FeedbackPort: 9000}, Hosted: config.Hosted{URL: server.URL}}
+	if err := config.Save(path, own); err != nil {
+		t.Fatal(err)
+	}
+	config.Load(path)
+	live := agent.NewOrchestrator(agent.Config{BaseURL: own.LLM.BaseURL}, nil)
+	previews := agent.NewOrchestrator(agent.Config{BaseURL: own.LLM.BaseURL}, nil)
+	var opened string
+	hosted := app.NewHostedService(path, live, previews, func(search.Provider) {}, func(url string) error { opened = url; return nil })
+	return &app.Runtime{Agent: app.BuildAgentService(live, previews, nil, filepath.Join(filepath.Dir(path), "conversations.json")), Hosted: hosted, Settings: app.NewSettingsService(path, live, previews, func(search.Provider) {})}, path, &opened
+}
+
+// collect runs a command tree to its leaves and returns every message it
+// produces, which is how a test sees what the prompt would have printed.
+func collect(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var out []tea.Msg
+		for _, c := range batch {
+			out = append(out, collect(c)...)
+		}
+		return out
+	}
+	return []tea.Msg{msg}
+}
+
+// printed is the text of the messages with colour stripped, since the
+// gradient paints every rune separately and a word would not match.
+func printed(msgs []tea.Msg) string {
+	var out strings.Builder
+	for _, m := range msgs {
+		out.WriteString(fmt.Sprint(m))
+	}
+	return ansi.ReplaceAllString(out.String(), "")
+}
+
+var ansi = regexp.MustCompile("\\x1b\\[[0-9;]*m")
+
+func TestLoginShowsTheCodeThenSignsInAndLogoutUndoesIt(t *testing.T) {
+	runtime, path, opened := hostedRuntime(t)
+	settings, _ := config.Load(path)
+	m := newModel(runtime, settings, path)
+
+	if got := renderAccount(runtime); !strings.Contains(got, "not signed in") {
+		t.Fatalf("before login: %q", got)
+	}
+
+	next, cmd := m.submit("/login")
+	m = next.(model)
+	msgs := collect(cmd)
+	if out := printed(msgs); !strings.Contains(out, "ABCD-EFGH") || !strings.Contains(out, "http://x/device?code=ABCD-EFGH") {
+		t.Fatalf("the code and the address are what the person needs, got %q", out)
+	}
+	if *opened != "http://x/device?code=ABCD-EFGH" {
+		t.Fatalf("the browser is sent to the approval page, got %q", *opened)
+	}
+	var done *loginDone
+	for _, msg := range msgs {
+		if d, ok := msg.(loginDone); ok {
+			done = &d
+		}
+	}
+	if done == nil || !done.state.Done || done.state.Error != "" {
+		t.Fatalf("the wait ends in an approved sign-in, got %+v", done)
+	}
+
+	next, cmd = m.Update(*done)
+	m = next.(model)
+	if out := printed(collect(cmd)); !strings.Contains(out, "signed in") || !strings.Contains(out, "ann@example.com") || !strings.Contains(out, "solo") {
+		t.Fatalf("signing in reports the account, got %q", out)
+	}
+	if !m.settings.SignedIn() {
+		t.Fatal("the model rereads the settings the sign-in rewrote")
+	}
+	if got := renderAccount(runtime); !strings.Contains(got, "this month") || !strings.Contains(got, "resets") {
+		t.Fatalf("/account draws the windows, got %q", got)
+	}
+
+	next, cmd = m.submit("/logout")
+	m = next.(model)
+	if out := printed(collect(cmd)); !strings.Contains(out, "signed out") {
+		t.Fatalf("got %q", out)
+	}
+	if m.settings.SignedIn() {
+		t.Fatal("logout takes the subscription out of the settings the prompt shows")
+	}
+	if got := renderAccount(runtime); !strings.Contains(got, "not signed in") {
+		t.Fatalf("after logout: %q", got)
+	}
+}
+
+func TestThemesSwitchRememberAndRefuseUnknownNames(t *testing.T) {
+	t.Cleanup(func() { theme = palettes[0] })
+	runtime, path, _ := hostedRuntime(t)
+	settings, _ := config.Load(path)
+	m := newModel(runtime, settings, path)
+
+	next, cmd := m.submit("/theme")
+	m = next.(model)
+	if out := printed(collect(cmd)); !strings.Contains(out, "fire") || !strings.Contains(out, "lagoon") || !strings.Contains(out, "emerald") || !strings.Contains(out, "white") {
+		t.Fatalf("the list names every theme, got %q", out)
+	}
+
+	next, cmd = m.submit("/theme Lagoon")
+	m = next.(model)
+	if theme.Name != "lagoon" || !strings.Contains(printed(collect(cmd)), "now in lagoon") {
+		t.Fatalf("switched to %s", theme.Name)
+	}
+	if !strings.Contains(m.input.Prompt, "92;240;230") {
+		t.Fatalf("the prompt is repainted in the new palette, got %q", m.input.Prompt)
+	}
+	if strings.Count(gradient("tonelab"), "\x1b[") < 7 || paletteAt(1) != lagoon[len(lagoon)-1] {
+		t.Fatal("the gradient runs the new palette")
+	}
+
+	theme = palettes[0]
+	loadTheme(path)
+	if theme.Name != "lagoon" {
+		t.Fatalf("the choice survives a restart, got %s", theme.Name)
+	}
+
+	_, cmd = m.submit("/theme plaid")
+	if out := printed(collect(cmd)); !strings.Contains(out, "no theme called plaid") || theme.Name != "lagoon" {
+		t.Fatalf("an unknown name is refused and nothing changes, got %q", out)
+	}
+
+	if err := useTheme("white"); err != nil {
+		t.Fatal(err)
+	}
+	if paletteAt(0) != "#FFFFFF" || paletteAt(0.5) != "#FFFFFF" || paletteAt(1) != "#FFFFFF" {
+		t.Fatal("white is flat, not a gradient")
+	}
+	if !strings.Contains(theme.Success.Render("ok"), "60;220;151") || !strings.Contains(theme.Error.Render("no"), "255;77;255") {
+		t.Fatal("outcome colours are the same in every theme")
 	}
 }

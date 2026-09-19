@@ -46,6 +46,11 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	// Asked now, while stdin is still ours: once the prompt owns it the
+	// terminal's answer would be read as keystrokes and the background
+	// would default to dark, which paints a light terminal unreadable.
+	detectedDark = lipgloss.HasDarkBackground()
+	loadTheme(configPath)
 	if *dawName != "" {
 		settings.DAW.Backend = *dawName
 	}
@@ -131,6 +136,8 @@ func usage() {
   --daw <name>   use another DAW backend for this run
   --json         machine-readable output for one-shot commands
   --quiet        hide the backend log
+
+  /theme in the interactive prompt picks the look: fire, lagoon, emerald, white, black, adaptive; add light or dark for the background.
 
 Settings come from the same config file the desktop app uses; TONELAB_CONFIG
 points at another one.`)
