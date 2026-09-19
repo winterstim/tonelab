@@ -135,11 +135,15 @@ function Meter({ label, window }: { label: string; window: UsageWindow }) {
     const share = window.limit > 0 ? window.used / window.limit : 0;
     const percent = Math.min(100, Math.round(share * 100));
     const level = share >= 1 ? "full" : share >= 0.8 ? "high" : "ok";
+    // Label and figures above a full-width bar: three columns squeezed the
+    // bar to a sliver in a narrow window, and the bar is the point.
     return (
-        <div className="grid grid-cols-[7rem_1fr_auto] items-center gap-3 text-[13px]" data-level={level}>
-            <span>{label}</span>
+        <div className="flex flex-col gap-1 text-[13px]" data-level={level}>
+            <div className="flex items-baseline justify-between gap-3">
+                <span>{label}</span>
+                <span className="tabular-nums text-faint">{percent}%, {whenResets(window.resets_at)}</span>
+            </div>
             <Progress value={percent} aria-label={label} className="bg-secondary" indicatorClassName={cn(level === "full" ? "bg-destructive" : level === "high" ? "bg-warning" : "bg-success")} />
-            <span className="tabular-nums text-faint">{percent}%, {whenResets(window.resets_at)}</span>
         </div>
     );
 }
