@@ -1,8 +1,10 @@
 name: Release
 
+# Run by hand from the Actions tab if a machine is ever short; the usual
+# release is built locally with `task release VERSION=vX.Y.Z` and
+# uploaded with gh, which keeps hosted minutes at zero.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
