@@ -12,3 +12,5 @@ func SetPageReader(t *Tools, read func(ctx context.Context, address string, limi
 }
 
 const MaxPage = maxPage
+
+var HTTPFailure = httpFailure

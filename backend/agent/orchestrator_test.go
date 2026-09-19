@@ -611,3 +611,23 @@ func TestFailedTurnsAreNotRemembered(t *testing.T) {
 		t.Errorf("a failed turn was remembered: %s", body)
 	}
 }
+
+// The hosted service refuses with its own codes and both quota windows;
+// the window needs the code to know what to say and the windows to say
+// when it can try again.
+func TestHTTPFailure_PassesHostedRefusalThrough(t *testing.T) {
+	payload := []byte(`{"error":{"code":"daily_limit_reached","message":"Today's share of the plan is used up.","usage":{"month":{"used":10,"limit":100,"resets_at":"2026-10-01T00:00:00Z"},"day":{"used":5,"limit":5,"resets_at":"2026-09-20T00:00:00Z"},"searches_used":1,"searches_limit":300}}}`)
+	failure := agent.HTTPFailure(429, payload)
+	if failure.Code != "daily_limit_reached" {
+		t.Fatalf("code = %q, want the service's own", failure.Code)
+	}
+	if failure.Usage == nil || failure.Usage.Day.Used != 5 || failure.Usage.Day.ResetsAt.IsZero() {
+		t.Fatalf("usage not carried: %+v", failure.Usage)
+	}
+
+	// An ordinary 429 from anyone else is still a rate limit to wait out.
+	plain := agent.HTTPFailure(429, []byte(`{"error":{"message":"try again in 2s","code":"rate_limit"}}`))
+	if plain.Code != "llm_rate_limited" || plain.Usage != nil {
+		t.Fatalf("plain 429 = %+v", plain)
+	}
+}
