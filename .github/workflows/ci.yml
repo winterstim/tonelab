@@ -66,7 +66,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            wails3 generate bindings -ts -d frontend/bindings
+            # -i as the Taskfile passes it, which the other two builds go
+            # through; without it the bindings type slices as non-null and
+            # the frontend's fakes, which return null as Go does, fail tsc.
+            wails3 generate bindings -ts -i -d frontend/bindings
             npm --prefix frontend ci && npm --prefix frontend run build
             go build -tags "production gtk3" -trimpath -ldflags="-w -s" -o bin/tonelab .
           else
