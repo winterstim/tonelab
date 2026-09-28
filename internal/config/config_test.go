@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +53,13 @@ func TestMissingConfigIsWrittenAsATemplate(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("the error must name the file to edit, got: %v", err)
+	}
+	var first *config.FirstRunError
+	if !errors.As(err, &first) || first.Path != path {
+		t.Errorf("a caller that can run on the template must be able to tell, got %T", err)
+	}
+	if _, err := config.Load(path); err != nil {
+		t.Errorf("the template must load as it stands, for a host that brings its own model: %v", err)
 	}
 	written, readErr := os.ReadFile(path)
 	if readErr != nil {

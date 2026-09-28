@@ -167,7 +167,7 @@ func Load(path string) (Config, error) {
 		if writeErr := writeTemplate(path); writeErr != nil {
 			return Config{}, fmt.Errorf("config: %s does not exist and could not be created: %w", path, writeErr)
 		}
-		return Config{}, fmt.Errorf("config: wrote a template to %s, fill it in and start again", path)
+		return Config{}, &FirstRunError{Path: path}
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: could not read %s: %w", path, err)
@@ -189,6 +189,15 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
 	return loaded, nil
+}
+
+// FirstRunError is Load having just written the template. The window and
+// the chat need the user's own endpoint and stop here; an MCP server, whose
+// host brings the model, can run on the template as it stands.
+type FirstRunError struct{ Path string }
+
+func (e *FirstRunError) Error() string {
+	return fmt.Sprintf("config: wrote a template to %s, fill it in and start again", e.Path)
 }
 
 func newDeviceID() string {
