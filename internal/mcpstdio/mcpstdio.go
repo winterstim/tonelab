@@ -300,11 +300,9 @@ func failure(code, message string) *mcp.CallToolResult {
 // start, and a person who added Tonelab to Claude should not first be sent
 // to edit a file.
 func load(path string) (config.Config, error) {
-	settings, err := config.Load(path)
-	var first *config.FirstRunError
-	if errors.As(err, &first) {
+	settings, wrote, err := config.LoadOrTemplate(path)
+	if wrote {
 		log.Printf("[tonelab] no settings yet; wrote %s and starting with them", path)
-		return config.Load(path)
 	}
 	return settings, err
 }

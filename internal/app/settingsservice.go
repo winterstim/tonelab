@@ -80,6 +80,8 @@ func theme(name string) string {
 	}
 }
 
+// live and previews are nil in a process that runs no agent of its own,
+// such as the MCP server: the file is then written for the next start.
 func NewSettingsService(path string, live, previews *agent.Orchestrator, applySearch func(search.Provider)) *SettingsService {
 	return &SettingsService{path: path, agent: live, previews: previews, applySearch: applySearch}
 }
@@ -177,10 +179,12 @@ func (s *SettingsService) Save(incoming Settings, apiKey, searchKey string) (Set
 
 	// The endpoint applies immediately, because a user correcting a key
 	// should find out at once whether that was the problem.
-	base, key, model, device := updated.AgentConfig()
-	llm := agent.Config{BaseURL: base, APIKey: key, Model: model, DeviceID: device}
-	s.agent.Reconfigure(llm)
-	s.previews.Reconfigure(llm)
+	if s.agent != nil {
+		base, key, model, device := updated.AgentConfig()
+		llm := agent.Config{BaseURL: base, APIKey: key, Model: model, DeviceID: device}
+		s.agent.Reconfigure(llm)
+		s.previews.Reconfigure(llm)
+	}
 	if s.applySearch != nil {
 		// Validated by config.Save already, so this cannot fail here.
 		provider, _ := search.New(updated.SearchConfig())

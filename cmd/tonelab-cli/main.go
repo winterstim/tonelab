@@ -12,9 +12,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	goruntime "runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,6 +21,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/winterstim/tonelab/internal/app"
+	"github.com/winterstim/tonelab/internal/browser"
 	"github.com/winterstim/tonelab/internal/config"
 	"github.com/winterstim/tonelab/internal/mcplocal"
 )
@@ -48,7 +47,7 @@ func main() {
 	if flag.Arg(0) == "mcp" {
 		// Before the settings are read and the terminal is asked anything:
 		// stdout belongs to the host from here on.
-		serveMCP(configPath, *dawName)
+		runMCP(configPath, *dawName, flag.Args()[1:])
 		return
 	}
 	settings, err := config.Load(configPath)
@@ -74,7 +73,7 @@ func main() {
 	if err := mcplocal.Release(context.Background(), dir); err != nil {
 		fail(err)
 	}
-	runtime, err := app.Assemble(settings, configPath, openBrowser)
+	runtime, err := app.Assemble(settings, configPath, browser.Open)
 	if err != nil {
 		fail(err)
 	}
@@ -152,6 +151,7 @@ func usage() {
   tonelab-cli status                  is the DAW answering
   tonelab-cli undo                    ask the DAW to take back its last change
   tonelab-cli mcp                     serve the DAW tools to Claude, Codex or another MCP host
+  tonelab-cli mcp install [host...]   add Tonelab to the hosts on this machine; remove takes it out
 
   --daw <name>   use another DAW backend for this run
   --json         machine-readable output for one-shot commands
@@ -161,20 +161,4 @@ func usage() {
 
 Settings come from the same config file the desktop app uses; TONELAB_CONFIG
 points at another one.`)
-}
-
-// openBrowser hands a URL to the desktop, the way a terminal tool signing
-// into a service does; on a headless machine the address is printed and
-// this simply fails quietly.
-func openBrowser(url string) error {
-	var command *exec.Cmd
-	switch goruntime.GOOS {
-	case "darwin":
-		command = exec.Command("open", url)
-	case "windows":
-		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		command = exec.Command("xdg-open", url)
-	}
-	return command.Start()
 }

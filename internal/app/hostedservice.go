@@ -75,6 +75,8 @@ type HostedService struct {
 	cancel context.CancelFunc
 }
 
+// live and previews are nil in a process that runs no agent of its own,
+// such as the MCP server: a sign-in then only writes the settings.
 func NewHostedService(path string, live, previews *agent.Orchestrator, applySearch func(search.Provider), open func(string) error) *HostedService {
 	return &HostedService{path: path, agent: live, previews: previews, apply: applySearch, open: open}
 }
@@ -262,10 +264,12 @@ func (h *HostedService) adopt(url, key string) error {
 }
 
 func (h *HostedService) applySettings(settings config.Config) {
-	baseURL, apiKey, model, device := settings.AgentConfig()
-	llm := agent.Config{BaseURL: baseURL, APIKey: apiKey, Model: model, DeviceID: device}
-	h.agent.Reconfigure(llm)
-	h.previews.Reconfigure(llm)
+	if h.agent != nil {
+		baseURL, apiKey, model, device := settings.AgentConfig()
+		llm := agent.Config{BaseURL: baseURL, APIKey: apiKey, Model: model, DeviceID: device}
+		h.agent.Reconfigure(llm)
+		h.previews.Reconfigure(llm)
+	}
 	if h.apply != nil {
 		provider, _ := search.New(settings.SearchConfig())
 		h.apply(provider)

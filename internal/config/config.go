@@ -200,6 +200,20 @@ func (e *FirstRunError) Error() string {
 	return fmt.Sprintf("config: wrote a template to %s, fill it in and start again", e.Path)
 }
 
+// LoadOrTemplate is Load for a caller that can run on the template, and
+// says whether it had to write one. Something whose host brings the model,
+// such as the MCP server, starts at once rather than sending the person to
+// edit a file first.
+func LoadOrTemplate(path string) (settings Config, wrote bool, err error) {
+	settings, err = Load(path)
+	var first *FirstRunError
+	if errors.As(err, &first) {
+		settings, err = Load(path)
+		return settings, err == nil, err
+	}
+	return settings, false, err
+}
+
 // WritePrivate writes a file only its owner can read, as the settings are
 // written, for other secrets kept beside them.
 func WritePrivate(path string, body []byte) error { return writePrivate(path, body) }
