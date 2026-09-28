@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { AccountBlock } from "@/views/AccountBlock";
 import { AboutBlock } from "@/views/AboutBlock";
+import { HostsBlock } from "@/views/HostsBlock";
 
 // What the form holds, apart from the two keys, which go out only.
 interface Draft {
@@ -228,6 +229,7 @@ export function SettingsView({ active }: { active: boolean }) {
                     </div>
                 </form>
 
+                <HostsBlock />
                 <AboutBlock active={active} />
             </div>
         </section>

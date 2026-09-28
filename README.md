@@ -28,6 +28,8 @@ back what the DAW says the value became.
   plan, with nothing to set up.
 - **Optional web search** for advice that is not in the project, with
   sources cited.
+- **In Claude, Codex or Cursor too.** The same tools over MCP, driven by
+  that app's own model, with no subscription; see below.
 
 ## Supported DAWs
 
@@ -143,6 +145,39 @@ twice quits. Piped or with `NO_COLOR` set, output is plain text; the exit
 code is 1 when a command failed and 2 when it ran but the DAW did not
 confirm the change.
 
+## In Claude, Codex or Cursor
+
+Tonelab's tools also work inside Claude Desktop, Claude Code, Codex, Cursor
+and any other MCP client: the client's own model then drives the DAW, with
+the same tools, the same read-back from the DAW and the same undo. No
+Tonelab subscription and no model key are involved; the client brings the
+model.
+
+With the app installed, press **Add to these apps** in Settings. Without
+it, download `tonelab-mcp` alone (no window, a single file) and run:
+
+```
+tonelab-mcp install                  add Tonelab to every client found here
+tonelab-mcp install codex            or to one: claude-desktop, claude-code, codex, cursor
+tonelab-mcp settings                 which DAW and web search it uses
+tonelab-mcp set daw ableton          change one; set port, feedback, host alike
+tonelab-mcp set search brave         web search with your own key (asked for, not echoed)
+tonelab-mcp login                    or web search on a Tonelab plan
+tonelab-mcp remove                   take Tonelab out again
+```
+
+`tonelab-cli mcp install` does the same for someone who has the command
+line. A client that was open needs a restart to see the change. REAPER on
+its default ports works with no settings at all; for another DAW, set it up
+as above and choose it with `set daw`.
+
+Every client asks before a call that changes the project and can let reads
+through; undo is the DAW's own, as in the window. One Tonelab holds the
+DAW's connection at a time and the rest go through it, so the window, the
+command line and several clients can be open together. Opening the window
+takes the connection over from a client, which carries on through the
+window.
+
 ## Configuration
 
 ```json
@@ -196,6 +231,8 @@ internal/version    the build's version, stamped at link time
 internal/mcpserver  the agent's tools over MCP, for a host that brings its own model
 internal/mcpstdio   how a host starts it: over stdin and stdout, through whoever holds the DAW
 internal/mcplocal   one DAW shared by the window, the command line and every host on the machine
+internal/mcpinstall adding Tonelab to the MCP hosts on this machine
+internal/browser    opening a page in the system's browser
 cmd/tonelab-cli     the command line, a second view on the same backend
 cmd/tonelab-mcp     the MCP server alone, without the window
 frontend/src        the window

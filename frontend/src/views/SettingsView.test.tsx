@@ -156,3 +156,22 @@ test("a newer release is offered as a download on the site", async () => {
     await user.click(await screen.findByRole("button", { name: "v0.2.0 is available, download" }));
     expect(world.opened).toEqual(["/download"]);
 });
+
+test("the app can be added to the MCP hosts on this machine, and taken out", async () => {
+    world.hosts = { "Claude Desktop": false, Codex: false };
+    const user = await openSettings();
+    await user.click(screen.getByRole("button", { name: "Add to these apps" }));
+    const apps = await screen.findByRole("list", { name: "Apps" });
+    expect(within(apps).getByText(/added to Claude Desktop/)).toBeInTheDocument();
+    expect(world.hosts).toEqual({ "Claude Desktop": true, Codex: true });
+
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    expect(await within(screen.getByRole("list", { name: "Apps" })).findByText(/removed from Codex/)).toBeInTheDocument();
+    expect(world.hosts).toEqual({ "Claude Desktop": false, Codex: false });
+});
+
+test("a machine with no MCP host says nothing was set up rather than failing", async () => {
+    const user = await openSettings();
+    await user.click(screen.getByRole("button", { name: "Add to these apps" }));
+    expect(await screen.findByText("None of these apps is on this computer.")).toBeInTheDocument();
+});

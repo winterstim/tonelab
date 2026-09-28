@@ -4,13 +4,18 @@ import (
 	"context"
 	"embed"
 	"log"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/winterstim/tonelab/internal/app"
 	"github.com/winterstim/tonelab/internal/config"
+	"github.com/winterstim/tonelab/internal/mcpinstall"
 	"github.com/winterstim/tonelab/internal/mcplocal"
+	"github.com/winterstim/tonelab/internal/mcpstdio"
 )
 
 // Embedded so the app ships as one binary with no external asset path.
@@ -25,6 +30,16 @@ func main() {
 	configPath, err := config.Path()
 	if err != nil {
 		log.Fatal(err)
+	}
+	// A host started the app as its MCP server: no window, and stdout is
+	// the host's, so nothing else runs.
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := mcpstdio.Serve(ctx, configPath, ""); err != nil && ctx.Err() == nil {
+			log.Fatal(err)
+		}
+		return
 	}
 	settings, err := config.Load(configPath)
 	if err != nil {
@@ -60,6 +75,7 @@ func main() {
 			application.NewService(agentService),
 			application.NewService(settingsService),
 			application.NewService(runtime.Hosted),
+			application.NewService(app.NewMCPService(executable(), mcpinstall.System())),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -91,4 +107,14 @@ func main() {
 	if err = desktop.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// executable is the path a host is told to start. Nothing is registered
+// when it cannot be read, which a host would only fail on later.
+func executable() string {
+	path, err := os.Executable()
+	if err != nil {
+		log.Printf("[tonelab] cannot tell hosts where the app is: %v", err)
+	}
+	return path
 }

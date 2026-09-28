@@ -10,6 +10,7 @@ import type {
     Conversation,
     ConversationSummary,
     DAWStatus,
+    HostSetup,
     HostedStatus,
     JournalEntry,
     PlannedCall,
@@ -49,6 +50,8 @@ export const world = {
     plan: null as PlannedCall[] | null,
     opened: [] as string[],
     update: { Current: "v0.1.0", Latest: "v0.1.0", Available: false, Error: "" } as Update,
+    // Which MCP hosts are on this machine, and which have Tonelab added.
+    hosts: {} as Record<string, boolean>,
 };
 
 let ids = 0;
@@ -100,6 +103,7 @@ export function reset() {
     world.plan = null;
     world.opened = [];
     world.update = { Current: "v0.1.0", Latest: "v0.1.0", Available: false, Error: "" };
+    world.hosts = {};
 }
 
 reset();
@@ -304,6 +308,29 @@ export const HostedService = {
         await tick();
         world.hosted = { ...world.hosted, SignedIn: false, Email: "", Plan: "", Active: false, Reason: "" };
         return { ...world.hosted };
+    },
+};
+
+// Every host the backend knows is reported, each one not on the machine
+// as not found, which is how the backend answers too.
+const knownHosts = ["Claude Desktop", "Claude Code", "Codex", "Cursor"];
+
+function setHosts(added: boolean, verb: string): HostSetup[] {
+    return knownHosts.map((Host) => {
+        if (!(Host in world.hosts)) return { Host, Done: false, Detail: "not found on this machine" };
+        world.hosts[Host] = added;
+        return { Host, Done: true, Detail: `${verb} ${Host}` };
+    });
+}
+
+export const MCPService = {
+    async Install(): Promise<HostSetup[] | null> {
+        await tick();
+        return setHosts(true, "added to");
+    },
+    async Remove(): Promise<HostSetup[] | null> {
+        await tick();
+        return setHosts(false, "removed from");
     },
 };
 
