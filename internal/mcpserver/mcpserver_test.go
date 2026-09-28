@@ -5,138 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/winterstim/tonelab/internal/agent"
-	"github.com/winterstim/tonelab/internal/daw"
 	"github.com/winterstim/tonelab/internal/daw/dawtest"
 	"github.com/winterstim/tonelab/internal/mcpserver"
 	"github.com/winterstim/tonelab/internal/search"
 )
-
-// fakeDAW answers what a real backend answers, and is held to the same
-// contract, so a test here cannot pass on a DAW kinder than the real one.
-type fakeDAW struct {
-	daw.Client
-
-	mu     sync.Mutex
-	values map[string]any
-	fx     map[string]float64
-	undos  int
-}
-
-func newFakeDAW() *fakeDAW {
-	return &fakeDAW{values: map[string]any{}, fx: map[string]float64{}}
-}
-
-func (f *fakeDAW) Parameters() []daw.Parameter {
-	return []daw.Parameter{
-		{Name: "volume", Kind: daw.Numeric, Readable: true},
-		{Name: "mute", Kind: daw.Toggle, Readable: true},
-	}
-}
-
-func (f *fakeDAW) SetParam(track int, name string, value any) error {
-	if track < 1 {
-		return daw.ErrInvalidTrack
-	}
-	var kind daw.Kind
-	switch name {
-	case "volume":
-		kind = daw.Numeric
-	case "mute":
-		kind = daw.Toggle
-	default:
-		return fmt.Errorf("%w %q", daw.ErrUnknownParam, name)
-	}
-	switch v := value.(type) {
-	case bool:
-		if kind != daw.Toggle {
-			return daw.ErrParamKind
-		}
-	case float64:
-		if kind != daw.Numeric {
-			return daw.ErrParamKind
-		}
-		if v < 0 || v > 1 {
-			return daw.ErrValueOutOfRange
-		}
-	default:
-		return daw.ErrParamKind
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.values[fmt.Sprintf("%d/%s", track, name)] = value
-	return nil
-}
-
-func (f *fakeDAW) GetParam(track int, name string) (any, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	value, ok := f.values[fmt.Sprintf("%d/%s", track, name)]
-	if !ok {
-		return nil, daw.ErrValueUnknown
-	}
-	return value, nil
-}
-
-func (f *fakeDAW) ReadParam(track int, name string, timeout time.Duration) (any, error) {
-	return f.GetParam(track, name)
-}
-
-func (f *fakeDAW) ConfirmParam(track int, name string, timeout time.Duration) (any, error) {
-	return f.GetParam(track, name)
-}
-
-func (f *fakeDAW) Tracks(timeout time.Duration) ([]daw.Track, error) {
-	return []daw.Track{{Number: 1, Name: "Guitar"}, {Number: 2, Name: "Vocals"}}, nil
-}
-
-func (f *fakeDAW) Undo() error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.undos++
-	return nil
-}
-
-func (f *fakeDAW) FXChain(track int, timeout time.Duration) ([]daw.FX, error) {
-	if track != 1 {
-		return nil, nil
-	}
-	return []daw.FX{{Number: 1, Name: "Reverb", Params: []daw.FXParam{{Number: 1, Name: "Mix"}}}}, nil
-}
-
-func (f *fakeDAW) SetFXParam(track, fx, param int, value float64) error {
-	if track < 1 || fx < 1 || param < 1 {
-		return daw.ErrInvalidFX
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.fx[fmt.Sprintf("%d/%d/%d", track, fx, param)] = value
-	return nil
-}
-
-func (f *fakeDAW) ConfirmFXParam(track, fx, param int, timeout time.Duration) (float64, error) {
-	return f.ReadFXParam(track, fx, param, timeout)
-}
-
-func (f *fakeDAW) ReadFXParam(track, fx, param int, timeout time.Duration) (float64, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	value, ok := f.fx[fmt.Sprintf("%d/%d/%d", track, fx, param)]
-	if !ok {
-		return 0, daw.ErrValueUnknown
-	}
-	return value, nil
-}
-
-func TestFakeDAWMeetsTheClientContract(t *testing.T) {
-	dawtest.AssertClientContract(t, newFakeDAW())
-}
 
 type fakeSearch struct{ hits []search.Hit }
 
@@ -180,7 +58,7 @@ func callTool(t *testing.T, client *mcp.ClientSession, name string, args any) (a
 }
 
 func TestHostIsOfferedExactlyTheAgentsTools(t *testing.T) {
-	tools := agent.NewTools(newFakeDAW())
+	tools := agent.NewTools(dawtest.NewFake())
 	tools.EnableSearch(fakeSearch{})
 	client := connect(t, tools, mcpserver.Options{})
 
@@ -217,7 +95,7 @@ func TestHostIsOfferedExactlyTheAgentsTools(t *testing.T) {
 }
 
 func TestHandshakeCarriesTheAgentsRules(t *testing.T) {
-	client := connect(t, agent.NewTools(newFakeDAW()), mcpserver.Options{Version: "v1.2.3"})
+	client := connect(t, agent.NewTools(dawtest.NewFake()), mcpserver.Options{Version: "v1.2.3"})
 	init := client.InitializeResult()
 	if init.Instructions != agent.Instructions {
 		t.Fatal("the host's model must get the same rules as ours")
@@ -228,7 +106,7 @@ func TestHandshakeCarriesTheAgentsRules(t *testing.T) {
 }
 
 func TestSetParamReachesTheDAWAndReportsItsValue(t *testing.T) {
-	backend := newFakeDAW()
+	backend := dawtest.NewFake()
 	client := connect(t, agent.NewTools(backend), mcpserver.Options{})
 
 	result, isError := callTool(t, client, "set_param", map[string]any{"track_id": 2, "param_name": "volume", "value": 0.25})
@@ -246,7 +124,7 @@ func TestSetParamReachesTheDAWAndReportsItsValue(t *testing.T) {
 // A wrong call is a result the host's model reads and corrects, as ours
 // does, not a protocol failure that ends the turn.
 func TestDomainFailureIsAToolErrorWithItsCode(t *testing.T) {
-	client := connect(t, agent.NewTools(newFakeDAW()), mcpserver.Options{})
+	client := connect(t, agent.NewTools(dawtest.NewFake()), mcpserver.Options{})
 
 	result, isError := callTool(t, client, "set_param", map[string]any{"track_id": 1, "param_name": "loudness", "value": 0.5})
 	if !isError {
@@ -258,13 +136,13 @@ func TestDomainFailureIsAToolErrorWithItsCode(t *testing.T) {
 }
 
 func TestToolWithoutArgumentsRuns(t *testing.T) {
-	backend := newFakeDAW()
+	backend := dawtest.NewFake()
 	client := connect(t, agent.NewTools(backend), mcpserver.Options{})
 	if _, isError := callTool(t, client, "undo", nil); isError {
 		t.Fatal("undo takes no arguments and must run without any")
 	}
-	if backend.undos != 1 {
-		t.Fatalf("undos %d", backend.undos)
+	if backend.Undos() != 1 {
+		t.Fatalf("undos %d", backend.Undos())
 	}
 }
 
@@ -274,7 +152,7 @@ func TestToolWithoutArgumentsRuns(t *testing.T) {
 func TestAQuietMinuteEndsTheTurnForPages(t *testing.T) {
 	const address = "https://example.com/amp"
 	now := time.Unix(1_000_000, 0)
-	tools := agent.NewTools(newFakeDAW())
+	tools := agent.NewTools(dawtest.NewFake())
 	tools.EnableSearch(fakeSearch{hits: []search.Hit{{Title: "Amp", URL: address}}})
 	client := connect(t, tools, mcpserver.Options{Now: func() time.Time { return now }})
 
@@ -288,7 +166,7 @@ func TestAQuietMinuteEndsTheTurnForPages(t *testing.T) {
 
 func TestStatusIsOfferedWhenTheHostCanAsk(t *testing.T) {
 	status := func() mcpserver.Status { return mcpserver.Status{Detail: "The DAW did not answer."} }
-	client := connect(t, agent.NewTools(newFakeDAW()), mcpserver.Options{Status: status})
+	client := connect(t, agent.NewTools(dawtest.NewFake()), mcpserver.Options{Status: status})
 
 	result, isError := callTool(t, client, "daw_status", nil)
 	if isError || !strings.Contains(fmt.Sprint(result.Value), "did not answer") {
@@ -301,7 +179,7 @@ func TestStatusIsOfferedWhenTheHostCanAsk(t *testing.T) {
 }
 
 func TestResourcesAnswerAsTheToolsDo(t *testing.T) {
-	client := connect(t, agent.NewTools(newFakeDAW()), mcpserver.Options{})
+	client := connect(t, agent.NewTools(dawtest.NewFake()), mcpserver.Options{})
 	ctx := context.Background()
 
 	tracks, err := client.ReadResource(ctx, &mcp.ReadResourceParams{URI: "tonelab://tracks"})
