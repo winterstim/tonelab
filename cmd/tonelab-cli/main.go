@@ -42,6 +42,12 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	if flag.Arg(0) == "mcp" {
+		// Before the settings are read and the terminal is asked anything:
+		// stdout belongs to the host from here on.
+		serveMCP(configPath, *dawName)
+		return
+	}
 	settings, err := config.Load(configPath)
 	if err != nil {
 		fail(err)
@@ -132,6 +138,7 @@ func usage() {
   tonelab-cli --preview <command>     show what it would do, change nothing
   tonelab-cli status                  is the DAW answering
   tonelab-cli undo                    ask the DAW to take back its last change
+  tonelab-cli mcp                     serve the DAW tools to Claude, Codex or another MCP host
 
   --daw <name>   use another DAW backend for this run
   --json         machine-readable output for one-shot commands

@@ -18,7 +18,10 @@ type Runtime struct {
 	Settings *SettingsService
 	Hosted   *HostedService
 	DAW      daw.Client
-	release  func()
+	// Tools are the live agent's, for a host whose own model calls them:
+	// the same set, so a change made there is one our chat would have made.
+	Tools   *agent.Tools
+	release func()
 }
 
 // Assemble opens the DAW, builds the live and preview agents over one
@@ -73,6 +76,7 @@ func Assemble(settings config.Config, configPath string, openURL func(string) er
 		Settings: NewSettingsService(configPath, live, previews, applySearch),
 		Hosted:   NewHostedService(configPath, live, previews, applySearch, openURL),
 		DAW:      client,
+		Tools:    tools,
 		release:  release,
 	}, nil
 }

@@ -184,17 +184,20 @@ go test -tags "llm reaper" -p 1 ./internal/app  # the whole thing, with a real m
 ## Layout
 
 ```
-internal/osc      OSC transport and listener, DAW-neutral
-internal/daw      DAW command layer: the Client interface and the backends
-internal/agent    tools a model can call, and the loop that calls them
-internal/search   web search providers
-internal/config   the user's settings file
-internal/app      the services the window calls, and the runtime both interfaces stand on
-internal/midi     a MIDI port for DAWs whose scripting has nothing else
-internal/hosted   the client of the Tonelab service: device sign-in, account, releases
-internal/version  the build's version, stamped at link time
-cmd/tonelab-cli   the command line, a second view on the same backend
-frontend/src      the window
+internal/osc        OSC transport and listener, DAW-neutral
+internal/daw        DAW command layer: the Client interface and the backends
+internal/agent      tools a model can call, and the loop that calls them
+internal/search     web search providers
+internal/config     the user's settings file
+internal/app        the services the window calls, and the runtime both interfaces stand on
+internal/midi       a MIDI port for DAWs whose scripting has nothing else
+internal/hosted     the client of the Tonelab service: device sign-in, account, releases
+internal/version    the build's version, stamped at link time
+internal/mcpserver  the agent's tools over MCP, for a host that brings its own model
+internal/mcpstdio   how a host starts it: over stdin and stdout
+cmd/tonelab-cli     the command line, a second view on the same backend
+cmd/tonelab-mcp     the MCP server alone, without the window
+frontend/src        the window
 ```
 
 ## Contributing
