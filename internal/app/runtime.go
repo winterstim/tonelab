@@ -4,10 +4,14 @@ import (
 	"log"
 	"path/filepath"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/winterstim/tonelab/internal/agent"
 	"github.com/winterstim/tonelab/internal/config"
 	"github.com/winterstim/tonelab/internal/daw"
+	"github.com/winterstim/tonelab/internal/mcpserver"
 	"github.com/winterstim/tonelab/internal/search"
+	"github.com/winterstim/tonelab/internal/version"
 )
 
 // Runtime is everything above the DAW that an interface talks to, built
@@ -79,6 +83,18 @@ func Assemble(settings config.Config, configPath string, openURL func(string) er
 		Tools:    tools,
 		release:  release,
 	}, nil
+}
+
+// MCPServer offers these tools to a host that brings its own model, the
+// same tools the chat calls.
+func (r *Runtime) MCPServer() *mcp.Server {
+	return mcpserver.New(r.Tools, mcpserver.Options{
+		Version: version.Version,
+		Status: func() mcpserver.Status {
+			status, _ := r.Agent.GetDAWStatus()
+			return mcpserver.Status{Connected: status.Connected, Detail: status.Detail}
+		},
+	})
 }
 
 // Close lets the DAW backend unsubscribe and releases the transport.

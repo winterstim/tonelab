@@ -200,6 +200,10 @@ func (e *FirstRunError) Error() string {
 	return fmt.Sprintf("config: wrote a template to %s, fill it in and start again", e.Path)
 }
 
+// WritePrivate writes a file only its owner can read, as the settings are
+// written, for other secrets kept beside them.
+func WritePrivate(path string, body []byte) error { return writePrivate(path, body) }
+
 func newDeviceID() string {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
