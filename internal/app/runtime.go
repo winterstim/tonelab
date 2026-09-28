@@ -22,8 +22,9 @@ type Runtime struct {
 	Settings *SettingsService
 	Hosted   *HostedService
 	DAW      daw.Client
-	// Tools are the live agent's, for a host whose own model calls them:
-	// the same set, so a change made there is one our chat would have made.
+	// Tools are for a host whose own model calls them: the same tools as
+	// the chat's over the same DAW, chain cache and search, but a set of
+	// their own, so a host's turns and the chat's do not end each other's.
 	Tools   *agent.Tools
 	release func()
 }
@@ -55,19 +56,22 @@ func Assemble(settings config.Config, configPath string, openURL func(string) er
 	// cannot reach the project even if something above it goes wrong.
 	previewTools := agent.NewPreviewTools(client)
 	previews := agent.NewOrchestrator(llm, previewTools)
+	hostTools := agent.NewTools(client)
 
-	// Both look at the same project, so both read from one chain cache,
+	// All look at the same project, so all read from one chain cache,
 	// which remembers the last session's chains beside the conversations.
 	dir := filepath.Dir(configPath)
 	chains := agent.NewChainCache(NewChainStore(filepath.Join(dir, "chains.json"), settings.DAW.Backend))
 	tools.ShareChains(chains)
 	previewTools.ShareChains(chains)
+	hostTools.ShareChains(chains)
 
-	// Web search is optional and reads only, so both agents share it. A
+	// Web search is optional and reads only, so every set shares it. A
 	// bad search setting is logged, not fatal: the DAW works without it.
 	applySearch := func(provider search.Provider) {
 		tools.EnableSearch(provider)
 		previewTools.EnableSearch(provider)
+		hostTools.EnableSearch(provider)
 	}
 	if provider, err := search.New(settings.SearchConfig()); err != nil {
 		log.Printf("[tonelab] search disabled: %v", err)
@@ -80,7 +84,7 @@ func Assemble(settings config.Config, configPath string, openURL func(string) er
 		Settings: NewSettingsService(configPath, live, previews, applySearch),
 		Hosted:   NewHostedService(configPath, live, previews, applySearch, openURL),
 		DAW:      client,
-		Tools:    tools,
+		Tools:    hostTools,
 		release:  release,
 	}, nil
 }
