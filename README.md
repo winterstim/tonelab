@@ -194,7 +194,8 @@ internal/midi       a MIDI port for DAWs whose scripting has nothing else
 internal/hosted     the client of the Tonelab service: device sign-in, account, releases
 internal/version    the build's version, stamped at link time
 internal/mcpserver  the agent's tools over MCP, for a host that brings its own model
-internal/mcpstdio   how a host starts it: over stdin and stdout
+internal/mcpstdio   how a host starts it: over stdin and stdout, through whoever holds the DAW
+internal/mcplocal   one DAW shared by the window, the command line and every host on the machine
 cmd/tonelab-cli     the command line, a second view on the same backend
 cmd/tonelab-mcp     the MCP server alone, without the window
 frontend/src        the window

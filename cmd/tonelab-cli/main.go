@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 
@@ -22,6 +24,7 @@ import (
 
 	"github.com/winterstim/tonelab/internal/app"
 	"github.com/winterstim/tonelab/internal/config"
+	"github.com/winterstim/tonelab/internal/mcplocal"
 )
 
 func main() {
@@ -65,6 +68,12 @@ func main() {
 		lipgloss.SetColorProfile(termenv.Ascii)
 		plain = true
 	}
+	// An MCP server a host started may hold the DAW; it lets go for a
+	// person at the terminal.
+	dir := filepath.Dir(configPath)
+	if err := mcplocal.Release(context.Background(), dir); err != nil {
+		fail(err)
+	}
 	runtime, err := app.Assemble(settings, configPath, openBrowser)
 	if err != nil {
 		fail(err)
@@ -75,6 +84,10 @@ func main() {
 	case flag.NArg() == 0:
 		if !isTerminal() {
 			fail(errors.New("interactive mode needs a terminal; pass the command as arguments"))
+		}
+		// A session kept open serves MCP hosts too, as the window does.
+		if stop, err := mcplocal.Hold(runtime.MCPServer(), dir, nil); err == nil {
+			defer stop()
 		}
 		program := tea.NewProgram(newModel(runtime, settings, configPath))
 		if _, err := program.Run(); err != nil {
