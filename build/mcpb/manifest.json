@@ -1,0 +1,40 @@
+{
+  "manifest_version": "0.3",
+  "name": "tonelab",
+  "display_name": "Tonelab",
+  "version": "VERSION",
+  "description": "Control your DAW in words: tracks, mixer and any plugin's parameters, each change read back from the DAW.",
+  "long_description": "Tonelab finds the track, the plugin and the parameter you mean, changes it, and reports what the DAW says the value became. REAPER, Ableton Live and FL Studio. Undo goes to the DAW's own history. Runs on your machine; no account or key is needed.",
+  "author": { "name": "Tonelab", "url": "https://tonelab.dev" },
+  "homepage": "https://tonelab.dev",
+  "repository": { "type": "git", "url": "https://github.com/winterstim/tonelab" },
+  "license": "Apache-2.0",
+  "icon": "icon.png",
+  "keywords": ["daw", "reaper", "ableton", "fl studio", "mixing", "audio"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/ENTRY",
+    "mcp_config": {
+      "command": "${__dirname}/server/tonelab-mcp",
+      "args": [],
+      "env": {}
+    }
+  },
+  "tools": [
+    { "name": "list_tracks", "description": "The project's tracks by number and name" },
+    { "name": "get_param", "description": "Read a track's volume, pan, mute, solo or send" },
+    { "name": "set_param", "description": "Set one, confirmed by the DAW" },
+    { "name": "list_fx", "description": "The effects on a track" },
+    { "name": "find_params", "description": "Find an effect parameter by what it does" },
+    { "name": "get_fx_param", "description": "Read an effect parameter" },
+    { "name": "set_fx_param", "description": "Set an effect parameter, confirmed by the DAW" },
+    { "name": "undo", "description": "Take back the DAW's last change" },
+    { "name": "search", "description": "Web search for advice, when set up" },
+    { "name": "fetch_page", "description": "Read a page search returned" },
+    { "name": "daw_status", "description": "Whether the DAW is answering" }
+  ],
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": ["PLATFORM"]
+  }
+}

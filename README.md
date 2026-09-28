@@ -153,8 +153,10 @@ the same tools, the same read-back from the DAW and the same undo. No
 Tonelab subscription and no model key are involved; the client brings the
 model.
 
-With the app installed, press **Add to these apps** in Settings. Without
-it, download `tonelab-mcp` alone (no window, a single file) and run:
+With the app installed, press **Add to these apps** in Settings. For
+Claude Desktop alone, open the `.mcpb` bundle from the release and Claude
+Desktop installs it. Otherwise download `tonelab-mcp` (no window, a single
+file) and run:
 
 ```
 tonelab-mcp install                  add Tonelab to every client found here

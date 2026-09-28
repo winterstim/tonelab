@@ -69,17 +69,21 @@ tasks:
       - task: build:cli
 
   build:cli:
-    summary: Builds the command line for this machine, Windows and Linux. The Linux one needs ALSA headers, so it is built in Docker like the app.
+    summary: Builds the command line and the standalone MCP server for this machine, Windows and Linux. The Linux ones need ALSA headers, so they are built in Docker like the app.
     cmds:
-      - go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/tonelab-cli ./cmd/tonelab-cli
+      - for: ["tonelab-cli", "tonelab-mcp"]
+        cmd: go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/{{.ITEM}} ./cmd/{{.ITEM}}
       - for: ["amd64", "arm64"]
-        cmd: GOOS=windows GOARCH={{.ITEM}} CGO_ENABLED=0 go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/tonelab-cli-windows-{{.ITEM}}.exe ./cmd/tonelab-cli
+        cmd: >-
+          for command in tonelab-cli tonelab-mcp; do
+          GOOS=windows GOARCH={{.ITEM}} CGO_ENABLED=0 go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/$command-windows-{{.ITEM}}.exe ./cmd/$command || exit 1;
+          done
       - for: ["amd64", "arm64"]
         cmd: >-
           docker run --rm --platform linux/{{.ITEM}} -v "$PWD":/src -w /src -e GOFLAGS=-buildvcs=false -e HOME=/tmp golang:1.26-bookworm bash -c
           'apt-get update -qq >/dev/null && apt-get install -y -qq libasound2-dev >/dev/null 2>&1
-          && GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}"
-          -o {{.BIN_DIR}}/tonelab-cli-linux-{{.ITEM}} ./cmd/tonelab-cli'
+          && for command in tonelab-cli tonelab-mcp; do GOMODCACHE=/tmp/gomod GOCACHE=/tmp/gocache go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}"
+          -o {{.BIN_DIR}}/$command-linux-{{.ITEM}} ./cmd/$command || exit 1; done'
 
   build:windows:
     summary: Cross-compiles the Windows binaries from any host (no cgo on Windows)
@@ -100,7 +104,7 @@ tasks:
           -o {{.BIN_DIR}}/{{.APP_NAME}}-linux-{{.ITEM}} .'
 
   release:
-    summary: Builds every artefact for a release, named the way the site's download page and the service expect (tonelab-<tag>-<os>-<arch>[.dmg|.exe]), into bin/release. Tag first, so VERSION is the tag.
+    summary: Builds every artefact for a release, named the way the site's download page and the service expect (tonelab[-cli|-mcp]-<tag>-<os>-<arch>[.dmg|.exe|.mcpb]), into bin/release. Tag first, so VERSION is the tag.
     cmds:
       - rm -rf {{.BIN_DIR}}/release && mkdir -p {{.BIN_DIR}}/release
       - task: darwin:package:universal
@@ -109,9 +113,20 @@ tasks:
       - task: build:windows
       - task: build:linux
       - task: build:cli
-      - for: ["amd64", "arm64"]
-        cmd: GOARCH={{.ITEM}} go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/cli-{{.ITEM}} ./cmd/tonelab-cli
-      - lipo -create -output {{.BIN_DIR}}/release/{{.APP_NAME}}-cli-{{.VERSION}}-macos-universal {{.BIN_DIR}}/cli-amd64 {{.BIN_DIR}}/cli-arm64 && rm {{.BIN_DIR}}/cli-amd64 {{.BIN_DIR}}/cli-arm64
+      - for: ["cli", "mcp"]
+        cmd: >-
+          for arch in amd64 arm64; do
+          GOARCH=$arch go build -trimpath -ldflags="-w -s -X github.com/winterstim/tonelab/internal/version.Version={{.VERSION}}" -o {{.BIN_DIR}}/{{.ITEM}}-$arch ./cmd/tonelab-{{.ITEM}} || exit 1;
+          done
+          && lipo -create -output {{.BIN_DIR}}/release/{{.APP_NAME}}-{{.ITEM}}-{{.VERSION}}-macos-universal {{.BIN_DIR}}/{{.ITEM}}-amd64 {{.BIN_DIR}}/{{.ITEM}}-arm64
+          && rm {{.BIN_DIR}}/{{.ITEM}}-amd64 {{.BIN_DIR}}/{{.ITEM}}-arm64
       - for: ["amd64", "arm64"]
         cmd: cp {{.BIN_DIR}}/{{.APP_NAME}}-windows-{{.ITEM}}.exe {{.BIN_DIR}}/release/{{.APP_NAME}}-{{.VERSION}}-windows-{{.ITEM}}.exe && cp {{.BIN_DIR}}/{{.APP_NAME}}-linux-{{.ITEM}} {{.BIN_DIR}}/release/{{.APP_NAME}}-{{.VERSION}}-linux-{{.ITEM}} && cp {{.BIN_DIR}}/{{.APP_NAME}}-cli-windows-{{.ITEM}}.exe {{.BIN_DIR}}/release/{{.APP_NAME}}-cli-{{.VERSION}}-windows-{{.ITEM}}.exe && cp {{.BIN_DIR}}/{{.APP_NAME}}-cli-linux-{{.ITEM}} {{.BIN_DIR}}/release/{{.APP_NAME}}-cli-{{.VERSION}}-linux-{{.ITEM}}
+      - for: ["amd64", "arm64"]
+        cmd: cp {{.BIN_DIR}}/{{.APP_NAME}}-mcp-windows-{{.ITEM}}.exe {{.BIN_DIR}}/release/{{.APP_NAME}}-mcp-{{.VERSION}}-windows-{{.ITEM}}.exe && cp {{.BIN_DIR}}/{{.APP_NAME}}-mcp-linux-{{.ITEM}} {{.BIN_DIR}}/release/{{.APP_NAME}}-mcp-{{.VERSION}}-linux-{{.ITEM}}
+      # Claude Desktop installs a bundle with a double click; it runs on
+      # macOS and Windows only, so those are the bundles made.
+      - build/mcpb/pack.sh {{.VERSION}} darwin {{.BIN_DIR}}/release/{{.APP_NAME}}-mcp-{{.VERSION}}-macos-universal {{.BIN_DIR}}/release/{{.APP_NAME}}-mcp-{{.VERSION}}-macos-universal.mcpb
+      - for: ["amd64", "arm64"]
+        cmd: build/mcpb/pack.sh {{.VERSION}} win32 {{.BIN_DIR}}/{{.APP_NAME}}-mcp-windows-{{.ITEM}}.exe {{.BIN_DIR}}/release/{{.APP_NAME}}-mcp-{{.VERSION}}-windows-{{.ITEM}}.mcpb
       - ls -la {{.BIN_DIR}}/release
