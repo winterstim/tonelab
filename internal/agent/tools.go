@@ -39,7 +39,27 @@ type Tool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"input_schema"`
+
+	// Effect and Web are for a host that asks the user before a call, such
+	// as an MCP client: it can let reads through and stop at changes. Kept
+	// beside the definition so a new tool cannot be added without saying.
+	Effect Effect `json:"-"`
+	// Web marks a tool that reaches outside this machine.
+	Web bool `json:"-"`
 }
+
+// Effect is what a call does to the project.
+type Effect int
+
+const (
+	// Reads looks and changes nothing.
+	Reads Effect = iota
+	// Changes sets a value; the same call again leaves the same state.
+	Changes
+	// Reverts takes back the DAW's last change, which may not be ours, so a
+	// second call takes back something else.
+	Reverts
+)
 
 // InputSchemaJSON is what actually goes on the wire, and what tests inspect.
 func (t Tool) InputSchemaJSON() string {
@@ -178,7 +198,8 @@ func (t *Tools) Definitions() []Tool {
 			},
 		},
 		{
-			Name: "set_param",
+			Name:   "set_param",
+			Effect: Changes,
 			Description: fmt.Sprintf(
 				"Set a track parameter. Numbers are 0.0 to 1.0, never dB or Hz; on/off ones take true or false. Names: %s.",
 				known),
@@ -211,6 +232,7 @@ func (t *Tools) Definitions() []Tool {
 		definitions = append(definitions, Tool{
 			Name:        "undo",
 			Description: "Reverse the DAW's last change.",
+			Effect:      Reverts,
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},

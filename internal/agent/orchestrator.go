@@ -665,10 +665,12 @@ func (o *Orchestrator) prompt() string {
 	return systemPrompt + "\n\nTracks as last read: " + known + ". Use these numbers; call list_tracks only if a name is missing or the project may have changed."
 }
 
-// systemPrompt states the rules the tool schemas cannot: which units values
+// Instructions states the rules the tool schemas cannot: which units values
 // use, and that guessing is worse than asking, since a wrong command on a live
 // project is real damage. Written for a strong model: short, no repetition.
-const systemPrompt = `You control a digital audio workstation through the tools provided.
+// Exported for a host whose own model calls these tools, such as an MCP
+// client, which needs the same rules without our chat's scope.
+const Instructions = `You control a digital audio workstation through the tools provided.
 
 Values are normalized 0.0 to 1.0, never dB or Hz. Tracks are numbered from 1.
 
@@ -680,7 +682,13 @@ Effects on a track are reached by find_params with a few words for what is meant
 
 Earlier turns are above; follow-ups ("a bit more", "now the drums too") refer to them, but re-read a value before changing it. If a request names something the tools do not offer, say so instead of guessing: a wrong command changes a real project.
 
-Answer questions about sound production; decline anything else briefly. For "undo", call undo: it reverses the DAW's last change, which may not be yours, and say so.`
+For "undo", call undo: it reverses the DAW's last change, which may not be yours, and say so.`
+
+// systemPrompt is the rules plus the scope of Tonelab's own chat, which is
+// ours to set; a host with its own model sets its own.
+const systemPrompt = Instructions + `
+
+Answer questions about sound production; decline anything else briefly.`
 
 // describe records a step from the tool message that was sent to the model,
 // so the log shows what the model was told rather than a separate account of

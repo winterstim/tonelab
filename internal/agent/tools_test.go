@@ -11,6 +11,7 @@ import (
 	"github.com/winterstim/tonelab/internal/agent/llmtest"
 	"github.com/winterstim/tonelab/internal/daw"
 	"github.com/winterstim/tonelab/internal/daw/dawtest"
+	"github.com/winterstim/tonelab/internal/search"
 )
 
 // A fake backend rather than a real one, so this layer's tests neither depend
@@ -803,3 +804,40 @@ func TestUndoIsOfferedOnlyWhenSupported(t *testing.T) {
 type noUndoDAW struct{ *fakeDAW }
 
 func (noUndoDAW) Undo() {}
+
+// A host that lets reads through without asking relies on Effect, so Effect
+// is held to what preview disarms: a tool preview turns into a plan changes
+// the project, and one preview runs does not.
+func TestEffectMatchesWhatPreviewDisarms(t *testing.T) {
+	backend := newFakeFXDAW()
+	tools := agent.NewPreviewTools(backend)
+	tools.EnableSearch(&fakeSearch{hits: []search.Hit{{Title: "Amp settings", URL: "https://example.com/amp"}}})
+	arguments := map[string]string{
+		"get_param":    `{"track_id": 1, "param_name": "volume"}`,
+		"set_param":    `{"track_id": 1, "param_name": "volume", "value": 0.5}`,
+		"undo":         `{}`,
+		"list_tracks":  `{}`,
+		"list_fx":      `{"track_id": 1}`,
+		"find_params":  `{"track_id": 1, "query": "reverb mix"}`,
+		"get_fx_param": `{"track_id": 1, "fx_id": 1, "param_id": 1}`,
+		"set_fx_param": `{"track_id": 1, "fx_id": 1, "param_id": 1, "value": 0.5}`,
+		"search":       `{"query": "amp settings"}`,
+		"fetch_page":   `{"url": "https://example.com/elsewhere"}`,
+	}
+	for _, definition := range tools.Definitions() {
+		args, ok := arguments[definition.Name]
+		if !ok {
+			t.Fatalf("no arguments for %s: add them here, with its Effect", definition.Name)
+		}
+		_, planned := call(t, tools, definition.Name, args).Value.(agent.Planned)
+		if planned != (definition.Effect != agent.Reads) {
+			t.Errorf("%s: Effect %d, but preview planned it: %v", definition.Name, definition.Effect, planned)
+		}
+		if definition.Web != (definition.Name == "search" || definition.Name == "fetch_page") {
+			t.Errorf("%s: Web is %v", definition.Name, definition.Web)
+		}
+	}
+	if len(backend.setCalls) != 0 || len(backend.fxValues) != 0 || backend.undos != 0 {
+		t.Fatal("a preview must not reach the DAW")
+	}
+}

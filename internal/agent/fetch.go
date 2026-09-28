@@ -80,6 +80,7 @@ func (t *Tools) markRead(address string) (again bool) {
 func (t *Tools) fetchDefinition() Tool {
 	return Tool{
 		Name: "fetch_page",
+		Web:  true,
 		Description: "Read one page search returned, by its exact url, when the snippet is not enough. " +
 			"Returns a few thousand characters, from the start or around the words in 'about'.",
 		InputSchema: map[string]any{

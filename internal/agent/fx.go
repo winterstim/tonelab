@@ -173,7 +173,8 @@ func (t *Tools) fxDefinitions() []Tool {
 			},
 		},
 		{
-			Name: "set_fx_param",
+			Name:   "set_fx_param",
+			Effect: Changes,
 			Description: "Set an effect parameter found by find_params. 0.0 to 1.0, never dB, Hz or percent; " +
 				"a switch takes 0 or 1. Returns what the DAW reports, which the plugin may round.",
 			InputSchema: map[string]any{
