@@ -1,4 +1,4 @@
-module tonelab
+module github.com/winterstim/tonelab
 
 go 1.26.0
 

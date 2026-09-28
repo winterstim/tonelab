@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
 
-	"tonelab/backend/app"
+	"github.com/winterstim/tonelab/internal/app"
 )
 
 // renderResponse lays out one turn the way the window does: the answer,

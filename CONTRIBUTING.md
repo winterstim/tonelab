@@ -10,7 +10,7 @@ Go 1.25+, Node 22+ and the [Wails v3 CLI](https://v3.wails.io/getting-started/in
 
 ## Rules the code is held to
 
-- Nothing above `backend/daw` names a DAW. Backends describe themselves through `Parameters()` and `FXChain()`.
+- Nothing above `internal/daw` names a DAW. Backends describe themselves through `Parameters()` and `FXChain()`.
 - Code grows with the number of DAWs, never with the number of plugins or parameters. No plugin name appears in the source.
 - A fake of an external system is held to the same contract as the real one (`dawtest.AssertClientContract`) and is asynchronous where the real one is.
 - Outgoing OSC goes through the backend's allowlist. Adding an address means adding a pattern and a test.

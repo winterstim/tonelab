@@ -7,8 +7,8 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"tonelab/backend/app"
-	"tonelab/backend/config"
+	"github.com/winterstim/tonelab/internal/app"
+	"github.com/winterstim/tonelab/internal/config"
 )
 
 // Embedded so the app ships as one binary with no external asset path.

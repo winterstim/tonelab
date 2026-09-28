@@ -174,9 +174,9 @@ Tests run at three levels. The first needs nothing installed.
 ```
 go test ./...                                   # fakes held to the real backends' contract
 go test -tags reaper -count=1 -p 1 ./...        # against a running REAPER
-go test -tags ableton -count=1 ./backend/daw    # against a running Live
-go test -tags flstudio -count=1 ./backend/daw   # against a running FL Studio
-go test -tags "llm reaper" -p 1 ./backend/app   # the whole thing, with a real model
+go test -tags ableton -count=1 ./internal/daw   # against a running Live
+go test -tags flstudio -count=1 ./internal/daw  # against a running FL Studio
+go test -tags "llm reaper" -p 1 ./internal/app  # the whole thing, with a real model
 ```
 
 `TONELAB_CONFIG` points the tagged suites at another config file.
@@ -184,17 +184,17 @@ go test -tags "llm reaper" -p 1 ./backend/app   # the whole thing, with a real m
 ## Layout
 
 ```
-backend/osc      OSC transport and listener, DAW-neutral
-backend/daw      DAW command layer: the Client interface and the backends
-backend/agent    tools a model can call, and the loop that calls them
-backend/search   web search providers
-backend/config   the user's settings file
-backend/app      the services the window calls, and the runtime both interfaces stand on
-backend/midi     a MIDI port for DAWs whose scripting has nothing else
-backend/hosted   the client of the Tonelab service: device sign-in, account, releases
-backend/version  the build's version, stamped at link time
-cmd/tonelab-cli  the command line, a second view on the same backend
-frontend/src     the window
+internal/osc      OSC transport and listener, DAW-neutral
+internal/daw      DAW command layer: the Client interface and the backends
+internal/agent    tools a model can call, and the loop that calls them
+internal/search   web search providers
+internal/config   the user's settings file
+internal/app      the services the window calls, and the runtime both interfaces stand on
+internal/midi     a MIDI port for DAWs whose scripting has nothing else
+internal/hosted   the client of the Tonelab service: device sign-in, account, releases
+internal/version  the build's version, stamped at link time
+cmd/tonelab-cli   the command line, a second view on the same backend
+frontend/src      the window
 ```
 
 ## Contributing

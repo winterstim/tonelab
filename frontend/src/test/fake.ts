@@ -2,7 +2,7 @@
 // window really talks to. It is asynchronous the way the real one is, it
 // hands back null where a Go slice with nothing in it crosses as null, and
 // it refuses what the backend refuses. A fake kinder than the backend is
-// worse than none, so each behaviour here mirrors one in backend/app.
+// worse than none, so each behaviour here mirrors one in internal/app.
 import type {
     AgentError,
     AgentResponse,
@@ -17,7 +17,7 @@ import type {
     SettingsResult,
     SignInState,
     Update,
-} from "../../bindings/tonelab/backend/app/models";
+} from "../../bindings/github.com/winterstim/tonelab/internal/app/models";
 
 type Thread = Conversation & { Messages: ChatMessage[] };
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"tonelab/backend/app"
+	"github.com/winterstim/tonelab/internal/app"
 )
 
 // describeStep turns one tool call into a sentence, as the window does,

@@ -10,9 +10,9 @@ frontend/.vite/
 frontend/bindings/
 
 # go
-/backend/**/*.exe
-/backend/**/*.test
-/backend/**/vendor/
+/internal/**/*.exe
+/internal/**/*.test
+/internal/**/vendor/
 
 # wails build output; build/<platform>/ itself holds packaging config and is committed
 .task

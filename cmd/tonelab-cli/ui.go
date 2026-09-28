@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"tonelab/backend/app"
-	"tonelab/backend/config"
+	"github.com/winterstim/tonelab/internal/app"
+	"github.com/winterstim/tonelab/internal/config"
 )
 
 // model is the interactive screen, shaped like the agent terminals people

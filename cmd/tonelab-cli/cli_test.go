@@ -13,11 +13,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"tonelab/backend/agent"
-	"tonelab/backend/app"
-	"tonelab/backend/app/apptest"
-	"tonelab/backend/config"
-	"tonelab/backend/search"
+	"github.com/winterstim/tonelab/internal/agent"
+	"github.com/winterstim/tonelab/internal/app"
+	"github.com/winterstim/tonelab/internal/app/apptest"
+	"github.com/winterstim/tonelab/internal/config"
+	"github.com/winterstim/tonelab/internal/search"
 )
 
 func init() {

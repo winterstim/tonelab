@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"tonelab/backend/app"
+	"github.com/winterstim/tonelab/internal/app"
 )
 
 // settingFields is what /settings shows and sets, in the order the window

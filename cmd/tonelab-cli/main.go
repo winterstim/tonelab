@@ -20,8 +20,8 @@ import (
 	"github.com/muesli/termenv"
 	"golang.org/x/term"
 
-	"tonelab/backend/app"
-	"tonelab/backend/config"
+	"github.com/winterstim/tonelab/internal/app"
+	"github.com/winterstim/tonelab/internal/config"
 )
 
 func main() {
